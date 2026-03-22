@@ -1,0 +1,48 @@
+{
+  "name": "@amxv/webctx",
+  "version": "0.1.0",
+  "description": "Template for shipping a Go CLI via npm with GitHub release automation",
+  "license": "MIT",
+  "author": "amxv",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amxv/webctx.git"
+  },
+  "homepage": "https://github.com/amxv/webctx#readme",
+  "bugs": {
+    "url": "https://github.com/amxv/webctx/issues"
+  },
+  "bin": {
+    "webctx": "bin/webctx.js"
+  },
+  "config": {
+    "cliBinaryName": "webctx"
+  },
+  "files": [
+    "bin/webctx.js",
+    "scripts/postinstall.js",
+    "cmd",
+    "internal",
+    "go.mod",
+    "README.md",
+    "LICENSE",
+    "AGENTS.md",
+    "CONTRIBUTORS.md",
+    "Makefile"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "test": "node --check bin/webctx.js && node --check scripts/postinstall.js",
+    "lint": "npm run test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "go",
+    "cli",
+    "template",
+    "npm",
+    "release"
+  ]
+}
