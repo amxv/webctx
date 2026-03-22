@@ -80,7 +80,7 @@ npm whoami
 
 ## Notes on package naming
 
-`@amxv/webctx` is already configured. If you ever rename or move the package, update all of the following together:
+`webctx` is already configured. If you ever rename or move the package, update all of the following together:
 
 - `package.json`
 - `bin/webctx.js`

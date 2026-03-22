@@ -1,5 +1,5 @@
 {
-  "name": "@amxv/webctx",
+  "name": "webctx",
   "version": "0.1.0",
   "description": "Pure Go web search and browsing CLI using Brave, Tavily, Exa, and Firecrawl",
   "license": "MIT",

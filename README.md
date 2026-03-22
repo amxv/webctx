@@ -13,7 +13,7 @@
 Global npm install:
 
 ```bash
-npm i -g @amxv/webctx
+npm i -g webctx
 webctx --help
 ```
 
@@ -72,7 +72,7 @@ Required by command:
 This repo publishes in two ways:
 
 - GitHub Releases for native binaries
-- npm for `npm i -g @amxv/webctx`
+- npm for `npm i -g webctx`
 
 The release workflow triggers on `v*` tags and does the following:
 
