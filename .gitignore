@@ -11,6 +11,7 @@ npm-debug.log*
 # Local env files
 .env
 .env.local
+tmp/
 
 # macOS
 .DS_Store
