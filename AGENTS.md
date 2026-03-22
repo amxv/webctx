@@ -4,18 +4,21 @@ Guidance for coding agents working in `webctx`.
 
 ## Purpose
 
-This repo is a generic starter for Go command-line tools distributed through npm.
+This repo contains the pure Go port of the `webctx` CLI.
 
-The sample command is `webctx`. Replace it with your actual CLI name and behavior.
+It is no longer a generic starter template. Treat the current CLI behavior as the source of truth unless the user explicitly asks to change it.
 
 ## Architecture
 
-- `cmd/webctx/main.go`: process entrypoint, error handling, exits non-zero on failure.
-- `internal/app/app.go`: command parser + handlers.
-- `internal/app/app_test.go`: starter tests.
-- `bin/webctx.js`: npm shim that invokes packaged native binary.
+- `cmd/webctx/main.go`: process entrypoint, exit-code based dispatch.
+- `internal/app/app.go`: CLI parsing and top-level command routing.
+- `internal/app/tools.go`: search provider clients, ranking, formatting, and HTTP helpers.
+- `internal/app/scrape.go`: GitHub raw-content optimization, `.md` fetch path, Firecrawl queue, and env loading.
+- `internal/app/app_test.go`: unit tests for CLI behavior and core helpers.
+- `bin/webctx.js`: npm shim that invokes the packaged native binary.
 - `scripts/postinstall.js`: downloads release binary on install, falls back to `go build`.
 - `.github/workflows/release.yml`: tag-driven release pipeline.
+- `docs/porting-status.md`: progress log and remaining work for future agents.
 
 ## Local commands
 
@@ -36,22 +39,33 @@ Direct commands:
 - `go vet ./...`
 - `npm run lint`
 
-## How to customize safely
+## Current CLI contract
 
-1. Rename CLI command consistently in all places:
-- directory `cmd/webctx`
-- `package.json` values (`bin`, `config.cliBinaryName`)
-- `bin/webctx.js`
-- workflow env `CLI_BINARY`
-- `Makefile` `BIN_NAME`
+Preserve these commands unless the user explicitly asks to change them:
 
-2. Keep binary naming convention unchanged unless you also update postinstall/workflow:
+- `webctx search <query> [--exclude domain1,domain2] [--keyword phrase]`
+- `webctx read-link <url>`
+- `webctx map-site <url>`
+- `webctx --version`
+
+Behavioral expectations:
+
+- `search` combines Brave, Tavily, and Exa results, then re-ranks them with duplicate-aware scoring.
+- `read-link` keeps the current GitHub raw-content fast path, `.md` fast path, and Firecrawl fallback settings.
+- `map-site` keeps the current Firecrawl map request settings.
+- The CLI should remain agent-friendly and emit plain markdown/text output.
+
+## How to change things safely
+
+1. Keep binary naming convention unchanged unless you also update postinstall/workflow:
 - release assets: `<cli>_<goos>_<goarch>[.exe]`
 - npm-installed binary path: `bin/<cli>-bin` (or `.exe` on Windows)
 
-3. If adding dependencies, commit `go.sum` and optionally enable Go cache in workflow.
+2. If changing search behavior, compare against the TypeScript porting notes in `docs/porting-status.md` first.
 
-4. Keep help output expressive and command-local (`<command> --help` should explain examples).
+3. If adding dependencies, commit `go.sum` and make sure the workflow still passes on a clean checkout.
+
+4. If you change release artifacts or version plumbing, update `Makefile`, `.github/workflows/release.yml`, and `scripts/postinstall.js` together.
 
 ## Release contract
 
@@ -61,7 +75,10 @@ Release pipeline triggers on `v*` tags and expects:
 - npm package name in `package.json` is publishable under your account/org.
 - repository URL matches the release origin used by `scripts/postinstall.js`.
 
+Release binaries should embed the tagged version into `internal/buildinfo.Version` so `webctx --version` matches the release tag.
+
 ## Guardrails
 
-- Prefer additive changes; do not break the release asset naming contract unintentionally.
-- If you change release artifacts or CLI binary name, update both workflow and postinstall script in the same PR.
+- Prefer additive changes and keep the CLI output stable.
+- Do not silently change Firecrawl request settings unless the user explicitly wants behavioral changes.
+- Do not reintroduce MCP/server code unless requested; this repo is intentionally CLI-only.

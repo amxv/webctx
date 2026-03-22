@@ -10,16 +10,12 @@ func TestRunRootHelp(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	err := Run([]string{"--help"}, &out, &errBuf)
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
+	code := Run([]string{"--help"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("Run returned code %d", code)
 	}
-
-	if !strings.Contains(out.String(), "Usage:") {
-		t.Fatalf("expected help output, got: %q", out.String())
-	}
-	if !strings.Contains(out.String(), "--version") {
-		t.Fatalf("expected --version in help output, got: %q", out.String())
+	if !strings.Contains(out.String(), "webctx v") || !strings.Contains(out.String(), "read-link") {
+		t.Fatalf("unexpected help output: %q", out.String())
 	}
 }
 
@@ -27,47 +23,55 @@ func TestRunVersion(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	err := Run([]string{"--version"}, &out, &errBuf)
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
+	code := Run([]string{"--version"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("Run returned code %d", code)
 	}
-
-	if !strings.Contains(out.String(), "webctx ") {
-		t.Fatalf("unexpected version output: %q", out.String())
+	if strings.TrimSpace(out.String()) == "" {
+		t.Fatalf("unexpected empty version output")
 	}
-}
-
-func TestRunHello(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
-
-	err := Run([]string{"hello", "Codex"}, &out, &errBuf)
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-
-	got := out.String()
-	if got != "Hello, Codex!\n" {
-		t.Fatalf("unexpected output: %q", got)
+	if strings.Contains(out.String(), "webctx ") {
+		t.Fatalf("expected bare version output, got: %q", out.String())
 	}
 }
 
-func TestRunUnknownCommand(t *testing.T) {
+func TestRunSearchWithoutQuery(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 
-	err := Run([]string{"unknown"}, &out, &errBuf)
-	if err == nil {
-		t.Fatal("expected error for unknown command")
+	code := Run([]string{"search"}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "search requires a query") {
+		t.Fatalf("unexpected stderr: %q", errBuf.String())
 	}
 }
 
-func TestRunVersionSubcommandUnknown(t *testing.T) {
-	var out bytes.Buffer
-	var errBuf bytes.Buffer
+func TestNormalizeURL(t *testing.T) {
+	got := normalizeURL("https://Example.com/docs/?utm_source=x&ref=y&q=go")
+	want := "https://example.com/docs?q=go"
+	if got != want {
+		t.Fatalf("normalizeURL mismatch: got %q want %q", got, want)
+	}
+}
 
-	err := Run([]string{"version"}, &out, &errBuf)
-	if err == nil {
-		t.Fatal("expected error for version subcommand")
+func TestScoreAndRankResultsDuplicateBoost(t *testing.T) {
+	results, duplicatesRemoved := scoreAndRankResults([]providerDocs{
+		{Provider: "Brave", Docs: []SearchDoc{{URL: "https://a.com", Title: "A"}, {URL: "https://b.com", Title: "B"}}},
+		{Provider: "Tavily", Docs: []SearchDoc{{URL: "https://b.com", Title: "B2"}, {URL: "https://c.com", Title: "C"}}},
+	})
+	if duplicatesRemoved != 1 {
+		t.Fatalf("expected 1 duplicate removed, got %d", duplicatesRemoved)
+	}
+	if len(results) == 0 || results[0].URL != "https://b.com" {
+		t.Fatalf("expected duplicate URL to rank first, got %#v", results)
+	}
+}
+
+func TestParseGitHubURL(t *testing.T) {
+	info := parseGitHubURL("https://github.com/amxv/webctx-ts/blob/main/cli.ts")
+	if info == nil || !info.IsFile || info.Owner != "amxv" || info.Repo != "webctx-ts" || info.Branch != "main" || info.Path != "cli.ts" {
+		t.Fatalf("unexpected parse result: %#v", info)
 	}
 }

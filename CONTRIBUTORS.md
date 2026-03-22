@@ -1,6 +1,6 @@
 # CONTRIBUTORS.md
 
-Maintainer notes for this template repository.
+Maintainer notes for `webctx`.
 
 ## Prerequisites
 
@@ -15,6 +15,15 @@ Maintainer notes for this template repository.
 make check
 make build
 ./dist/webctx --help
+```
+
+Example command checks:
+
+```bash
+./dist/webctx --version
+./dist/webctx search "golang http client"
+./dist/webctx read-link https://github.com/amxv/webctx-ts/blob/main/cli.ts
+./dist/webctx map-site https://example.com
 ```
 
 Install command locally:
@@ -32,13 +41,15 @@ webctx --help
 make check
 ```
 
-2. Prepare release tag:
+2. Confirm the release workflow is targeting `webctx` and that `package.json` still points to the correct GitHub repository.
+
+3. Prepare release tag:
 
 ```bash
 make release-tag VERSION=0.1.0
 ```
 
-3. GitHub Actions `release` workflow runs automatically:
+4. GitHub Actions `release` workflow runs automatically:
 - quality checks
 - cross-platform binary build
 - GitHub release publish
@@ -69,7 +80,14 @@ npm whoami
 
 ## Notes on package naming
 
-Before first publish, set a package name you control in `package.json`.
+`@amxv/webctx` is already configured. If you ever rename or move the package, update all of the following together:
 
-- Example unscoped: `"name": "your-cli-name"`
-- Example scoped: `"name": "@your-scope/your-cli-name"`
+- `package.json`
+- `bin/webctx.js`
+- `scripts/postinstall.js`
+- `.github/workflows/release.yml`
+- `Makefile`
+
+## Porting reference
+
+The repo includes `docs/porting-status.md` as the running reference for what was ported from `webctx-ts`, what was intentionally excluded, and what future agents should verify before making behavior changes.

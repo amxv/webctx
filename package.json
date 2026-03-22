@@ -1,7 +1,7 @@
 {
   "name": "@amxv/webctx",
   "version": "0.1.0",
-  "description": "Template for shipping a Go CLI via npm with GitHub release automation",
+  "description": "Pure Go web search and browsing CLI using Brave, Tavily, Exa, and Firecrawl",
   "license": "MIT",
   "author": "amxv",
   "repository": {
@@ -25,6 +25,7 @@
     "internal",
     "go.mod",
     "README.md",
+    "docs",
     "LICENSE",
     "AGENTS.md",
     "CONTRIBUTORS.md",
@@ -41,7 +42,13 @@
   "keywords": [
     "go",
     "cli",
-    "template",
+    "search",
+    "web-search",
+    "firecrawl",
+    "exa",
+    "tavily",
+    "brave-search",
+    "agent-tools",
     "npm",
     "release"
   ]
