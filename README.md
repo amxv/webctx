@@ -2,94 +2,80 @@
 
 `webctx` is a pure Go CLI for agent-friendly web search and page extraction.
 
-## What it does
+It gives you three commands:
 
-- `search`: combines Brave, Tavily, and Exa search results, deduplicates them, and re-ranks them
-- `read-link`: returns clean markdown for a single URL using a GitHub raw-content path, a `.md` fast path, and Firecrawl scraping fallback
-- `map-site`: returns a sitemap-style list of URLs and metadata from Firecrawl
+- `search`: combines Brave, Tavily, and Exa results, then deduplicates and re-ranks them
+- `read-link`: turns a page into clean markdown
+- `map-site`: returns a sitemap-style list of URLs for a site
 
 ## Install
-
-Global npm install:
 
 ```bash
 npm i -g webctx
 webctx --help
 ```
 
-Build from source:
-
-```bash
-git clone https://github.com/amxv/webctx.git
-cd webctx
-make build
-./dist/webctx --help
-```
+You can also download a prebuilt binary from GitHub Releases if you do not want the npm install path.
 
 ## Commands
 
 ```bash
-webctx --help
 webctx --version
 webctx search <query> [--exclude domain1,domain2] [--keyword phrase]
 webctx read-link <url>
 webctx map-site <url>
 ```
 
-Examples:
+## Quick examples
 
 ```bash
 webctx search "next.js server components"
 webctx search "react hooks" --exclude youtube.com,vimeo.com
 webctx search "drizzle orm" --keyword "migration guide"
-webctx read-link https://docs.example.com/guide
+webctx read-link https://github.com/openai/openai-cookbook/blob/main/README.md
 webctx map-site https://example.com
 ```
 
-## Environment variables
+## API keys
 
-The CLI loads `.env.local` when present and reads provider credentials from the environment.
+`webctx` can read API keys in three ways:
 
-Quick start:
+1. regular environment variables
+2. a `.env.local` file next to the binary
+3. macOS Keychain
+
+If you want the simplest local setup, create a `.env.local` file in the same directory as the binary:
 
 ```bash
 cp .env.local.example .env.local
 ```
 
-Required by command:
+On macOS, you can also store credentials in Keychain under service `webctx`, with account names matching the env var names:
+
+```bash
+security add-generic-password -U -s webctx -a BRAVE_API_KEY -w "your-brave-key"
+security add-generic-password -U -s webctx -a TAVILY_API_KEY -w "your-tavily-key"
+security add-generic-password -U -s webctx -a EXA_API_KEY -w "your-exa-key"
+security add-generic-password -U -s webctx -a FIRECRAWL_API_KEY -w "your-firecrawl-key"
+```
+
+Required keys by command:
 
 - `search`
-  - `BRAVE_API_KEY`
-  - `TAVILY_API_KEY`
-  - `EXA_API_KEY`
+  Uses `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY`
 - `read-link`
-  - `FIRECRAWL_API_KEY` for non-GitHub / non-`.md` URLs
+  Uses `FIRECRAWL_API_KEY` for pages that are not GitHub raw content or direct `.md` content
 - `map-site`
-  - `FIRECRAWL_API_KEY`
+  Uses `FIRECRAWL_API_KEY`
 
-## Release and distribution
+## Why `read-link` is useful
 
-This repo publishes in two ways:
+`read-link` is designed to avoid expensive scraping when it does not need to.
 
-- GitHub Releases for native binaries
-- npm for `npm i -g webctx`
+- For GitHub file URLs, it first checks the raw-content path.
+- For direct markdown-style URLs, it checks the `.md` path.
+- If neither of those paths works, it falls back to Firecrawl and returns cleaned markdown for the page.
 
-The release workflow triggers on `v*` tags and does the following:
+That makes GitHub docs and markdown pages fast, while still handling normal web pages when the fast paths are not available.
 
-1. runs Go and Node quality checks
-2. builds cross-platform binaries
-3. creates a GitHub Release with those assets
-4. publishes the npm package using the tag version
-
-## Project layout
-
-- `cmd/webctx/main.go`: CLI entrypoint
-- `internal/app/`: CLI parsing, search, ranking, scrape, and Firecrawl queue logic
-- `internal/buildinfo/`: build-time version plumbing for `--version`
-- `bin/webctx.js`: npm shim that invokes the packaged native binary
-- `scripts/postinstall.js`: downloads the release binary on install and falls back to local `go build`
-- `.github/workflows/release.yml`: tag-driven release pipeline
-- `AGENTS.md`: guidance for coding agents
-- `CONTRIBUTORS.md`: maintainer/release notes
-
-See `AGENTS.md` and `CONTRIBUTORS.md` for repo-specific implementation and maintenance details.
+Maintainer notes, release steps, project layout, and source-build details are in `CONTRIBUTORS.md`.

@@ -9,6 +9,15 @@ Maintainer notes for `webctx`.
 - npm account with publish rights for the package name in `package.json`
 - GitHub repo admin access
 
+## Build from source
+
+```bash
+git clone https://github.com/amxv/webctx.git
+cd webctx
+make build
+./dist/webctx --help
+```
+
 ## Local development
 
 ```bash
@@ -33,6 +42,20 @@ make install-local
 webctx --help
 ```
 
+## Release and distribution
+
+This repo ships in two ways:
+
+- GitHub Releases for native binaries
+- npm for `npm i -g webctx`
+
+The release workflow triggers on `v*` tags and does the following:
+
+1. runs Go and Node quality checks
+2. builds cross-platform binaries
+3. creates a GitHub Release with those assets
+4. publishes the npm package using the tag version
+
 ## Release process
 
 1. Ensure `main` is green:
@@ -46,7 +69,7 @@ make check
 3. Prepare release tag:
 
 ```bash
-make release-tag VERSION=0.1.0
+make release-tag VERSION=x.y.z
 ```
 
 4. GitHub Actions `release` workflow runs automatically:
@@ -77,6 +100,16 @@ Validate auth locally:
 ```bash
 npm whoami
 ```
+
+## Project layout
+
+- `cmd/webctx/main.go`: CLI entrypoint
+- `internal/app/`: CLI parsing, search, ranking, scrape, env loading, and Firecrawl queue logic
+- `internal/buildinfo/`: build-time version plumbing for `--version`
+- `bin/webctx.js`: npm shim that invokes the packaged native binary
+- `scripts/postinstall.js`: downloads the release binary on install and falls back to local `go build`
+- `.github/workflows/release.yml`: tag-driven release pipeline
+- `AGENTS.md`: guidance for coding agents
 
 ## Notes on package naming
 
