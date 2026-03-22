@@ -2,15 +2,11 @@
 
 `webctx` is a pure Go CLI for agent-friendly web search and page extraction.
 
-It ports the CLI behavior from the TypeScript/Bun `webctx-ts` repository into a release-ready Go codebase that ships through both GitHub Releases and npm.
-
 ## What it does
 
-- `search`: combines Brave, Tavily, and Exa search results, deduplicates them, and re-ranks them using the same scoring logic as the original TypeScript CLI
-- `read-link`: returns clean markdown for a single URL using a fast GitHub raw-content path, a `.md` fast path, and Firecrawl scraping fallback
-- `map-site`: returns a sitemap-style list of URLs and metadata from Firecrawl with the same agent-oriented defaults as the original CLI
-
-The CLI deliberately focuses on the command-line tool behavior. The MCP/server code from the TypeScript repo is not part of this Go port.
+- `search`: combines Brave, Tavily, and Exa search results, deduplicates them, and re-ranks them
+- `read-link`: returns clean markdown for a single URL using a GitHub raw-content path, a `.md` fast path, and Firecrawl scraping fallback
+- `map-site`: returns a sitemap-style list of URLs and metadata from Firecrawl
 
 ## Install
 
@@ -93,8 +89,7 @@ The release workflow triggers on `v*` tags and does the following:
 - `bin/webctx.js`: npm shim that invokes the packaged native binary
 - `scripts/postinstall.js`: downloads the release binary on install and falls back to local `go build`
 - `.github/workflows/release.yml`: tag-driven release pipeline
-- `docs/porting-status.md`: progress log for the TypeScript-to-Go CLI port
 - `AGENTS.md`: guidance for coding agents
 - `CONTRIBUTORS.md`: maintainer/release notes
 
-See `AGENTS.md`, `CONTRIBUTORS.md`, and `docs/porting-status.md` for the repo-specific implementation and maintenance details.
+See `AGENTS.md` and `CONTRIBUTORS.md` for repo-specific implementation and maintenance details.
