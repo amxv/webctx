@@ -34,6 +34,7 @@ type SearchResult struct {
 type providerDocs struct {
 	Docs     []SearchDoc
 	Provider string
+	Err      error
 }
 
 type scoredURL struct {
@@ -77,7 +78,7 @@ func Search(params SearchParams) (string, error) {
 			defer cancel()
 			res, err := s.fn(ctx)
 			if err != nil {
-				results[i] = providerDocs{Provider: s.name, Docs: []SearchDoc{}}
+				results[i] = providerDocs{Provider: s.name, Docs: []SearchDoc{}, Err: err}
 				return
 			}
 			results[i] = providerDocs{Provider: s.name, Docs: res.Docs}
@@ -90,7 +91,23 @@ func Search(params SearchParams) (string, error) {
 		total += len(r.Docs)
 	}
 	if total == 0 {
-		return "", errors.New("Error searching the web: All search providers failed to return results")
+		missingKeys := uniqueMissingCredentialKeys(results)
+		if len(missingKeys) > 0 {
+			return "", missingCredentialsError("Error searching the web", missingKeys, "")
+		}
+
+		failures := make([]string, 0, len(results))
+		for _, r := range results {
+			if r.Err == nil {
+				continue
+			}
+			failures = append(failures, fmt.Sprintf("%s: %v", r.Provider, r.Err))
+		}
+		if len(failures) > 0 {
+			return "", fmt.Errorf("Error searching the web: all search providers failed (%s)", strings.Join(failures, "; "))
+		}
+
+		return "", errors.New("Error searching the web: all search providers failed to return results")
 	}
 
 	filtered := filterExcludedDomains(results, allExcludedDomains)
@@ -126,7 +143,7 @@ func ReadLink(rawURL string) (string, error) {
 
 	apiKey := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
 	if apiKey == "" {
-		return "", errors.New("Error reading web page: FIRECRAWL_API_KEY environment variable is required for non-.md URLs")
+		return "", missingCredentialsError("Error reading web page", []string{"FIRECRAWL_API_KEY"}, "for non-.md URLs")
 	}
 
 	requestBody := map[string]any{
@@ -179,7 +196,7 @@ func ReadLink(rawURL string) (string, error) {
 func MapSite(rawURL string) (string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
 	if apiKey == "" {
-		return "", errors.New("Error mapping website: FIRECRAWL_API_KEY environment variable is required")
+		return "", missingCredentialsError("Error mapping website", []string{"FIRECRAWL_API_KEY"}, "")
 	}
 
 	requestBody := map[string]any{
@@ -235,6 +252,47 @@ func formatReadLink(title, rawURL, markdown string) string {
 	}
 	parts = append(parts, "**URL:** "+rawURL, "", markdown)
 	return strings.Join(parts, "\n")
+}
+
+func uniqueMissingCredentialKeys(results []providerDocs) []string {
+	keys := map[string]struct{}{}
+	for _, r := range results {
+		if r.Err == nil {
+			continue
+		}
+		msg := r.Err.Error()
+		if !strings.HasPrefix(msg, "missing ") {
+			continue
+		}
+		key := strings.TrimSpace(strings.TrimPrefix(msg, "missing "))
+		if key != "" {
+			keys[key] = struct{}{}
+		}
+	}
+
+	out := make([]string, 0, len(keys))
+	for key := range keys {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func missingCredentialsError(prefix string, keys []string, detail string) error {
+	sort.Strings(keys)
+	keysText := strings.Join(keys, ", ")
+	suffix := ""
+	if strings.TrimSpace(detail) != "" {
+		suffix = " " + strings.TrimSpace(detail)
+	}
+
+	return fmt.Errorf(
+		"%s: missing %s%s. Set them as environment variables, place them in a .env.local next to the binary, or store them in macOS Keychain with service %q and account names matching the env vars",
+		prefix,
+		keysText,
+		suffix,
+		keychainServiceName,
+	)
 }
 
 func searchWithBrave(ctx context.Context, query string) (SearchResult, error) {
