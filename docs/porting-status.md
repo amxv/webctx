@@ -131,6 +131,24 @@ These can be added later only if explicitly requested.
 - `go test ./...`
 - `go build ./cmd/webctx`
 
+## Live validation notes
+
+Live CLI validation was run against a real `.env.local` on the Sprite machine.
+
+Confirmed working live:
+
+- combined `search` path returns real web results
+- public GitHub blob `read-link` fast path works
+- Firecrawl-backed `read-link` works
+- Firecrawl-backed `map-site` works
+
+Observed external/provider constraints during live validation:
+
+- `search --keyword` currently depends on Exa-only results and could not be fully validated because the live Exa account returned `NO_MORE_CREDITS`
+- private GitHub blob URLs are not readable via unauthenticated raw-content fetch, so they fall through to the general scrape path
+
+These findings were from live provider behavior, not from compile/test failures in the Go port.
+
 ## Good next checks for future agents
 
 1. Run live end-to-end checks against real provider keys for:
