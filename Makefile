@@ -22,7 +22,7 @@ help:
 	@echo "  make check        - fmt + test + vet + lint"
 	@echo "  make build        - build local binary to dist/webctx"
 	@echo "  make build-all    - build release binaries for 5 target platforms"
-	@echo "  make install-local- install CLI to ~/.local/bin/webctx"
+	@echo "  make install-local - install CLI to ~/.local/bin/webctx"
 	@echo "  make clean        - remove dist artifacts"
 	@echo "  make release-tag  - create and push git tag (requires VERSION=x.y.z)"
 
@@ -52,7 +52,7 @@ build-all:
 		EXT=""; \
 		if [ "$$GOOS" = "windows" ]; then EXT=".exe"; fi; \
 		echo "Building $(BIN_NAME) for $$GOOS/$$GOARCH"; \
-		CGO_ENABLED=0 GOOS=$$GOOS GOARCH=$$GOARCH $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o "$(DIST_DIR)/$(BIN_NAME)_$$GOOS_$$GOARCH$$EXT" $(CMD_PATH); \
+		CGO_ENABLED=0 GOOS=$$GOOS GOARCH=$$GOARCH $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o "$(DIST_DIR)/$(BIN_NAME)_$${GOOS}_$${GOARCH}$${EXT}" $(CMD_PATH); \
 	done
 
 install-local: build
