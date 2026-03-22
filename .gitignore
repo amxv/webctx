@@ -8,5 +8,9 @@ node_modules/
 *.tgz
 npm-debug.log*
 
+# Local env files
+.env
+.env.local
+
 # macOS
 .DS_Store

@@ -54,6 +54,12 @@ webctx map-site https://example.com
 
 The CLI loads `.env.local` when present and reads provider credentials from the environment.
 
+Quick start:
+
+```bash
+cp .env.local.example .env.local
+```
+
 Required by command:
 
 - `search`
