@@ -1,0 +1,29 @@
+---
+import { siteConfig } from "../data/docs";
+---
+
+<footer class="site-footer">
+  <div class="shell site-footer__inner">
+    <div>
+      <p class="site-footer__title">{siteConfig.name}</p>
+      <p>
+        A pure Go web context CLI for federated search, markdown page extraction,
+        and Firecrawl-backed site mapping.
+      </p>
+    </div>
+    <div>
+      <p class="site-footer__title">Providers</p>
+      <p>
+        Search uses Brave, Tavily, and Exa. Page reads and site maps use Firecrawl
+        when GitHub raw content or direct markdown is not enough.
+      </p>
+    </div>
+    <div>
+      <p class="site-footer__title">Repository</p>
+      <p>
+        Inspect the Go CLI, npm shim, postinstall binary downloader, release notes,
+        and docs source in the project repository.
+      </p>
+    </div>
+  </div>
+</footer>

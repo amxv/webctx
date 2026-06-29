@@ -8,6 +8,27 @@ It gives you three commands:
 - `read-link`: turns a page into clean markdown
 - `map-site`: returns a sitemap-style list of URLs for a site
 
+
+## Documentation Site
+
+This repository includes an Astro documentation site for webctx. It covers installation, provider credentials, search, read-link, map-site, ranking, architecture, npm distribution, release checks, troubleshooting, and docs maintenance.
+
+Run the docs site locally with:
+
+```bash
+npm install
+npm run docs:dev
+```
+
+Validate the docs site with:
+
+```bash
+npm run docs:check
+npm run docs:build
+```
+
+The Astro docs content lives in `src/content/docs`, with site-wide navigation and metadata in `src/data/docs.ts`.
+
 ## Install
 
 ```bash

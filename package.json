@@ -34,7 +34,11 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
     "test": "node --check bin/webctx.js && node --check scripts/postinstall.js",
-    "lint": "npm run test"
+    "lint": "npm run test",
+    "docs:dev": "astro dev",
+    "docs:build": "astro build",
+    "docs:preview": "astro preview",
+    "docs:check": "astro check"
   },
   "engines": {
     "node": ">=18"
@@ -51,5 +55,11 @@
     "agent-tools",
     "npm",
     "release"
-  ]
+  ],
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@types/node": "^24.0.13",
+    "astro": "^7.0.3",
+    "typescript": "^5.9.2"
+  }
 }

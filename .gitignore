@@ -16,3 +16,6 @@ tmp/
 # macOS
 .DS_Store
 .vercel
+
+# Astro docs
+.astro/

@@ -1,0 +1,158 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { getCollection } from "astro:content";
+import { siteConfig } from "../data/docs";
+
+const docs = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+
+const proofPoints = [
+  {
+    title: "Federated search",
+    body: "Query Brave, Tavily, and Exa together, remove noisy domains, deduplicate URLs, and return a ranked markdown list."
+  },
+  {
+    title: "Markdown page extraction",
+    body: "Read public GitHub files through raw-content fast paths, fetch direct markdown pages, and fall back to Firecrawl when needed."
+  },
+  {
+    title: "Site mapping",
+    body: "Use Firecrawl's map endpoint to discover URLs across a docs site or product site before choosing pages to read."
+  },
+  {
+    title: "Agent-ready output",
+    body: "Every command prints plain text or markdown that can be pasted into coding agents, research notes, issue threads, or scripts."
+  }
+];
+
+const workflows = [
+  "Search the web from a terminal agent without hand-curating browser tabs.",
+  "Turn GitHub README and blob URLs into markdown quickly without a scraping provider.",
+  "Fallback to Firecrawl for normal pages, PDFs, and site maps when raw markdown is not available.",
+  "Ship as a Go binary through GitHub Releases while keeping npm install convenient for CLI users."
+];
+---
+
+<BaseLayout
+  title={`${siteConfig.name} | ${siteConfig.strapline}`}
+  description={siteConfig.description}
+>
+  <section class="hero shell">
+    <div class="hero__copy">
+      <p class="section-label">Pure Go web context CLI</p>
+      <h1>
+        Give agents clean web search, markdown page reads, and site maps from one terminal command.
+      </h1>
+      <p class="hero__lede">
+        webctx is built for agent workflows that need reliable web context as text. It combines
+        Brave, Tavily, and Exa search, reads links into markdown, and maps websites into URL lists
+        that are easy for agents to inspect and reuse.
+      </p>
+      <p class="hero__annotation">
+        Install it with npm or build the native Go binary directly. Add provider keys through environment
+        variables, `.env.local`, or macOS Keychain, then pipe the output wherever your agent works.
+      </p>
+      <div class="hero__actions">
+        <a class="button button--solid" href="/docs/quickstart">Start with the quickstart</a>
+        <a class="button button--ghost" href="/docs">Browse the docs</a>
+      </div>
+    </div>
+    <aside class="hero__panel">
+      <p class="hero__panel-label">Core commands</p>
+      <ul class="hero__signal-list">
+        <li>Search across Brave, Tavily, and Exa.</li>
+        <li>Read GitHub files and web pages as markdown.</li>
+        <li>Map a site into candidate URLs.</li>
+      </ul>
+      <div class="hero__terminal">
+        <span>$ webctx search "go http client retries"</span>
+        <span>$ webctx read-link https://github.com/amxv/webctx</span>
+        <span>$ webctx map-site https://docs.firecrawl.dev</span>
+        <span>$ webctx search "drizzle orm" --keyword "migration guide"</span>
+      </div>
+    </aside>
+  </section>
+
+  <section class="shell section-grid">
+    <div class="section-heading">
+      <p class="section-label">What it solves</p>
+      <h2>Web context that is already shaped for agents.</h2>
+      <p>
+        Browser pages are noisy and provider APIs disagree. webctx normalizes common web-research tasks
+        into markdown output: ranked links, extracted documents, and URL maps.
+      </p>
+    </div>
+    <div class="proof-grid">
+      {proofPoints.map((item) => (
+        <article class="proof-card">
+          <h3>{item.title}</h3>
+          <p>{item.body}</p>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="shell split-section">
+    <div>
+      <p class="section-label">Built for</p>
+      <h2>Coding agents, research agents, and maintainers who prefer terminal-native context.</h2>
+    </div>
+    <div class="stack-list">
+      {workflows.map((item) => (
+        <article class="stack-list__item">
+          <p>{item}</p>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="shell capability-band">
+    <div class="capability-band__intro">
+      <p class="section-label">Command model</p>
+      <h2>Three commands, four providers, one clean output style.</h2>
+    </div>
+    <div class="capability-band__grid">
+      <div>
+        <p class="capability-title">search</p>
+        <p>Runs multi-provider search, filters domains, deduplicates normalized URLs, and ranks results.</p>
+      </div>
+      <div>
+        <p class="capability-title">read-link</p>
+        <p>Prefers GitHub raw content and direct markdown before using Firecrawl scrape fallback.</p>
+      </div>
+      <div>
+        <p class="capability-title">map-site</p>
+        <p>Calls Firecrawl map with sitemap inclusion, subdomains, query stripping, and a 5,000 URL limit.</p>
+      </div>
+      <div>
+        <p class="capability-title">distribution</p>
+        <p>Ships native Go binaries through GitHub Releases and installs through an npm postinstall shim.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="shell docs-teaser">
+    <div class="section-heading">
+      <p class="section-label">Docs map</p>
+      <h2>Install it, add keys, learn the commands, then understand the internals.</h2>
+      <p>
+        The docs cover user workflows and maintainer details: provider keys, search ranking, markdown
+        extraction, Firecrawl mapping, npm distribution, release checks, and troubleshooting.
+      </p>
+    </div>
+    <div class="docs-teaser__grid">
+      {docs.map((entry) => (
+        <a class="docs-teaser__card" href={`/docs/${entry.id}`}>
+          <span>{entry.data.category}</span>
+          <h3>{entry.data.title}</h3>
+          <p>{entry.data.summary ?? entry.data.description}</p>
+        </a>
+      ))}
+    </div>
+  </section>
+  <section class="shell closing-note">
+    <p>
+      Use webctx when an agent needs web evidence as text: search candidates, read the useful links,
+      and map the site before deciding what to inspect next.
+    </p>
+  </section>
+</BaseLayout>
