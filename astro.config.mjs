@@ -1,5 +1,7 @@
 import { defineConfig } from "astro/config";
+import zueDocs from "zuedocs/astro";
 
 export default defineConfig({
-  output: "static"
+  output: "static",
+  integrations: [zueDocs()]
 });
