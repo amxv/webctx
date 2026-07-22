@@ -4,6 +4,8 @@ export const siteConfig = {
   description:
     "Documentation for webctx, a pure Go CLI that combines Brave, Tavily, and Exa search results, extracts clean markdown from links, and maps site URLs for agent workflows.",
   repoUrl: "https://github.com/amxv/webctx",
+  accentColor: "#1d4ed8",
+  accentColorDark: "#60a5fa",
   footerSections: [
     {
       title: "webctx",
@@ -33,7 +35,6 @@ export const docCategories = [
 ] as const;
 
 export const primaryNav = [
-  { href: "/", label: "Overview" },
   { href: "/docs", label: "Docs" },
   { href: siteConfig.repoUrl, label: "GitHub", external: true }
 ];
