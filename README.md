@@ -86,7 +86,7 @@ Required keys by command:
 - `search`
   Uses `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY`
 - `read-link`
-  Reads public GitHub repositories, blobs, trees, Issues, Pull Request conversations, labels, and milestones without a token. Optional `GH_TOKEN` (preferred) or `GITHUB_TOKEN` enables authenticated/private GitHub reads and PR thread-state enrichment. Uses `FIRECRAWL_API_KEY` for pages that are not handled natively or as direct `.md` content.
+  Reads public GitHub repositories, blobs, trees, Issues, Pull Requests, commits, comparisons, path history, labels, and milestones without a token. Optional `GH_TOKEN` (preferred) or `GITHUB_TOKEN` enables authenticated/private GitHub reads, PR thread-state enrichment, and structured blame ranges. Uses `FIRECRAWL_API_KEY` for pages that are not handled natively or as direct `.md` content.
 - `map-site`
   Uses `FIRECRAWL_API_KEY`
 
@@ -100,6 +100,9 @@ Required keys by command:
 - GitHub Issue URLs return compact metadata, the human-visible body, substantive timeline activity, comments, and current relationships. `#issuecomment-<id>` reads one exact comment. Issue/search/label/milestone lists stay bounded instead of expanding every conversation.
 - GitHub Pull Request conversation URLs combine the PR body, normal comments, meaningful timeline events, formal reviews, and inline review threads without duplicate review events. `#issuecomment-<id>`, `#discussion_r<id>`, and `#pullrequestreview-<id>` select exact conversation context. Public PRs work anonymously; a token optionally enriches inline threads with GitHub resolved/outdated state.
 - Pull Request `/files`, `/commits`, and `/checks` URLs are separate native views. Files preserve patches and current GitHub `#diff-<sha256(path)>L/R...` selectors, commits stay compact, and checks keep Check Runs distinct from commit statuses. `?check_run_id=<id>` narrows to one check plus its annotations. Direct `.diff` and `.patch` URLs preserve their raw media.
+- Commit URLs return identity/message/verification/stats, paginated changed-file patches, and commit comments. Commit `.diff`/`.patch` forms stay raw; the JSON file view surfaces GitHub's 3,000-file ceiling rather than implying completeness past it.
+- Compare URLs preserve base/head/status/ahead-behind state and all paginated commits. GitHub exposes changed files only on the first compare page and up to 300 files, so webctx states that ceiling when reached. Repository `/commits/<ref>/<path>` URLs stay page-bounded and resolve slash-containing refs against provider history data.
+- Blame URLs are native but require `GH_TOKEN` or `GITHUB_TOKEN`: GitHub's structured blame ranges come from GraphQL. Without auth, webctx returns a concise token hint instead of scraping blame UI.
 - Optional `GH_TOKEN`, then `GITHUB_TOKEN`, is used for authenticated GitHub API reads. Ordinary public reads do not require or prompt for a token.
 - For direct markdown-style URLs, it checks the `.md` path.
 - GitHub route families that do not yet have a native reader, and normal web pages, continue through the existing direct-markdown and Firecrawl fallbacks.

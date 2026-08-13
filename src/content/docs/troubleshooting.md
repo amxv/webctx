@@ -36,7 +36,7 @@ Confirm `EXA_API_KEY` is available. Also remember that the keyword phrase is tru
 
 ## read-link works for native GitHub URLs but fails elsewhere
 
-Public GitHub repository, blob, tree, Issue, Pull Request conversation, label, and milestone URLs use native/direct provider reads and do not need Firecrawl. Normal pages and unsupported GitHub route families need Firecrawl when the direct `.md` path is not available.
+Public GitHub repository, blob, tree, Issue, Pull Request, commit, comparison, path-history, label, and milestone URLs use native/direct provider reads and do not need Firecrawl. Normal pages and unsupported GitHub route families need Firecrawl when the direct `.md` path is not available.
 
 Set:
 
@@ -67,6 +67,10 @@ GITHUB_TOKEN
 When both contain values, `GH_TOKEN` wins. webctx first keeps the cheap public raw path; if that returns not found and a token is configured, it uses GitHub's authenticated Contents API to resolve and read the source. GitHub can intentionally use a 404 for content the caller cannot see, so a not-found result can mean either an absent resource or insufficient/private access.
 
 If an authenticated read still fails, check that the token is valid and has access to the repository. webctx never requires the `gh` executable for native GitHub reads.
+
+## GitHub blame asks for a token
+
+Blame is intentionally different from ordinary public source/history reads. webctx uses GitHub GraphQL's structured blame ranges, and GitHub GraphQL requires authentication. Configure `GH_TOKEN` or `GITHUB_TOKEN` and retry the same `/blame/<ref>/<path>` URL. Without a token, webctx fails before the provider read and does not fall back to scraped blame UI.
 
 ## GitHub rate-limit errors
 

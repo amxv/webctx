@@ -52,6 +52,9 @@ webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
 webctx read-link 'https://github.com/cli/cli/pull/13250/files#diff-553490f999984ba28c4af0d7ffa919d10b5419f04a73f00141ee0b5a51c142e6R24'
 webctx read-link https://github.com/cli/cli/pull/13250/commits
 webctx read-link https://github.com/cli/cli/pull/13250/checks
+webctx read-link https://github.com/amxv/webctx/commit/c6d90181d7caffe6d41458eed696eb5fb48b177f
+webctx read-link 'https://github.com/cli/cli/compare/trunk...trunk'
+webctx read-link https://github.com/cli/cli/commits/andyfeller/test/README.md
 ```
 
 The repository root is an orientation read: compact metadata, a bounded README preview, and native navigation hints. Direct public blobs use the raw-content fast path and return the full source; line fragments narrow a file before it reaches the agent. Tree URLs return a one-level listing without GitHub navigation chrome. Issue and Pull Request URLs preserve substantive conversation, while Issue/search/label/milestone list views remain compact and bounded.
@@ -61,6 +64,10 @@ When you already have an exact Issue comment URL, keep its `#issuecomment-...` f
 For Pull Requests, keep exact `#issuecomment-...`, `#discussion_r...`, and `#pullrequestreview-...` anchors too. They select a normal PR comment, one inline review thread, or one formal review rather than returning the entire PR conversation. Public PR conversations work anonymously; optional GitHub auth adds resolved/outdated review-thread state when GitHub GraphQL is available.
 
 Use the PR tab URL when you need a different kind of context rather than filtering a full conversation afterward: `/files` returns patches, `/commits` returns the PR commit list, and `/checks` returns Check Runs plus commit statuses. Files Changed links copied with `#diff-...L/R...` narrow to the selected file/hunk before output. A checks URL with `?check_run_id=...` returns only that check and its annotations.
+
+For repository history, use the URL that already encodes the scope you need. `/commit/<sha>` returns one commit plus its files/comments; `/compare/<base>...<head>` returns comparison state/commits/files; `/commits/<ref>/<path>` gives one bounded path-history page. Slash-containing refs are provider-resolved instead of split at a fixed segment.
+
+Blame is the exception to ordinary public reads: `/blame/<ref>/<path>` needs `GH_TOKEN` or `GITHUB_TOKEN` because webctx uses GitHub GraphQL's structured blame ranges. Without a token it fails early with auth guidance rather than scraping the UI.
 
 For private repository source, configure optional `GH_TOKEN` or `GITHUB_TOKEN`. Public GitHub reads stay anonymous by default.
 

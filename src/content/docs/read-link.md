@@ -12,7 +12,7 @@ summary: The behavior of `webctx read-link`.
 webctx read-link https://github.com/amxv/webctx/blob/main/README.md
 ```
 
-`read-link` returns terminal-friendly markdown/text. Normal pages keep the familiar title, original URL, and extracted content shape; native GitHub repository, tree, Issue, Pull Request conversation, and bounded list views use compact structured metadata instead of scraped GitHub chrome.
+`read-link` returns terminal-friendly markdown/text. Normal pages keep the familiar title, original URL, and extracted content shape; native GitHub repository/source/Issue/Pull Request/commit/compare/history/list views use compact structured metadata instead of scraped GitHub chrome. Raw diff/patch views remain raw.
 
 ## Native GitHub repository reads
 
@@ -177,6 +177,48 @@ webctx read-link https://github.com/cli/cli/pull/13250.patch
 ```
 
 These are not wrapped as a conversation or reformatted into per-file Markdown sections.
+
+## Commits, comparisons, history, and blame
+
+A commit URL returns the selected commit rather than repository chrome:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/commit/c6d90181d7caffe6d41458eed696eb5fb48b177f
+```
+
+The compact metadata includes commit identity, author/committer timestamps, verification state, and change totals. The commit message is preserved, changed files/patches follow GitHub's returned pagination, and substantive commit comments are included with human-view invisible HTML comments removed. GitHub documents a 3,000-file maximum for a commit's JSON file listing; webctx marks that provider ceiling as incomplete instead of presenting it as a complete diff.
+
+Direct commit diff/patch forms preserve GitHub's raw media:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/commit/c6d90181d7caffe6d41458eed696eb5fb48b177f.diff
+webctx read-link https://github.com/amxv/webctx/commit/c6d90181d7caffe6d41458eed696eb5fb48b177f.patch
+```
+
+Comparison URLs keep the base/head relationship visible:
+
+```bash
+webctx read-link 'https://github.com/cli/cli/compare/trunk...feature/foo'
+```
+
+The native projection includes status, ahead/behind counts, every comparison commit returned through GitHub pagination, and the changed-file patches available on the first provider page. GitHub's compare API exposes files only on that first page and up to 300 files, so reaching that boundary is surfaced as potentially incomplete. Comparison `.diff`/`.patch` forms preserve raw media in the same way as commits and Pull Requests.
+
+Path history stays bounded to the selected GitHub page instead of expanding the repository's entire history:
+
+```bash
+webctx read-link 'https://github.com/cli/cli/commits/andyfeller/test/README.md'
+webctx read-link 'https://github.com/cli/cli/commits/andyfeller/test/README.md?page=2'
+```
+
+The ref/path split is provider-resolved against commit history, so slash-containing refs work without assuming the first post-route segment is the whole branch. Ambiguous valid splits fail explicitly. Returned `Link` pagination becomes concise previous/next GitHub URLs.
+
+Blame uses GitHub's structured GraphQL ranges and therefore requires authentication:
+
+```bash
+webctx read-link https://github.com/cli/cli/blame/andyfeller/test/README.md
+```
+
+With `GH_TOKEN` or `GITHUB_TOKEN`, webctx resolves the slash-containing ref/path and returns compact line ranges with commit, author, date, and message identity. Without a token it returns a concise auth-required result before making provider requests; it never disguises missing GraphQL auth by scraping the blame page.
 
 GitHub routes that do not yet have a native reader continue through the normal fallback chain. Security pages are intentionally outside native GitHub handling.
 

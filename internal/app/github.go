@@ -31,21 +31,29 @@ const (
 type GitHubTargetKind string
 
 const (
-	GitHubTargetRepository  GitHubTargetKind = "repository"
-	GitHubTargetBlob        GitHubTargetKind = "blob"
-	GitHubTargetTree        GitHubTargetKind = "tree"
-	GitHubTargetIssue       GitHubTargetKind = "issue"
-	GitHubTargetIssueList   GitHubTargetKind = "issue_list"
-	GitHubTargetLabel       GitHubTargetKind = "label"
-	GitHubTargetLabelList   GitHubTargetKind = "label_list"
-	GitHubTargetMilestone   GitHubTargetKind = "milestone"
-	GitHubTargetMilestones  GitHubTargetKind = "milestones"
-	GitHubTargetPull        GitHubTargetKind = "pull"
-	GitHubTargetPullFiles   GitHubTargetKind = "pull_files"
-	GitHubTargetPullCommits GitHubTargetKind = "pull_commits"
-	GitHubTargetPullChecks  GitHubTargetKind = "pull_checks"
-	GitHubTargetPullDiff    GitHubTargetKind = "pull_diff"
-	GitHubTargetPullPatch   GitHubTargetKind = "pull_patch"
+	GitHubTargetRepository   GitHubTargetKind = "repository"
+	GitHubTargetBlob         GitHubTargetKind = "blob"
+	GitHubTargetTree         GitHubTargetKind = "tree"
+	GitHubTargetIssue        GitHubTargetKind = "issue"
+	GitHubTargetIssueList    GitHubTargetKind = "issue_list"
+	GitHubTargetLabel        GitHubTargetKind = "label"
+	GitHubTargetLabelList    GitHubTargetKind = "label_list"
+	GitHubTargetMilestone    GitHubTargetKind = "milestone"
+	GitHubTargetMilestones   GitHubTargetKind = "milestones"
+	GitHubTargetPull         GitHubTargetKind = "pull"
+	GitHubTargetPullFiles    GitHubTargetKind = "pull_files"
+	GitHubTargetPullCommits  GitHubTargetKind = "pull_commits"
+	GitHubTargetPullChecks   GitHubTargetKind = "pull_checks"
+	GitHubTargetPullDiff     GitHubTargetKind = "pull_diff"
+	GitHubTargetPullPatch    GitHubTargetKind = "pull_patch"
+	GitHubTargetCommit       GitHubTargetKind = "commit"
+	GitHubTargetCommitDiff   GitHubTargetKind = "commit_diff"
+	GitHubTargetCommitPatch  GitHubTargetKind = "commit_patch"
+	GitHubTargetCompare      GitHubTargetKind = "compare"
+	GitHubTargetCompareDiff  GitHubTargetKind = "compare_diff"
+	GitHubTargetComparePatch GitHubTargetKind = "compare_patch"
+	GitHubTargetHistory      GitHubTargetKind = "history"
+	GitHubTargetBlame        GitHubTargetKind = "blame"
 )
 
 // GitHubTarget is the semantic identity parsed from a GitHub URL. Blob/tree
@@ -287,6 +295,61 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 			return target
 		}
 		return nil
+	case "commit":
+		if len(parts) != 4 {
+			return nil
+		}
+		ref := parts[3]
+		kind := GitHubTargetCommit
+		switch {
+		case strings.HasSuffix(ref, ".diff"):
+			kind = GitHubTargetCommitDiff
+			ref = strings.TrimSuffix(ref, ".diff")
+		case strings.HasSuffix(ref, ".patch"):
+			kind = GitHubTargetCommitPatch
+			ref = strings.TrimSuffix(ref, ".patch")
+		}
+		if strings.TrimSpace(ref) == "" {
+			return nil
+		}
+		target.Kind = kind
+		target.Name = ref
+		return target
+	case "compare":
+		if len(parts) < 4 {
+			return nil
+		}
+		comparison := strings.Join(parts[3:], "/")
+		kind := GitHubTargetCompare
+		switch {
+		case strings.HasSuffix(comparison, ".diff"):
+			kind = GitHubTargetCompareDiff
+			comparison = strings.TrimSuffix(comparison, ".diff")
+		case strings.HasSuffix(comparison, ".patch"):
+			kind = GitHubTargetComparePatch
+			comparison = strings.TrimSuffix(comparison, ".patch")
+		}
+		base, head, ok := strings.Cut(comparison, "...")
+		if !ok || strings.TrimSpace(base) == "" || strings.TrimSpace(head) == "" {
+			return nil
+		}
+		target.Kind = kind
+		target.Tail = []string{base, head}
+		return target
+	case "commits":
+		if len(parts) < 4 {
+			return nil
+		}
+		target.Kind = GitHubTargetHistory
+		target.Tail = append([]string(nil), parts[3:]...)
+		return target
+	case "blame":
+		if len(parts) < 5 {
+			return nil
+		}
+		target.Kind = GitHubTargetBlame
+		target.Tail = append([]string(nil), parts[3:]...)
+		return target
 	default:
 		// Security pages and every route family not yet implemented remain on
 		// the existing generic markdown/Firecrawl fallback path.
@@ -628,6 +691,22 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubPullRawDiff(ctx, client, target, false)
 	case GitHubTargetPullPatch:
 		markdown, err = readGitHubPullRawDiff(ctx, client, target, true)
+	case GitHubTargetCommit:
+		markdown, err = readGitHubCommit(ctx, client, target)
+	case GitHubTargetCommitDiff:
+		markdown, err = readGitHubCommitRawDiff(ctx, client, target, false)
+	case GitHubTargetCommitPatch:
+		markdown, err = readGitHubCommitRawDiff(ctx, client, target, true)
+	case GitHubTargetCompare:
+		markdown, err = readGitHubCompare(ctx, client, target)
+	case GitHubTargetCompareDiff:
+		markdown, err = readGitHubCompareRawDiff(ctx, client, target, false)
+	case GitHubTargetComparePatch:
+		markdown, err = readGitHubCompareRawDiff(ctx, client, target, true)
+	case GitHubTargetHistory:
+		markdown, err = readGitHubHistory(ctx, client, target)
+	case GitHubTargetBlame:
+		markdown, err = readGitHubBlame(ctx, client, target)
 	default:
 		return GitHubNativeResult{Outcome: GitHubNativeUnsupported}
 	}
@@ -921,6 +1000,9 @@ func (e *githubAmbiguousRefError) Error() string {
 }
 
 func resolveGitHubRefPath(ctx context.Context, client *GitHubClient, target *GitHubTarget, wantKind string) (resolvedGitHubPath, error) {
+	if wantKind == "history" {
+		return resolveGitHubHistoryRefPath(ctx, client, target)
+	}
 	if target == nil || len(target.Tail) == 0 {
 		return resolvedGitHubPath{}, fmt.Errorf("GitHub source URL is missing a ref")
 	}
@@ -951,7 +1033,7 @@ func resolveGitHubRefPath(ctx context.Context, client *GitHubClient, target *Git
 		if err != nil {
 			return resolvedGitHubPath{}, err
 		}
-		if kind != wantKind {
+		if wantKind != "any" && kind != wantKind {
 			continue
 		}
 		matches = append(matches, resolvedGitHubPath{Ref: ref, Path: filePath, Endpoint: endpoint, Response: resp})

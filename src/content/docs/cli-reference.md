@@ -39,15 +39,15 @@ BRAVE_API_KEY       used by search
 TAVILY_API_KEY      used by search
 EXA_API_KEY         used by search and keyword mode
 FIRECRAWL_API_KEY   used by read-link fallback and map-site
-GH_TOKEN            optional GitHub auth for private/native source reads; preferred over GITHUB_TOKEN
-GITHUB_TOKEN        optional GitHub auth fallback
+GH_TOKEN            optional GitHub auth for private/native reads, PR enrichment, and blame; preferred over GITHUB_TOKEN
+GITHUB_TOKEN        optional GitHub auth fallback for the same capabilities
 ```
 
 ## Output formats
 
 `search` returns markdown links with indented summaries.
 
-`read-link` returns terminal-friendly markdown/text. Native GitHub repository/tree/Issue/PR-conversation/list reads use compact metadata plus selected content; ordinary pages keep the title/URL/content shape.
+`read-link` returns terminal-friendly markdown/text. Native GitHub repository/source/Issue/PR/commit/compare/history/list reads use compact metadata plus selected content; raw diff/patch URLs preserve their provider media. Ordinary pages keep the title/URL/content shape.
 
 `map-site` returns a URL list with optional titles and descriptions.
 

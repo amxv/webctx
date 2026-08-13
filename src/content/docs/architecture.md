@@ -16,6 +16,7 @@ internal/app/github.go      native GitHub routing, provider client, source/tree 
 internal/app/github_issues.go native Issues, comments, lists, labels, milestones, relationships
 internal/app/github_pulls.go native PR conversations, reviews, inline threads, exact anchors
 internal/app/github_pull_views.go native PR files/commits/checks/diff/patch views
+internal/app/github_commits.go native commits, compare, path history, blame
 internal/app/scrape.go      direct markdown path, Firecrawl queue, env loading
 internal/buildinfo          build-time version plumbing
 bin/webctx.js               npm executable shim
@@ -65,10 +66,14 @@ It also contains output formatting, result ranking, excluded-domain filtering, H
 - optional authenticated GraphQL enrichment for resolved/outdated PR review-thread state
 - Pull Request files with SHA-256 diff selectors and provider-cap/patch-omission truth
 - PR commit lists, Check Runs + commit statuses, targeted check annotations, and raw diff/patch media
+- commit detail/comments with paginated files and raw commit diff/patch media
+- comparisons with paginated commits plus first-page/300-file provider truth
+- bounded path history with provider-backed slash-ref/path resolution
+- authenticated GraphQL blame ranges
 - provider-backed slash-ref/path resolution when the ref/path split is required
 - REST request versioning, optional GitHub auth, response headers/status, Link pagination primitives, and GitHub-specific errors
 
-Issue-specific rendering lives in `internal/app/github_issues.go`; PR-conversation rendering lives in `internal/app/github_pulls.go`; focused PR files/commits/checks/raw-media rendering lives in `internal/app/github_pull_views.go`. They reuse the same `GitHubTarget`, `GitHubClient`, native success/error/unsupported boundary, provider pagination, and error rules while keeping conversation/diff/check responsibilities separate. The classifier claims only route families that have a faithful native reader; other GitHub pages retain generic fallback behavior, and GitHub security pages are intentionally excluded.
+Issue-specific rendering lives in `internal/app/github_issues.go`; PR-conversation rendering lives in `internal/app/github_pulls.go`; focused PR files/commits/checks/raw-media rendering lives in `internal/app/github_pull_views.go`; repository commit/compare/history/blame rendering lives in `internal/app/github_commits.go`. They reuse the same `GitHubTarget`, `GitHubClient`, native success/error/unsupported boundary, provider pagination, and ref-resolution/error rules while keeping resource responsibilities separate. The classifier claims only route families that have a faithful native reader; other GitHub pages retain generic fallback behavior, and GitHub security pages are intentionally excluded.
 
 ## Scrape and credential helpers
 
