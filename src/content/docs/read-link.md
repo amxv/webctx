@@ -128,7 +128,55 @@ webctx read-link 'https://github.com/cli/cli/pull/13250#pullrequestreview-414886
 
 The first uses the shared normal-comment identity from Issues. A `discussion_r` anchor returns that inline thread with reply context. A `pullrequestreview` anchor returns the selected formal review and its review comments.
 
-The conversation output points to the PR's `/files`, `/commits`, and `/checks` views as useful next URLs. Those focused tabs are separate resource views rather than being expanded into the conversation; unsupported focused routes continue through the generic fallback until they have their own native reader.
+The conversation output points to the PR's `/files`, `/commits`, and `/checks` views as useful next URLs. Those focused tabs are separate native resource views rather than being expanded into the conversation.
+
+## Pull Request files, commits, and checks
+
+The Files Changed view returns changed files and provider patches, not PR conversation text:
+
+```bash
+webctx read-link https://github.com/cli/cli/pull/13250/files
+```
+
+GitHub's current file fragment convention is supported directly. A file hash is SHA-256 of the path, and optional `L`/`R` line suffixes select the provider patch hunk for old/new-side lines:
+
+```bash
+webctx read-link 'https://github.com/cli/cli/pull/13250/files#diff-553490f999984ba28c4af0d7ffa919d10b5419f04a73f00141ee0b5a51c142e6'
+webctx read-link 'https://github.com/cli/cli/pull/13250/files#diff-553490f999984ba28c4af0d7ffa919d10b5419f04a73f00141ee0b5a51c142e6R24'
+```
+
+Unknown/stale hashes or lines fail explicitly instead of selecting a different file/hunk. Renames retain the previous filename. When GitHub omits a patch—for example binary, oversized, or otherwise provider-omitted content—webctx says the patch is unavailable rather than inventing diff text. GitHub's documented 3,000-file Pull Request maximum is surfaced as an incomplete provider boundary if reached.
+
+The commits view is compact and does not expand file patches:
+
+```bash
+webctx read-link https://github.com/cli/cli/pull/13250/commits
+```
+
+The checks view uses the PR head commit and keeps GitHub Check Runs separate from legacy commit statuses:
+
+```bash
+webctx read-link https://github.com/cli/cli/pull/13250/checks
+```
+
+Both check-run pages and combined-status pages follow GitHub's returned pagination links. webctx displays the provider's combined status state but does not turn Check Runs/statuses into a made-up branch-protection or mergeability verdict.
+
+When GitHub's current checks URL carries a `check_run_id`, only that Check Run and all of its paginated annotations are returned:
+
+```bash
+webctx read-link 'https://github.com/cli/cli/pull/13250/checks?check_run_id=75849937564'
+```
+
+The selected check is verified against the PR head SHA before annotations are rendered.
+
+Direct PR diff/patch forms retain raw media semantics:
+
+```bash
+webctx read-link https://github.com/cli/cli/pull/13250.diff
+webctx read-link https://github.com/cli/cli/pull/13250.patch
+```
+
+These are not wrapped as a conversation or reformatted into per-file Markdown sections.
 
 GitHub routes that do not yet have a native reader continue through the normal fallback chain. Security pages are intentionally outside native GitHub handling.
 

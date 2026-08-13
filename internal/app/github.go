@@ -31,16 +31,21 @@ const (
 type GitHubTargetKind string
 
 const (
-	GitHubTargetRepository GitHubTargetKind = "repository"
-	GitHubTargetBlob       GitHubTargetKind = "blob"
-	GitHubTargetTree       GitHubTargetKind = "tree"
-	GitHubTargetIssue      GitHubTargetKind = "issue"
-	GitHubTargetIssueList  GitHubTargetKind = "issue_list"
-	GitHubTargetLabel      GitHubTargetKind = "label"
-	GitHubTargetLabelList  GitHubTargetKind = "label_list"
-	GitHubTargetMilestone  GitHubTargetKind = "milestone"
-	GitHubTargetMilestones GitHubTargetKind = "milestones"
-	GitHubTargetPull       GitHubTargetKind = "pull"
+	GitHubTargetRepository  GitHubTargetKind = "repository"
+	GitHubTargetBlob        GitHubTargetKind = "blob"
+	GitHubTargetTree        GitHubTargetKind = "tree"
+	GitHubTargetIssue       GitHubTargetKind = "issue"
+	GitHubTargetIssueList   GitHubTargetKind = "issue_list"
+	GitHubTargetLabel       GitHubTargetKind = "label"
+	GitHubTargetLabelList   GitHubTargetKind = "label_list"
+	GitHubTargetMilestone   GitHubTargetKind = "milestone"
+	GitHubTargetMilestones  GitHubTargetKind = "milestones"
+	GitHubTargetPull        GitHubTargetKind = "pull"
+	GitHubTargetPullFiles   GitHubTargetKind = "pull_files"
+	GitHubTargetPullCommits GitHubTargetKind = "pull_commits"
+	GitHubTargetPullChecks  GitHubTargetKind = "pull_checks"
+	GitHubTargetPullDiff    GitHubTargetKind = "pull_diff"
+	GitHubTargetPullPatch   GitHubTargetKind = "pull_patch"
 )
 
 // GitHubTarget is the semantic identity parsed from a GitHub URL. Blob/tree
@@ -246,15 +251,41 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 		return nil
 	case "pull":
 		if len(parts) == 4 {
-			number, err := strconv.Atoi(parts[3])
+			rawNumber := parts[3]
+			kind := GitHubTargetPull
+			switch {
+			case strings.HasSuffix(rawNumber, ".diff"):
+				kind = GitHubTargetPullDiff
+				rawNumber = strings.TrimSuffix(rawNumber, ".diff")
+			case strings.HasSuffix(rawNumber, ".patch"):
+				kind = GitHubTargetPullPatch
+				rawNumber = strings.TrimSuffix(rawNumber, ".patch")
+			}
+			number, err := strconv.Atoi(rawNumber)
 			if err == nil && number > 0 {
-				target.Kind = GitHubTargetPull
+				target.Kind = kind
 				target.Number = number
 				return target
 			}
 		}
-		// Focused PR tabs (/files, /commits, /checks) are intentionally
-		// left to Phase 4 rather than being consumed by the conversation reader.
+		if len(parts) == 5 {
+			number, err := strconv.Atoi(parts[3])
+			if err != nil || number <= 0 {
+				return nil
+			}
+			switch parts[4] {
+			case "files":
+				target.Kind = GitHubTargetPullFiles
+			case "commits":
+				target.Kind = GitHubTargetPullCommits
+			case "checks":
+				target.Kind = GitHubTargetPullChecks
+			default:
+				return nil
+			}
+			target.Number = number
+			return target
+		}
 		return nil
 	default:
 		// Security pages and every route family not yet implemented remain on
@@ -587,6 +618,16 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubMilestones(ctx, client, target)
 	case GitHubTargetPull:
 		markdown, err = readGitHubPullRequest(ctx, client, target)
+	case GitHubTargetPullFiles:
+		markdown, err = readGitHubPullFiles(ctx, client, target)
+	case GitHubTargetPullCommits:
+		markdown, err = readGitHubPullCommits(ctx, client, target)
+	case GitHubTargetPullChecks:
+		markdown, err = readGitHubPullChecks(ctx, client, target)
+	case GitHubTargetPullDiff:
+		markdown, err = readGitHubPullRawDiff(ctx, client, target, false)
+	case GitHubTargetPullPatch:
+		markdown, err = readGitHubPullRawDiff(ctx, client, target, true)
 	default:
 		return GitHubNativeResult{Outcome: GitHubNativeUnsupported}
 	}

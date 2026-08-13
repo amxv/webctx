@@ -29,12 +29,10 @@ func TestParseGitHubPullTargetsAndSelectors(t *testing.T) {
 	}
 	for _, raw := range []string{
 		"https://github.com/o/r/pull/nope",
-		"https://github.com/o/r/pull/42/files",
-		"https://github.com/o/r/pull/42/commits",
-		"https://github.com/o/r/pull/42/checks",
+		"https://github.com/o/r/pull/42/unknown",
 	} {
 		if target := parseGitHubTarget(raw); target != nil {
-			t.Fatalf("focused/later-phase route %s should remain unsupported, got %#v", raw, target)
+			t.Fatalf("unsupported PR route %s should remain unsupported, got %#v", raw, target)
 		}
 	}
 }
