@@ -131,8 +131,12 @@ func Search(params SearchParams) (string, error) {
 }
 
 func ReadLink(rawURL string) (string, error) {
-	if result, _ := fetchGitHubRawContent(rawURL); result != nil {
-		return formatReadLink(result.Title, result.URL, result.Markdown), nil
+	native := readGitHubNative(rawURL)
+	switch native.Outcome {
+	case GitHubNativeSuccess:
+		return native.Markdown, nil
+	case GitHubNativeFailure:
+		return "", native.Err
 	}
 
 	if ok, _ := checkMarkdownAvailable(rawURL); ok {

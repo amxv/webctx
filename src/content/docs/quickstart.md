@@ -50,7 +50,7 @@ webctx --help
 
 ## Add credentials
 
-Search uses Brave, Tavily, and Exa. Link reading and site mapping use Firecrawl when fast markdown paths are not enough.
+Search uses Brave, Tavily, and Exa. Public GitHub repository/blob/tree reads work without a token, while optional `GH_TOKEN` or `GITHUB_TOKEN` enables authenticated/private GitHub source reads. Firecrawl handles site mapping and `read-link` pages that reach the generic fallback.
 
 Create a `.env.local` file where webctx can find it:
 
@@ -59,6 +59,8 @@ BRAVE_API_KEY=brave_demo_key
 TAVILY_API_KEY=tavily_demo_key
 EXA_API_KEY=exa_demo_key
 FIRECRAWL_API_KEY=firecrawl_demo_key
+GH_TOKEN=
+GITHUB_TOKEN=
 ```
 
 webctx checks environment variables first, then `.env.local`, then macOS Keychain.

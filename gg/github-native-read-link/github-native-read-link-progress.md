@@ -30,7 +30,7 @@
 
 | Phase | Capability | Status | Completion commit | Evidence / next boundary |
 | ---: | --- | --- | --- | --- |
-| 1 | Native GitHub foundation, repository roots, blobs, trees, and selectors | pending | — | Start here: canonical target/client/error/ref-resolver plus root/frontmatter/5k README and source/tree selectors. |
+| 1 | Native GitHub foundation, repository roots, blobs, trees, and selectors | complete | pending Phase 1 commit | Native repository/blob/tree routing, GitHub client/error/auth/pagination boundary, ref resolver, selectors, docs, deterministic/live evidence complete. |
 | 2 | Issues, conversations, selectors, lists, labels, and relationships | pending | — | Requires Phase 1 native routing/client/pagination/hints. |
 | 3 | Pull Request conversation, reviews, threads, and exact anchors | pending | — | Reuse Issue conversation identity and add PR review/thread truth. |
 | 4 | Pull Request Files Changed, commits, checks, and diff selectors | pending | — | Add PR view-specific semantics and current diff/check selectors. |
@@ -45,17 +45,31 @@
 
 ## Current handoff
 
-- **Last completed phase:** none; planning only.
-- **Earliest incomplete phase:** Phase 1.
-- **Exact phase title:** `Native GitHub foundation, repository roots, blobs, trees, and selectors`.
-- **Observable boundary:** `webctx read-link` should first gain native repository-root/frontmatter/README previews, full/source-selected blob reads, tree listings, optional GitHub auth/error/pagination infrastructure, and one semantic GitHub routing path while generic fallback remains intact.
-- **Current blockers:** none known. Planning-time `go test ./...` on the Zodex host entered uninterruptible I/O and produced no test result; this is an environment observation to re-check, not a product blocker or failing-test claim.
-- **Plan Amendments affecting Phase 1:** none.
-- **Prompt to use:** [`first-agent-prompt.md`](./first-agent-prompt.md).
+- **Last completed phase:** Phase 1 — `Native GitHub foundation, repository roots, blobs, trees, and selectors`.
+- **Earliest incomplete phase:** Phase 2.
+- **Exact phase title:** `Issues, conversations, selectors, lists, labels, and relationships`.
+- **Observable boundary:** extend the existing `GitHubTarget` / `GitHubClient` / native success-error-unsupported path to Issue detail/conversation/comment selectors and bounded Issue/list/label/milestone relationships without weakening the Phase 1 source/tree guarantees or generic fallback boundary.
+- **Current blockers:** none known. The planning-time Go test hang did not recur; `make check`, full Go tests/vet, docs checks/build, packaging smoke, cross-platform builds, and public live GitHub reads all completed successfully in Phase 1.
+- **Plan Amendments affecting Phase 2:** none.
+- **Prompt to use:** [`subsequent-agent-prompt.md`](./subsequent-agent-prompt.md).
 
 ## Progress entries
 
-No implementation phases have started yet.
+### 2026-08-14 — Phase 1 — `complete`
+
+- **Agent/session:** GPT-5.6 Sol implementation session on the Zodex checkout.
+- **Starting state:** `main` was clean, fetched, and fast-forwarded to `71e9e2a3da8c08d04129d01cb7a69397e9a8b019`; the only newly fetched work was unrelated Vercel docs-build filtering and was preserved unchanged.
+- **Ending commit(s):** pending Phase 1 commit; replace after commit creation.
+- **Outcome:** `webctx read-link` now has one native GitHub boundary for repository roots, blobs, and trees. Repository roots render compact frontmatter plus bounded human-view README previews and native URL hints; direct blobs preserve full source by default with line/range and Markdown-heading selectors; tree URLs return one-level listings and bounded directory READMEs. Recognized native failures stay authoritative while unsupported GitHub routes retain direct-Markdown/Firecrawl fallback.
+- **Files/areas changed:** new `internal/app/github.go` canonical target/client/error/ref-resolution/rendering path and deterministic `github_test.go`; `tools.go` routes through it; the old narrow parser/raw reader was removed from `scrape.go`; GitHub token keys joined the existing credential loader; README/docs/landing/environment template were updated for delivered behavior only.
+- **Positive evidence:** deterministic tests cover root/blob/tree classification and unsupported/security routes; REST version/Accept/User-Agent/auth origin and `GH_TOKEN`→`GITHUB_TOKEN` precedence; Link parsing; 401/403/404/429/rate/provider-limit classification and secret non-leakage; slash refs and overlapping-ref ambiguity; root metadata/~5k safe README/full-link/hints; source comments, line/range and heading selectors; binary/100 MB handling; authenticated/private fallback; one-level trees, directory README, and the 1,000-entry provider ceiling. `go test ./...` and `go vet ./...` pass.
+- **Regression evidence:** deterministic tests re-prove direct Markdown fallback and unsupported GitHub→Firecrawl fallback with the existing Firecrawl scrape settings unchanged; `make check` passes search/map-site compile/tests plus npm shim/postinstall checks. The old public raw blob path remains zero-REST in its deterministic test.
+- **Live evidence:** forced-anonymous public reads succeeded for `https://github.com/amxv/webctx`, its `README.md#install`, `README.md#L1-L12`, and `tree/main/internal/app`; `https://github.com/cli/cli/blob/andyfeller/test/README.md` succeeded with a slash-containing ref, and `https://github.com/cli/cli/tree/andyfeller/test` provider-resolved exactly `ref: "andyfeller/test"` and returned the branch root listing. GitHub's current first-party docs were re-checked for REST versioning, auth/404 behavior, rate-limit headers/status, Link pagination, Contents 1,000-entry ceiling, and 100 MB source limits.
+- **Documentation:** README plus read-link, credentials, architecture, agent-workflows, CLI reference, quickstart, troubleshooting, `.env.local.example`, and landing-page copy now describe only Phase 1 native GitHub behavior. `npm run docs:check` completed with zero errors (seven pre-existing Astro `z` deprecation hints), `npm run docs:build` passed, and the current Vercel docs-ignore tests passed 6/6.
+- **Decisions made:** public blobs keep the cheapest raw-host read over the complete unresolved tail; provider-backed ref/path resolution is used where identity is required (tree and authenticated/private fallback), and multiple provider-valid splits fail as ambiguous. Human-view README sanitization preserves fenced code while direct blob source is never comment-sanitized. Root hints advertise only native capabilities actually implemented on the Phase 1 branch, so Issues/PRs are intentionally deferred to Phase 2.
+- **Amendments:** none; no load-bearing Phase 1 plan assumption was disproved. The planned A1 heading-fragment caveat remains: the implemented deterministic GitHub-compatible resolver supports ordinary ATX headings and duplicate suffixes and fails unknown selectors rather than guessing.
+- **Known defects/risks:** no known Phase 1 correctness blocker. Exotic Markdown heading constructs outside the proven A1 subset remain intentionally unsupported rather than approximately selected. GitHub provider caps/rate limits still apply and are surfaced instead of cached or hidden.
+- **Next handoff:** Phase 2 should inspect `internal/app/github.go` first, especially `GitHubTarget`, `GitHubClient`, `GitHubNativeResult`, `ParseGitHubLinkHeader`, error classification, hint rendering, and the source ref resolver; then implement the Phase 2 Issue/list/conversation responsibilities without broadening native classification beyond faithfully supported routes.
 
 When a phase is completed or blocked, append an entry in this exact shape:
 

@@ -78,6 +78,7 @@ security add-generic-password -U -s webctx -a BRAVE_API_KEY -w "your-brave-key"
 security add-generic-password -U -s webctx -a TAVILY_API_KEY -w "your-tavily-key"
 security add-generic-password -U -s webctx -a EXA_API_KEY -w "your-exa-key"
 security add-generic-password -U -s webctx -a FIRECRAWL_API_KEY -w "your-firecrawl-key"
+security add-generic-password -U -s webctx -a GH_TOKEN -w "your-github-token"
 ```
 
 Required keys by command:
@@ -85,18 +86,21 @@ Required keys by command:
 - `search`
   Uses `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY`
 - `read-link`
-  Uses `FIRECRAWL_API_KEY` for pages that are not GitHub raw content or direct `.md` content
+  Reads public GitHub repositories, blobs, and trees without a token. Optional `GH_TOKEN` (preferred) or `GITHUB_TOKEN` enables authenticated/private GitHub source reads. Uses `FIRECRAWL_API_KEY` for pages that are not handled natively or as direct `.md` content.
 - `map-site`
   Uses `FIRECRAWL_API_KEY`
 
 ## Why `read-link` is useful
 
-`read-link` is designed to avoid expensive scraping when it does not need to.
+`read-link` is designed to avoid expensive scraping when it does not need to and to keep copied GitHub URLs scoped to what they mean.
 
-- For GitHub file URLs, it first checks the raw-content path.
+- A GitHub repository root returns compact repository metadata, a README preview of roughly 5,000 characters, a full README blob link when needed, and a few useful source-navigation URL examples.
+- GitHub blob URLs use the raw-content fast path for public files. `#L20` and `#L20-L40` select source lines, while Markdown heading fragments such as `#installation` select that section. Direct blobs return the full source by default and preserve source comments.
+- GitHub tree URLs return a one-level directory listing plus a bounded directory README when present. Slash-containing refs are resolved against GitHub rather than assuming the first path segment is the branch.
+- Optional `GH_TOKEN`, then `GITHUB_TOKEN`, is used for authenticated GitHub API reads. Ordinary public reads do not require or prompt for a token.
 - For direct markdown-style URLs, it checks the `.md` path.
-- If neither of those paths works, it falls back to Firecrawl and returns cleaned markdown for the page.
+- GitHub route families that do not yet have a native reader, and normal web pages, continue through the existing direct-markdown and Firecrawl fallbacks.
 
-That makes GitHub docs and markdown pages fast, while still handling normal web pages when the fast paths are not available.
+Native GitHub failures such as not-found/private, authentication, and rate-limit errors stay GitHub-specific instead of silently turning into scraped login/error pages.
 
 Maintainer notes, release steps, project layout, and source-build details are in `CONTRIBUTORS.md`.

@@ -34,9 +34,9 @@ webctx search "drizzle orm" --keyword "migration guide"
 
 Confirm `EXA_API_KEY` is available. Also remember that the keyword phrase is truncated to five words before being sent as include-text criteria.
 
-## read-link works for GitHub but fails elsewhere
+## read-link works for native GitHub URLs but fails elsewhere
 
-Public GitHub file URLs use raw content and may not need Firecrawl. Normal pages need Firecrawl when the `.md` fast path is not available.
+Public GitHub repository, blob, and tree URLs use native/direct provider reads and do not need Firecrawl. Normal pages and unsupported GitHub route families need Firecrawl when the direct `.md` path is not available.
 
 Set:
 
@@ -50,9 +50,27 @@ Then retry:
 webctx read-link https://docs.firecrawl.dev/introduction
 ```
 
-## Private GitHub blob URLs fail
+## Private GitHub source reads fail
 
-The GitHub fast path uses unauthenticated raw content fetches. Private repositories are not readable through that path unless the raw URL is publicly accessible. Use a local clone, an authenticated fetch outside webctx, or another workflow for private content.
+Configure a GitHub token that can read the repository contents:
+
+```text
+GH_TOKEN
+```
+
+or, as a fallback:
+
+```text
+GITHUB_TOKEN
+```
+
+When both contain values, `GH_TOKEN` wins. webctx first keeps the cheap public raw path; if that returns not found and a token is configured, it uses GitHub's authenticated Contents API to resolve and read the source. GitHub can intentionally use a 404 for content the caller cannot see, so a not-found result can mean either an absent resource or insufficient/private access.
+
+If an authenticated read still fails, check that the token is valid and has access to the repository. webctx never requires the `gh` executable for native GitHub reads.
+
+## GitHub rate-limit errors
+
+Native GitHub rate-limit errors include retry/reset context when GitHub provides it. Anonymous reads have lower provider capacity; configuring `GH_TOKEN` or `GITHUB_TOKEN` can provide authenticated capacity, but webctx does not hide provider rate limits by falling back to a scraped page.
 
 ## map-site fails
 

@@ -83,13 +83,6 @@ func TestScoreAndRankResultsPreservesInsertionOrderForTies(t *testing.T) {
 	}
 }
 
-func TestParseGitHubURL(t *testing.T) {
-	info := parseGitHubURL("https://github.com/amxv/webctx-ts/blob/main/cli.ts")
-	if info == nil || !info.IsFile || info.Owner != "amxv" || info.Repo != "webctx-ts" || info.Branch != "main" || info.Path != "cli.ts" {
-		t.Fatalf("unexpected parse result: %#v", info)
-	}
-}
-
 func TestSearchMissingCredentialsErrorIsHelpful(t *testing.T) {
 	t.Setenv("BRAVE_API_KEY", "")
 	t.Setenv("TAVILY_API_KEY", "")
@@ -187,6 +180,8 @@ func TestLoadKeychainEnvLoadsMissingOnly(t *testing.T) {
 	t.Setenv("TAVILY_API_KEY", "")
 	t.Setenv("EXA_API_KEY", "")
 	t.Setenv("FIRECRAWL_API_KEY", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
 
 	loadKeychainEnv()
 

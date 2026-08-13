@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,91 +23,11 @@ type MarkdownResult struct {
 const keychainServiceName = "webctx"
 
 var (
-	credentialEnvKeys = []string{"BRAVE_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "FIRECRAWL_API_KEY"}
+	credentialEnvKeys = []string{"BRAVE_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "FIRECRAWL_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"}
 	getwdFunc         = os.Getwd
 	executableFunc    = os.Executable
 	keychainLookup    = lookupKeychainSecret
 )
-
-type githubURLInfo struct {
-	Owner  string
-	Repo   string
-	Branch string
-	Path   string
-	IsFile bool
-}
-
-func parseGitHubURL(raw string) *githubURLInfo {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Hostname() != "github.com" {
-		return nil
-	}
-	parts := strings.FieldsFunc(strings.TrimPrefix(parsed.Path, "/"), func(r rune) bool { return r == '/' })
-	if len(parts) < 2 {
-		return nil
-	}
-	info := &githubURLInfo{Owner: parts[0], Repo: parts[1], IsFile: true}
-	if len(parts) == 2 {
-		return info
-	}
-	switch parts[2] {
-	case "tree":
-		info.IsFile = false
-		if len(parts) > 3 {
-			info.Branch = parts[3]
-		}
-		if len(parts) > 4 {
-			info.Path = strings.Join(parts[4:], "/")
-		}
-		return info
-	case "blob":
-		if len(parts) > 3 {
-			info.Branch = parts[3]
-		}
-		if len(parts) > 4 {
-			info.Path = strings.Join(parts[4:], "/")
-		}
-		return info
-	default:
-		return nil
-	}
-}
-
-func convertToRawGitHubURL(info *githubURLInfo) string {
-	if info.Path == "" {
-		return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/HEAD/README.md", info.Owner, info.Repo)
-	}
-	branch := info.Branch
-	if branch == "" {
-		branch = "HEAD"
-	}
-	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", info.Owner, info.Repo, branch, info.Path)
-}
-
-func fetchGitHubRawContent(raw string) (*MarkdownResult, error) {
-	info := parseGitHubURL(raw)
-	if info == nil || !info.IsFile {
-		return nil, nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	content, status, err := fetchText(ctx, convertToRawGitHubURL(info))
-	if err != nil || status < 200 || status >= 300 {
-		if info.Path == "" && status == http.StatusNotFound {
-			for _, alt := range []string{"readme.md", "Readme.md", "README"} {
-				altURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/HEAD/%s", info.Owner, info.Repo, alt)
-				content, status, err = fetchText(ctx, altURL)
-				if err == nil && status >= 200 && status < 300 {
-					title := firstHeadingOrFallback(content, info.Owner+"/"+info.Repo)
-					return &MarkdownResult{URL: raw, Title: title, Markdown: content}, nil
-				}
-			}
-		}
-		return nil, nil
-	}
-	title := firstHeadingOrFallback(content, fallbackGitHubTitle(info))
-	return &MarkdownResult{URL: raw, Title: title, Markdown: content}, nil
-}
 
 func checkMarkdownAvailable(raw string) (bool, error) {
 	mdURL := raw
@@ -180,14 +99,6 @@ func firstHeadingOrFallback(markdown, fallback string) string {
 		return "Document"
 	}
 	return fallback
-}
-
-func fallbackGitHubTitle(info *githubURLInfo) string {
-	if info.Path != "" {
-		parts := strings.Split(info.Path, "/")
-		return parts[len(parts)-1]
-	}
-	return info.Owner + "/" + info.Repo
 }
 
 type tokenBucketRateLimiter struct {

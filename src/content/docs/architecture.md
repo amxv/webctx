@@ -11,8 +11,9 @@ summary: The code map for webctx maintainers and agent contributors.
 ```text
 cmd/webctx/main.go          CLI entrypoint
 internal/app/app.go         argument parsing and command dispatch
-internal/app/tools.go       search, read-link, map-site, ranking, provider calls
-internal/app/scrape.go      GitHub raw path, markdown path, Firecrawl queue, env loading
+internal/app/tools.go       search, read-link dispatch, map-site, ranking, provider calls
+internal/app/github.go      native GitHub routing, provider client, source/tree rendering
+internal/app/scrape.go      direct markdown path, Firecrawl queue, env loading
 internal/buildinfo          build-time version plumbing
 bin/webctx.js               npm executable shim
 scripts/postinstall.js      release binary downloader and Go build fallback
@@ -36,7 +37,7 @@ The CLI intentionally avoids a heavy framework. `internal/app/app.go` handles:
 
 ## Provider clients
 
-`internal/app/tools.go` contains provider-specific requests:
+`internal/app/tools.go` contains search/scrape provider requests and the top-level `read-link` fallback chain:
 
 - Brave web search
 - Tavily search
@@ -46,13 +47,23 @@ The CLI intentionally avoids a heavy framework. `internal/app/app.go` handles:
 
 It also contains output formatting, result ranking, excluded-domain filtering, HTML entity decoding, URL normalization, and missing-credential errors.
 
-## Scrape helpers
+## Native GitHub reader
 
-`internal/app/scrape.go` contains the fast paths and credential loading:
+`internal/app/github.go` owns the GitHub-native boundary for the route families webctx can represent faithfully. It currently handles:
 
-- parse GitHub repository, blob, and tree URLs
-- convert GitHub file URLs to raw content URLs
-- fetch root repository README files
+- repository roots with compact metadata and bounded README previews
+- public raw blob reads plus line/range and Markdown-heading selectors
+- authenticated/private blob fallback through the GitHub Contents API
+- one-level tree listings and directory README previews
+- provider-backed slash-ref/path resolution when the ref/path split is required
+- REST request versioning, optional GitHub auth, response headers/status, Link pagination primitives, and GitHub-specific errors
+
+The native classifier only claims implemented repository/blob/tree URLs. Other GitHub pages retain the generic fallback behavior, and GitHub security pages are intentionally excluded.
+
+## Scrape and credential helpers
+
+`internal/app/scrape.go` contains the generic direct/fallback paths and credential loading:
+
 - detect direct markdown availability
 - queue Firecrawl scrape requests with a token bucket limiter
 - load `.env.local` files

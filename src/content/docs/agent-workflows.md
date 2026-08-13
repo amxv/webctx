@@ -42,10 +42,14 @@ Use this to gather the important pages before asking an agent to write or update
 ```bash
 webctx read-link https://github.com/amxv/webctx
 webctx read-link https://github.com/amxv/webctx/blob/main/CONTRIBUTORS.md
+webctx read-link 'https://github.com/amxv/webctx/blob/main/internal/app/app.go#L130-L180'
 webctx read-link https://github.com/amxv/webctx/blob/main/docs/porting-status.md
+webctx read-link https://github.com/amxv/webctx/tree/main/internal/app
 ```
 
-GitHub README and blob URLs use the raw-content fast path, which avoids the scraping provider when the content is public.
+The repository root is an orientation read: compact metadata, a bounded README preview, and source-navigation hints. Direct public blobs use the raw-content fast path and return the full source; line fragments narrow a file before it reaches the agent. Tree URLs return a one-level listing without GitHub navigation chrome.
+
+For private repository source, configure optional `GH_TOKEN` or `GITHUB_TOKEN`. Public GitHub reads stay anonymous by default.
 
 ## Noise control
 

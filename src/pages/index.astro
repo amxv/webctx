@@ -21,7 +21,7 @@ const commands = [
     command: "read-link",
     line: "webctx read-link <url>",
     title: "Turn a page into useful text.",
-    body: "GitHub raw files and direct markdown take the cheap fast path. Everything else falls back to Firecrawl and returns clean markdown."
+    body: "GitHub repositories, source selectors, and trees get native low-noise reads. Direct markdown stays cheap; unsupported pages fall back to Firecrawl."
   },
   {
     index: "03",
@@ -283,7 +283,7 @@ const workflow = [
         <div class="wc-gradient__copy wc-reveal">
           <h2 id="gradient-title">Don’t scrape what you can <em>just fetch.</em></h2>
           <p>
-            Most agent reading is documentation, GitHub files, and markdown. webctx checks those direct paths before paying the latency and cost of browser-grade extraction.
+            Most agent reading is documentation, repository context, and source. webctx interprets supported GitHub URLs directly, checks markdown paths next, and pays the latency and cost of browser-grade extraction only when it has to.
           </p>
           <a href="/docs/read-link">See the read-link pipeline <span aria-hidden="true">→</span></a>
         </div>
@@ -293,9 +293,9 @@ const workflow = [
           <article class="wc-path-step wc-path-step--fast">
             <span class="wc-path-step__number">01</span>
             <div>
-              <p>GitHub blob URL?</p>
-              <strong>Try raw content</strong>
-              <small>Fast · direct · free</small>
+              <p>GitHub repo, blob, or tree?</p>
+              <strong>Read the selected resource natively</strong>
+              <small>Metadata · source ranges · one-level trees</small>
             </div>
             <span class="wc-path-step__badge">preferred</span>
           </article>

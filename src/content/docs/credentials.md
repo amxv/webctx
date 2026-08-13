@@ -1,6 +1,6 @@
 ---
 title: Credentials
-description: Configure Brave, Tavily, Exa, and Firecrawl keys through environment variables, .env.local files, or macOS Keychain.
+description: Configure search, Firecrawl, and optional GitHub credentials through environment variables, .env.local files, or macOS Keychain.
 order: 3
 category: Credentials
 summary: The key-loading model for all webctx commands.
@@ -16,7 +16,14 @@ TAVILY_API_KEY
 EXA_API_KEY
 ```
 
-`webctx read-link` uses `FIRECRAWL_API_KEY` only when the GitHub raw-content path and direct markdown path do not work.
+`webctx read-link` can use these optional GitHub tokens for authenticated/private repository source reads:
+
+```text
+GH_TOKEN
+GITHUB_TOKEN
+```
+
+Public GitHub repository, blob, and tree reads do not require a token. When both token variables contain values, `GH_TOKEN` takes precedence. `FIRECRAWL_API_KEY` is used only when a URL is not handled by a native/direct-markdown path and needs the Firecrawl fallback.
 
 `webctx map-site` uses:
 
@@ -44,6 +51,8 @@ BRAVE_API_KEY=brave_demo_key
 TAVILY_API_KEY=tavily_demo_key
 EXA_API_KEY=exa_demo_key
 FIRECRAWL_API_KEY=firecrawl_demo_key
+GH_TOKEN=
+GITHUB_TOKEN=
 ```
 
 webctx checks these candidate paths:
@@ -65,6 +74,7 @@ security add-generic-password -U -s webctx -a BRAVE_API_KEY -w brave_demo_key
 security add-generic-password -U -s webctx -a TAVILY_API_KEY -w tavily_demo_key
 security add-generic-password -U -s webctx -a EXA_API_KEY -w exa_demo_key
 security add-generic-password -U -s webctx -a FIRECRAWL_API_KEY -w firecrawl_demo_key
+security add-generic-password -U -s webctx -a GH_TOKEN -w github_demo_token
 ```
 
 Keychain lookup is skipped on non-macOS systems.
