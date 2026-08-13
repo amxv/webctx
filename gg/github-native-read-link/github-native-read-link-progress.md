@@ -30,7 +30,7 @@
 
 | Phase | Capability | Status | Completion commit | Evidence / next boundary |
 | ---: | --- | --- | --- | --- |
-| 1 | Native GitHub foundation, repository roots, blobs, trees, and selectors | complete | pending Phase 1 commit | Native repository/blob/tree routing, GitHub client/error/auth/pagination boundary, ref resolver, selectors, docs, deterministic/live evidence complete. |
+| 1 | Native GitHub foundation, repository roots, blobs, trees, and selectors | complete | `5c234ce31e6cafb055b3703255f85cb64793d9ea` | Native repository/blob/tree routing, GitHub client/error/auth/pagination boundary, ref resolver, selectors, docs, deterministic/live evidence complete. |
 | 2 | Issues, conversations, selectors, lists, labels, and relationships | pending | — | Requires Phase 1 native routing/client/pagination/hints. |
 | 3 | Pull Request conversation, reviews, threads, and exact anchors | pending | — | Reuse Issue conversation identity and add PR review/thread truth. |
 | 4 | Pull Request Files Changed, commits, checks, and diff selectors | pending | — | Add PR view-specific semantics and current diff/check selectors. |
@@ -59,7 +59,7 @@
 
 - **Agent/session:** GPT-5.6 Sol implementation session on the Zodex checkout.
 - **Starting state:** `main` was clean, fetched, and fast-forwarded to `71e9e2a3da8c08d04129d01cb7a69397e9a8b019`; the only newly fetched work was unrelated Vercel docs-build filtering and was preserved unchanged.
-- **Ending commit(s):** pending Phase 1 commit; replace after commit creation.
+- **Ending commit(s):** `5c234ce31e6cafb055b3703255f85cb64793d9ea` — Phase 1 implementation, tests, public docs, and initial durable handoff.
 - **Outcome:** `webctx read-link` now has one native GitHub boundary for repository roots, blobs, and trees. Repository roots render compact frontmatter plus bounded human-view README previews and native URL hints; direct blobs preserve full source by default with line/range and Markdown-heading selectors; tree URLs return one-level listings and bounded directory READMEs. Recognized native failures stay authoritative while unsupported GitHub routes retain direct-Markdown/Firecrawl fallback.
 - **Files/areas changed:** new `internal/app/github.go` canonical target/client/error/ref-resolution/rendering path and deterministic `github_test.go`; `tools.go` routes through it; the old narrow parser/raw reader was removed from `scrape.go`; GitHub token keys joined the existing credential loader; README/docs/landing/environment template were updated for delivered behavior only.
 - **Positive evidence:** deterministic tests cover root/blob/tree classification and unsupported/security routes; REST version/Accept/User-Agent/auth origin and `GH_TOKEN`→`GITHUB_TOKEN` precedence; Link parsing; 401/403/404/429/rate/provider-limit classification and secret non-leakage; slash refs and overlapping-ref ambiguity; root metadata/~5k safe README/full-link/hints; source comments, line/range and heading selectors; binary/100 MB handling; authenticated/private fallback; one-level trees, directory README, and the 1,000-entry provider ceiling. `go test ./...` and `go vet ./...` pass.
