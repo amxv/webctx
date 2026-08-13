@@ -86,7 +86,7 @@ Required keys by command:
 - `search`
   Uses `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY`
 - `read-link`
-  Reads public GitHub repositories, blobs, and trees without a token. Optional `GH_TOKEN` (preferred) or `GITHUB_TOKEN` enables authenticated/private GitHub source reads. Uses `FIRECRAWL_API_KEY` for pages that are not handled natively or as direct `.md` content.
+  Reads public GitHub repositories, blobs, trees, Issues, labels, and milestones without a token. Optional `GH_TOKEN` (preferred) or `GITHUB_TOKEN` enables authenticated/private GitHub reads. Uses `FIRECRAWL_API_KEY` for pages that are not handled natively or as direct `.md` content.
 - `map-site`
   Uses `FIRECRAWL_API_KEY`
 
@@ -94,9 +94,10 @@ Required keys by command:
 
 `read-link` is designed to avoid expensive scraping when it does not need to and to keep copied GitHub URLs scoped to what they mean.
 
-- A GitHub repository root returns compact repository metadata, a README preview of roughly 5,000 characters, a full README blob link when needed, and a few useful source-navigation URL examples.
+- A GitHub repository root returns compact repository metadata, a README preview of roughly 5,000 characters, a full README blob link when needed, and a few useful source/tree/Issue URL examples.
 - GitHub blob URLs use the raw-content fast path for public files. `#L20` and `#L20-L40` select source lines, while Markdown heading fragments such as `#installation` select that section. Direct blobs return the full source by default and preserve source comments.
 - GitHub tree URLs return a one-level directory listing plus a bounded directory README when present. Slash-containing refs are resolved against GitHub rather than assuming the first path segment is the branch.
+- GitHub Issue URLs return compact metadata, the human-visible body, substantive timeline activity, comments, and current relationships. `#issuecomment-<id>` reads one exact comment. Issue/search/label/milestone lists stay bounded instead of expanding every conversation.
 - Optional `GH_TOKEN`, then `GITHUB_TOKEN`, is used for authenticated GitHub API reads. Ordinary public reads do not require or prompt for a token.
 - For direct markdown-style URLs, it checks the `.md` path.
 - GitHub route families that do not yet have a native reader, and normal web pages, continue through the existing direct-markdown and Firecrawl fallbacks.

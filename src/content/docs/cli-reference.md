@@ -47,7 +47,7 @@ GITHUB_TOKEN        optional GitHub auth fallback
 
 `search` returns markdown links with indented summaries.
 
-`read-link` returns terminal-friendly markdown/text. Native GitHub repository/tree reads use compact metadata plus selected content; ordinary pages keep the title/URL/content shape.
+`read-link` returns terminal-friendly markdown/text. Native GitHub repository/tree/Issue/list reads use compact metadata plus selected content; ordinary pages keep the title/URL/content shape.
 
 `map-site` returns a URL list with optional titles and descriptions.
 

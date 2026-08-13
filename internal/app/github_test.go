@@ -60,7 +60,7 @@ func TestParseGitHubTargetTable(t *testing.T) {
 		{name: "blob slash ref left unresolved", rawURL: "https://github.com/cli/cli/blob/andyfeller/test/README.md#installation", kind: GitHubTargetBlob, tail: "andyfeller/test/README.md", fragment: "installation", supported: true},
 		{name: "tree slash ref left unresolved", rawURL: "https://github.com/cli/cli/tree/andyfeller/test/docs", kind: GitHubTargetTree, tail: "andyfeller/test/docs", supported: true},
 		{name: "malformed blob remains authoritative family", rawURL: "https://github.com/amxv/webctx/blob/main", kind: GitHubTargetBlob, tail: "main", supported: true},
-		{name: "issue is later phase fallback", rawURL: "https://github.com/amxv/webctx/issues/1", supported: false},
+		{name: "issue", rawURL: "https://github.com/amxv/webctx/issues/1", kind: GitHubTargetIssue, supported: true},
 		{name: "pull request is later phase fallback", rawURL: "https://github.com/amxv/webctx/pull/1", supported: false},
 		{name: "security excluded", rawURL: "https://github.com/amxv/webctx/security/code-scanning", supported: false},
 		{name: "settings excluded", rawURL: "https://github.com/amxv/webctx/settings", supported: false},
@@ -685,17 +685,17 @@ func TestReadLinkUnsupportedGitHubFallsThroughToFirecrawlWithExistingSettings(t 
 		if req.Method == http.MethodPost && req.URL.String() == "https://api.firecrawl.dev/v2/scrape" {
 			body, _ := io.ReadAll(req.Body)
 			_ = json.Unmarshal(body, &firecrawlPayload)
-			response := `{"success":true,"data":{"metadata":{"title":"Issue page"},"markdown":"scraped issue body"}}`
+			response := `{"success":true,"data":{"metadata":{"title":"Wiki page"},"markdown":"scraped wiki body"}}`
 			return testHTTPResponse(req, http.StatusOK, response, map[string]string{"Content-Type": "application/json"}), nil
 		}
 		return testHTTPResponse(req, http.StatusNotFound, "", nil), nil
 	})}
 	t.Setenv("FIRECRAWL_API_KEY", "fake-firecrawl-key")
-	out, err := ReadLink("https://github.com/o/r/issues/123")
+	out, err := ReadLink("https://github.com/o/r/wiki/Guide")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "scraped issue body") {
+	if !strings.Contains(out, "scraped wiki body") {
 		t.Fatalf("unsupported GitHub route was swallowed: %q", out)
 	}
 	for key, want := range map[string]any{

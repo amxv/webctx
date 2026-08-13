@@ -50,7 +50,7 @@ webctx --help
 
 ## Add credentials
 
-Search uses Brave, Tavily, and Exa. Public GitHub repository/blob/tree reads work without a token, while optional `GH_TOKEN` or `GITHUB_TOKEN` enables authenticated/private GitHub source reads. Firecrawl handles site mapping and `read-link` pages that reach the generic fallback.
+Search uses Brave, Tavily, and Exa. Public GitHub repository/blob/tree/Issue/label/milestone reads work without a token, while optional `GH_TOKEN` or `GITHUB_TOKEN` enables authenticated/private GitHub reads. Firecrawl handles site mapping and `read-link` pages that reach the generic fallback.
 
 Create a `.env.local` file where webctx can find it:
 

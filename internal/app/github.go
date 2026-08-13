@@ -34,6 +34,12 @@ const (
 	GitHubTargetRepository GitHubTargetKind = "repository"
 	GitHubTargetBlob       GitHubTargetKind = "blob"
 	GitHubTargetTree       GitHubTargetKind = "tree"
+	GitHubTargetIssue      GitHubTargetKind = "issue"
+	GitHubTargetIssueList  GitHubTargetKind = "issue_list"
+	GitHubTargetLabel      GitHubTargetKind = "label"
+	GitHubTargetLabelList  GitHubTargetKind = "label_list"
+	GitHubTargetMilestone  GitHubTargetKind = "milestone"
+	GitHubTargetMilestones GitHubTargetKind = "milestones"
 )
 
 // GitHubTarget is the semantic identity parsed from a GitHub URL. Blob/tree
@@ -44,6 +50,8 @@ type GitHubTarget struct {
 	Repo        string
 	Kind        GitHubTargetKind
 	Tail        []string
+	Number      int
+	Name        string
 	Fragment    string
 	Query       url.Values
 	OriginalURL string
@@ -94,6 +102,7 @@ const (
 	GitHubErrorForbidden      GitHubErrorKind = "forbidden"
 	GitHubErrorRateLimit      GitHubErrorKind = "rate_limit"
 	GitHubErrorProviderLimit  GitHubErrorKind = "provider_limit"
+	GitHubErrorGone           GitHubErrorKind = "gone"
 	GitHubErrorHTTP           GitHubErrorKind = "http"
 )
 
@@ -148,6 +157,8 @@ func (e *GitHubError) Error() string {
 			return "GitHub provider limit: " + e.ProviderLimit + "."
 		}
 		return "GitHub provider limit prevented a complete read" + status + "."
+	case GitHubErrorGone:
+		return "GitHub resource is no longer available" + status + "."
 	default:
 		return "GitHub request failed" + status + "."
 	}
@@ -188,6 +199,50 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 		target.Kind = GitHubTargetTree
 		target.Tail = append([]string(nil), parts[3:]...)
 		return target
+	case "issues":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetIssueList
+			return target
+		}
+		if len(parts) == 4 {
+			number, err := strconv.Atoi(parts[3])
+			if err == nil && number > 0 {
+				target.Kind = GitHubTargetIssue
+				target.Number = number
+				return target
+			}
+		}
+		return nil
+	case "labels":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetLabelList
+			return target
+		}
+		if len(parts) == 4 {
+			name, err := url.PathUnescape(parts[3])
+			if err == nil && strings.TrimSpace(name) != "" {
+				target.Kind = GitHubTargetLabel
+				target.Name = name
+				return target
+			}
+		}
+		return nil
+	case "milestones":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetMilestones
+			return target
+		}
+		return nil
+	case "milestone":
+		if len(parts) == 4 {
+			number, err := strconv.Atoi(parts[3])
+			if err == nil && number > 0 {
+				target.Kind = GitHubTargetMilestone
+				target.Number = number
+				return target
+			}
+		}
+		return nil
 	default:
 		// Security pages and every route family not yet implemented remain on
 		// the existing generic markdown/Firecrawl fallback path.
@@ -231,6 +286,27 @@ func (c *GitHubClient) REST(ctx context.Context, method, endpoint, accept string
 		accept = "application/vnd.github+json"
 	}
 	return c.request(ctx, method, rawURL, accept, true)
+}
+
+// RESTPages follows GitHub-provided Link rel=next URLs until the selected
+// resource is complete. It deliberately does not synthesize page numbers.
+func (c *GitHubClient) RESTPages(ctx context.Context, endpoint, accept string) ([]GitHubResponse, error) {
+	pages := []GitHubResponse{}
+	next := endpoint
+	seen := map[string]struct{}{}
+	for strings.TrimSpace(next) != "" {
+		if _, ok := seen[next]; ok {
+			return nil, fmt.Errorf("GitHub pagination returned a cycle at %s", next)
+		}
+		seen[next] = struct{}{}
+		resp, err := c.REST(ctx, http.MethodGet, next, accept)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, resp)
+		next = resp.Links()["next"]
+	}
+	return pages, nil
 }
 
 func (c *GitHubClient) Raw(ctx context.Context, rawURL string) (GitHubResponse, error) {
@@ -311,6 +387,8 @@ func classifyGitHubError(resp GitHubResponse, hasToken bool) error {
 		kind = GitHubErrorAuthentication
 	case http.StatusNotFound:
 		kind = GitHubErrorNotFound
+	case http.StatusGone:
+		kind = GitHubErrorGone
 	case http.StatusForbidden:
 		if resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.Header.Get("Retry-After") != "" || strings.Contains(message, "rate limit") || strings.Contains(message, "abuse detection") {
 			kind = GitHubErrorRateLimit
@@ -417,6 +495,18 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubBlob(ctx, client, target)
 	case GitHubTargetTree:
 		markdown, err = readGitHubTree(ctx, client, target)
+	case GitHubTargetIssue:
+		markdown, err = readGitHubIssue(ctx, client, target)
+	case GitHubTargetIssueList:
+		markdown, err = readGitHubIssueList(ctx, client, target)
+	case GitHubTargetLabel:
+		markdown, err = readGitHubLabel(ctx, client, target)
+	case GitHubTargetLabelList:
+		markdown, err = readGitHubLabelList(ctx, client, target)
+	case GitHubTargetMilestone:
+		markdown, err = readGitHubMilestone(ctx, client, target)
+	case GitHubTargetMilestones:
+		markdown, err = readGitHubMilestones(ctx, client, target)
 	default:
 		return GitHubNativeResult{Outcome: GitHubNativeUnsupported}
 	}
@@ -587,6 +677,7 @@ func githubRootHints(repo githubRepository, readme *githubContent) []string {
 		"Select source lines: "+base+"/blob/"+refPath+"/path/to/file#L20-L40",
 		"Select a Markdown section: "+base+"/blob/"+refPath+"/README.md#installation",
 		"List one directory level: "+base+"/tree/"+refPath+"/path/to/directory",
+		"Browse Issues: "+base+"/issues",
 	)
 	return hints
 }

@@ -21,7 +21,7 @@ const commands = [
     command: "read-link",
     line: "webctx read-link <url>",
     title: "Turn a page into useful text.",
-    body: "GitHub repositories, source selectors, and trees get native low-noise reads. Direct markdown stays cheap; unsupported pages fall back to Firecrawl."
+    body: "GitHub repositories, source selectors, trees, and Issues get native low-noise reads. Direct markdown stays cheap; unsupported pages fall back to Firecrawl."
   },
   {
     index: "03",
@@ -283,7 +283,7 @@ const workflow = [
         <div class="wc-gradient__copy wc-reveal">
           <h2 id="gradient-title">Don’t scrape what you can <em>just fetch.</em></h2>
           <p>
-            Most agent reading is documentation, repository context, and source. webctx interprets supported GitHub URLs directly, checks markdown paths next, and pays the latency and cost of browser-grade extraction only when it has to.
+            Most agent reading is documentation, repository context, source, and issue discussion. webctx interprets supported GitHub URLs directly, checks markdown paths next, and pays the latency and cost of browser-grade extraction only when it has to.
           </p>
           <a href="/docs/read-link">See the read-link pipeline <span aria-hidden="true">→</span></a>
         </div>
@@ -293,9 +293,9 @@ const workflow = [
           <article class="wc-path-step wc-path-step--fast">
             <span class="wc-path-step__number">01</span>
             <div>
-              <p>GitHub repo, blob, or tree?</p>
+              <p>GitHub repo, blob, tree, or Issue?</p>
               <strong>Read the selected resource natively</strong>
-              <small>Metadata · source ranges · one-level trees</small>
+              <small>Metadata · source ranges · trees · Issue conversations</small>
             </div>
             <span class="wc-path-step__badge">preferred</span>
           </article>

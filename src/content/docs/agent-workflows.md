@@ -45,9 +45,13 @@ webctx read-link https://github.com/amxv/webctx/blob/main/CONTRIBUTORS.md
 webctx read-link 'https://github.com/amxv/webctx/blob/main/internal/app/app.go#L130-L180'
 webctx read-link https://github.com/amxv/webctx/blob/main/docs/porting-status.md
 webctx read-link https://github.com/amxv/webctx/tree/main/internal/app
+webctx read-link https://github.com/amxv/webctx/issues/6
+webctx read-link 'https://github.com/amxv/webctx/issues?q=is%3Aissue'
 ```
 
-The repository root is an orientation read: compact metadata, a bounded README preview, and source-navigation hints. Direct public blobs use the raw-content fast path and return the full source; line fragments narrow a file before it reaches the agent. Tree URLs return a one-level listing without GitHub navigation chrome.
+The repository root is an orientation read: compact metadata, a bounded README preview, and native navigation hints. Direct public blobs use the raw-content fast path and return the full source; line fragments narrow a file before it reaches the agent. Tree URLs return a one-level listing without GitHub navigation chrome. Issue URLs preserve substantive conversation, while Issue/search/label/milestone list views remain compact and bounded.
+
+When you already have an exact Issue comment URL, keep its `#issuecomment-...` fragment. webctx resolves that comment directly instead of reading the whole Issue first.
 
 For private repository source, configure optional `GH_TOKEN` or `GITHUB_TOKEN`. Public GitHub reads stay anonymous by default.
 
