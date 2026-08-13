@@ -39,18 +39,18 @@
 | 7 | Branches, tags, releases, and stable repository navigation lists | complete | `331c1f1290a1eb4007f01c78b386ab55383a1cb0` | Bounded branch/tag/release/fork/star/subscriber navigation and exact release assets/notes are complete. |
 | 8 | Discussions and Gists | complete | `38a1fd20a57ecc3533a012500f844924c238aaac` | Authenticated Discussion lists/conversations and public Gist files/comments/revisions/selectors/truncation handling are complete. |
 | 9 | GitHub search and public User/Organization navigation | complete | `a6e066924adc51884a34f33da10374cfdef82a83` | Bounded Search plus provider-resolved User/Organization profiles/tabs and separate Search-quota truth are complete. |
-| 10 | Repository activity, metrics, social lists, and deployments | pending | — | Keep provider delay/cache/status-retention truth explicit. |
+| 10 | Repository activity, metrics, social lists, and deployments | complete | `e230bec7bdd3be2d6d94a14d2c4eb9f4969f8974` | Bounded activity, provider-computed statistics, and deployment/environment/status history with freshness/retention truth are complete. |
 | 11 | Packages, Projects v2, and long-tail native route closure | pending | — | Fresh route/API audit; stable read-only native or explicit fallback reason. |
 | 12 | Independent acceptance, output hardening, docs/package verification, and route-fidelity audit | pending | — | Map all 127 acceptance criteria to current evidence and close gaps. |
 
 ## Current handoff
 
-- **Last completed phase:** Phase 9 — `GitHub search and public User/Organization navigation`.
-- **Earliest incomplete phase:** Phase 10.
-- **Exact phase title:** `Repository activity, metrics, social lists, and deployments`.
-- **Observable boundary:** add compact native repository activity/events, contributors/statistics, and deployment/environment/status history where current GitHub has stable first-party mappings, surfacing provider delay/computation/status-retention truth and reusing—not duplicating—the Phase 7 social-list semantics.
-- **Current blockers:** none known. Phase 9 full Go tests/vet/make check, docs check/build, package manifest smoke, local binary build, deterministic Search/profile/type-resolution/tab fixtures, and public GitHub Search/profile route probes are complete. Search/core provider quota state is kept resource-specific in evidence rather than generalized.
-- **Plan Amendments affecting Phase 10:** none.
+- **Last completed phase:** Phase 10 — `Repository activity, metrics, social lists, and deployments`.
+- **Earliest incomplete phase:** Phase 11.
+- **Exact phase title:** `Packages, Projects v2, and long-tail native route closure`.
+- **Observable boundary:** audit current long-tail read-only GitHub routes and add native readers only where stable current UI URLs map faithfully to first-party REST/GraphQL data, especially packages and Projects v2 auth-only cases; explicitly preserve generic fallback for unproven/admin/security/binary routes.
+- **Current blockers:** none known. Phase 10 full Go tests/vet/make check, docs check/build, package manifest smoke, local binary build, deterministic activity/statistics/deployment fixtures, and public provider smokes are complete. Provider-computed/cache/retention caveats remain explicit instead of being hidden by webctx's fresh requests.
+- **Plan Amendments affecting Phase 11:** none.
 - **Prompt to use:** [`subsequent-agent-prompt.md`](./subsequent-agent-prompt.md).
 
 ## Progress entries
@@ -198,6 +198,22 @@
 - **Amendments:** none; current first-party GitHub behavior supported the Phase 9 plan assumptions.
 - **Known defects/risks:** GitHub Search exposes at most 1,000 results and may set `incomplete_results`; webctx surfaces both and never labels the universe complete past those boundaries. Search sorting capabilities differ by resource type; copied provider sort values are forwarded rather than reinterpreted. Reserved-global route coverage will still receive a final long-tail audit in Phase 12. No Phase 9 correctness blocker is known.
 - **Next handoff:** Phase 10 should inspect Phase 7 social-list renderers plus the shared bounded list/error/client primitives, then add activity/events, metrics/statistics, and deployment/environment/status readers with explicit provider delay/computation/retention truth. Do not duplicate `/forks`/`/stargazers`/`/watchers` semantics already owned by Phase 7.
+
+### 2026-08-14 — Phase 10 — `complete`
+
+- **Agent/session:** GPT-5.6 Sol continuation session on the Zodex checkout.
+- **Starting state:** `main` was clean and exactly matched `origin/main` at the Phase 9 handoff commit; current repository activity, repository statistics, deployments/environments/status REST documentation and live UI route shapes were checked before claiming Phase 10 routes.
+- **Ending commit(s):** `e230bec7bdd3be2d6d94a14d2c4eb9f4969f8974` — Phase 10 implementation, tests, public docs, and initial durable handoff.
+- **Outcome:** `/activity` now returns one bounded provider activity page with copied provider-backed filters/navigation. Stable `/graphs/contributors`, `/graphs/commit-activity`, and `/graphs/code-frequency` URLs map to GitHub repository-statistics endpoints, preserve provider-cached computation truth, and turn HTTP 202 into explicit `provider_status: computing` rather than empty success. `/deployments` stays bounded and never fans out statuses; `/deployments/<environment>` reads environment metadata, one bounded deployment page, and every status page GitHub returns for those selected deployments while explicitly declining to imply indefinite status retention. Phase 7 remains the sole owner of forks/stargazers/subscribers.
+- **Files/areas changed:** `internal/app/github.go` gained activity/statistics/deployment target routing; new `internal/app/github_activity_deployments.go` owns activity/statistics/deployment/status behavior; new `github_activity_deployments_test.go` supplies deterministic provider fixtures; README/read-link/quickstart/CLI-reference/architecture/agent-workflows/landing copy was synchronized.
+- **Positive evidence:** deterministic tests prove current route classification and rejection of unproven graph routes, bounded activity/filter/page mapping, activity previous/next navigation, statistics HTTP 202 computation truth, contributor aggregate additions/deletions/commits plus cached-provider caveat, commit-activity/code-frequency week rendering, bounded deployment list with zero status fan-out, environment metadata, bounded environment deployments, fully paginated selected-deployment statuses, log URLs, explicit retention caveat, and native provider-failure/no-body-leakage behavior. `go test ./...`, `go vet ./...`, formatting, and `git diff --check` pass.
+- **Regression evidence:** the complete Phase 1–9 suite remains green, including source/Issue/PR/history/Actions/ref/release/social/Discussion/Gist/Search/profile paths plus generic fallback/search command/map-site. `make check` passes. Existing `/forks`, `/stargazers`, and `/watchers` semantics are reused rather than duplicated or relabeled.
+- **Live evidence:** public github.com `/activity`, contributor graph, graph metric, and deployment-page route shapes were probed before implementation. Forced-anonymous native `cli/cli` activity/contributor-statistics and `amxv/webctx` deployment smokes were attempted and their provider success/quota state was recorded from the live command. Current first-party docs were rechecked for repository activity, statistics 202/provider computation behavior, deployment/environment/status pagination, and provider-retained history. No token/private payload was persisted.
+- **Documentation:** README plus read-link, quickstart, CLI reference, architecture, agent-workflows, and landing copy now explain bounded activity, provider-computed/cached statistics and 202 behavior, bounded deployments, selected-environment status history, and the distinction between fresh webctx requests and upstream freshness/retention. `npm run docs:check` completed without errors, `npm run docs:build` passed, Vercel docs-ignore tests passed 6/6, npm dry-run packaging includes the Phase 10 source/tests, and the local binary builds/reports the package version.
+- **Decisions made:** only graph routes with a stable current UI/API mapping are claimed; traffic and other unproven graph routes remain generic fallback. Repository statistics are selected-resource projections and may be provider-cached; HTTP 202 is represented as computing rather than failure or zero data. Deployment lists avoid N×status fan-out; selected environment pages intentionally fetch complete returned status pagination for only their bounded deployment page. No numeric status-retention guarantee is invented when GitHub only controls the retained provider history.
+- **Amendments:** none; current first-party GitHub behavior supported the Phase 10 plan assumptions.
+- **Known defects/risks:** GitHub statistics freshness remains provider-controlled; a fresh call can still return cached/provider-computed values. Deployment status history is limited by whatever GitHub still returns for the selected deployment and webctx cannot recover provider-expired history. No Phase 10 correctness blocker is known.
+- **Next handoff:** Phase 11 should perform a fresh route/API audit before native ownership expands. Add packages/Projects v2 or other long-tail readers only where a current stable GitHub URL maps faithfully to supported first-party data; auth-only routes must fail concisely without scraped fallback, and security/settings/admin/binary routes must remain outside native ownership.
 
 When a phase is completed or blocked, append an entry in this exact shape:
 
