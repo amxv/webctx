@@ -61,7 +61,10 @@ func TestParseGitHubTargetTable(t *testing.T) {
 		{name: "tree slash ref left unresolved", rawURL: "https://github.com/cli/cli/tree/andyfeller/test/docs", kind: GitHubTargetTree, tail: "andyfeller/test/docs", supported: true},
 		{name: "malformed blob remains authoritative family", rawURL: "https://github.com/amxv/webctx/blob/main", kind: GitHubTargetBlob, tail: "main", supported: true},
 		{name: "issue", rawURL: "https://github.com/amxv/webctx/issues/1", kind: GitHubTargetIssue, supported: true},
-		{name: "pull request is later phase fallback", rawURL: "https://github.com/amxv/webctx/pull/1", supported: false},
+		{name: "pull request conversation", rawURL: "https://github.com/amxv/webctx/pull/1", kind: GitHubTargetPull, supported: true},
+		{name: "pull request files remain later phase fallback", rawURL: "https://github.com/amxv/webctx/pull/1/files", supported: false},
+		{name: "pull request commits remain later phase fallback", rawURL: "https://github.com/amxv/webctx/pull/1/commits", supported: false},
+		{name: "pull request checks remain later phase fallback", rawURL: "https://github.com/amxv/webctx/pull/1/checks", supported: false},
 		{name: "security excluded", rawURL: "https://github.com/amxv/webctx/security/code-scanning", supported: false},
 		{name: "settings excluded", rawURL: "https://github.com/amxv/webctx/settings", supported: false},
 		{name: "profile excluded", rawURL: "https://github.com/amxv", supported: false},
@@ -327,13 +330,13 @@ func TestGitHubRepositoryRootPreviewAndHints(t *testing.T) {
 	if got := utf8.RuneCountInString(preview); got > githubRootPreviewRunes {
 		t.Fatalf("preview exceeds rune budget: %d", got)
 	}
-	for _, want := range []string{"#L20-L40", "#installation", "/tree/main/path/to/directory"} {
+	for _, want := range []string{"#L20-L40", "/tree/main/path/to/directory", "/issues", "/pull/123"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing useful native hint %q", want)
 		}
 	}
-	if strings.Contains(out, "/issues/") || strings.Contains(out, "/pull/") {
-		t.Fatal("Phase 1 root hints advertise later-phase native routes")
+	if strings.Count(out[strings.Index(out, "## Useful GitHub URLs"):], "\n-") > 5 {
+		t.Fatal("root native hints exceeded the concise orientation budget")
 	}
 	if strings.Contains(out, "GH_TOKEN") || strings.Contains(out, "GITHUB_TOKEN") {
 		t.Fatal("successful anonymous root read nags about authentication")

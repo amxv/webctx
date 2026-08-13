@@ -14,6 +14,7 @@ internal/app/app.go         argument parsing and command dispatch
 internal/app/tools.go       search, read-link dispatch, map-site, ranking, provider calls
 internal/app/github.go      native GitHub routing, provider client, source/tree rendering
 internal/app/github_issues.go native Issues, comments, lists, labels, milestones, relationships
+internal/app/github_pulls.go native PR conversations, reviews, inline threads, exact anchors
 internal/app/scrape.go      direct markdown path, Firecrawl queue, env loading
 internal/buildinfo          build-time version plumbing
 bin/webctx.js               npm executable shim
@@ -59,10 +60,12 @@ It also contains output formatting, result ranking, excluded-domain filtering, H
 - Issue conversations and exact `#issuecomment-...` selectors
 - bounded Issue/search/label/milestone list and detail views
 - current parent/sub-issue, dependency, and Issue-field relationships
+- Pull Request conversations, formal reviews, REST-grouped inline review threads, and exact PR anchors
+- optional authenticated GraphQL enrichment for resolved/outdated PR review-thread state
 - provider-backed slash-ref/path resolution when the ref/path split is required
 - REST request versioning, optional GitHub auth, response headers/status, Link pagination primitives, and GitHub-specific errors
 
-Issue-specific rendering lives in `internal/app/github_issues.go` but reuses the same `GitHubTarget`, `GitHubClient`, native success/error/unsupported boundary, pagination, and sanitization responsibilities. The classifier claims only route families that have a faithful native reader. Other GitHub pages retain generic fallback behavior, and GitHub security pages are intentionally excluded.
+Issue-specific rendering lives in `internal/app/github_issues.go`; PR-conversation rendering lives in `internal/app/github_pulls.go`. Both reuse the same `GitHubTarget`, `GitHubClient`, native success/error/unsupported boundary, provider pagination, and human-body sanitization responsibilities. The classifier claims only route families that have a faithful native reader. Focused PR files/commits/checks views remain separate until their native readers land; other GitHub pages retain generic fallback behavior, and GitHub security pages are intentionally excluded.
 
 ## Scrape and credential helpers
 

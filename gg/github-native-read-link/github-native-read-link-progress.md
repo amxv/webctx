@@ -32,7 +32,7 @@
 | ---: | --- | --- | --- | --- |
 | 1 | Native GitHub foundation, repository roots, blobs, trees, and selectors | complete | `5c234ce31e6cafb055b3703255f85cb64793d9ea` | Native repository/blob/tree routing, GitHub client/error/auth/pagination boundary, ref resolver, selectors, docs, deterministic/live evidence complete. |
 | 2 | Issues, conversations, selectors, lists, labels, and relationships | complete | `7bad0c3ef652560af1dcd7636dfbf0c6b5cc75bb` | Native Issue conversations/comment selectors plus bounded Issue/search/label/milestone views and current relationships are complete. |
-| 3 | Pull Request conversation, reviews, threads, and exact anchors | pending | — | Reuse Issue conversation identity and add PR review/thread truth. |
+| 3 | Pull Request conversation, reviews, threads, and exact anchors | complete | pending Phase 3 commit | Native PR conversations, formal reviews, REST-grouped review threads, three exact anchor classes, and optional GraphQL thread-state enrichment are complete. |
 | 4 | Pull Request Files Changed, commits, checks, and diff selectors | pending | — | Add PR view-specific semantics and current diff/check selectors. |
 | 5 | Commits, comparisons, path history, and blame | pending | — | Reuse canonical ref resolver/diff model; GraphQL blame is auth-only. |
 | 6 | GitHub Actions runs, jobs, logs, artifacts, and check annotations | pending | — | Run pages bounded; job URLs target one job/log. Verify step selectors before advertising them. |
@@ -45,12 +45,12 @@
 
 ## Current handoff
 
-- **Last completed phase:** Phase 2 — `Issues, conversations, selectors, lists, labels, and relationships`.
-- **Earliest incomplete phase:** Phase 3.
-- **Exact phase title:** `Pull Request conversation, reviews, threads, and exact anchors`.
-- **Observable boundary:** extend the same native target/client/result path from Issue identity/conversation semantics into Pull Request conversation identity, formal reviews, inline review-thread grouping, exact `#issuecomment-`, `#discussion_r`, and `#pullrequestreview-` selectors, plus truthful optional GraphQL thread-state enrichment when authenticated.
-- **Current blockers:** none known. Phase 2 full Go tests/vet/format/diff checks, `make check`, docs check/build, package manifest smoke, local binary build, Vercel docs guard tests, Phase 1 live regressions, and public Issue/list/comment live reads all passed.
-- **Plan Amendments affecting Phase 3:** none.
+- **Last completed phase:** Phase 3 — `Pull Request conversation, reviews, threads, and exact anchors`.
+- **Earliest incomplete phase:** Phase 4.
+- **Exact phase title:** `Pull Request Files Changed, commits, checks, and diff selectors`.
+- **Observable boundary:** add native ownership for `/pull/<n>/files`, `/pull/<n>/commits`, and `/pull/<n>/checks`, including current diff anchors/line selectors, provider patch/file ceilings, selected check-run annotations, and raw `.diff`/`.patch` preservation, while keeping the Phase 3 conversation path focused and duplicate-free.
+- **Current blockers:** none known. Phase 3 full Go tests/vet/format/diff checks, `make check`, docs check/build, package manifest smoke, local binary build, Vercel docs guard tests, and public PR/full/selector live reads all passed. No safe GitHub token was used for live GraphQL evidence; deterministic injected GraphQL coverage proves the authenticated boundary without claiming a live auth result.
+- **Plan Amendments affecting Phase 4:** none.
 - **Prompt to use:** [`subsequent-agent-prompt.md`](./subsequent-agent-prompt.md).
 
 ## Progress entries
@@ -86,6 +86,22 @@
 - **Amendments:** none; current first-party GitHub behavior supported the Phase 2 plan assumptions.
 - **Known defects/risks:** GitHub only exposes newer Issue relationship/type/field features when the repository/account has them; absent optional relationship endpoints are omitted rather than fabricated. Exact minimized/deleted state availability depends on what REST exposes for that public/auth context. No Phase 2 correctness blocker is known.
 - **Next handoff:** Phase 3 should inspect `internal/app/github.go` target/client/result pagination, `internal/app/github_issues.go` shared Issue identity/comment/timeline types and sanitizer behavior, then add Pull Request conversation/review/thread selectors without consuming `/pull/<n>/files`, `/commits`, or `/checks`, which belong to Phase 4.
+
+### 2026-08-14 — Phase 3 — `complete`
+
+- **Agent/session:** GPT-5.6 Sol continuation session on the Zodex checkout.
+- **Starting state:** `main` was clean and exactly matched `origin/main` at `858a0dbf7fa4bddb3d476587e415139fca23ea03`; Phase 2's Issue model/client/result boundary was inspected before adding PR-specific responsibilities.
+- **Ending commit(s):** pending Phase 3 commit; replace after commit creation.
+- **Outcome:** `/pull/<n>` now returns a native PR conversation with compact PR/base/head/change metadata, human-visible body, normal Issue-style comments and meaningful timeline transitions, complete submitted reviews, and inline REST review comments grouped into coherent root/reply threads. Exact `#issuecomment-`, `#discussion_r`, and `#pullrequestreview-` selectors narrow to normal comments, one inline thread, or one formal review. Public PRs remain anonymous-capable; configured GitHub auth optionally enriches threads with GraphQL resolved/outdated truth without making GraphQL mandatory.
+- **Files/areas changed:** `internal/app/github.go` gained PR conversation routing plus a reusable authenticated GraphQL request boundary; `internal/app/github_issues.go` extended shared timeline/comment identity for PR event fields and PR-aware normal-comment rendering; new `internal/app/github_pulls.go` owns Phase 3 PR/review/thread/selector semantics; new `github_pulls_test.go` supplies deterministic REST/GraphQL fixtures; README/docs/landing/root hints were synchronized while focused PR tabs remain separate for Phase 4.
+- **Positive evidence:** deterministic fixtures prove multi-page PR timeline completion, review/timeline de-duplication, empty/full formal reviews, bot/non-member preservation, cross-review reply chains grouped under their root, multiple paths/line/range coordinates, force-push/base-change/commit/ready-for-review/user-and-team-review-request state events, invisible body/comment sanitization, PR draft/open/closed/merged metadata, all three exact anchor classes, selector ownership validation, GraphQL auth-only semantics, provider-safe GraphQL errors, GraphQL pagination and resolved/outdated/resolver state enrichment, and graceful GraphQL failure with complete REST content preserved. `go test ./...`, `go vet ./...`, formatting, and `git diff --check` pass.
+- **Regression evidence:** Phase 1 root/source/tree tests and Phase 2 Issue/list/comment tests remain green; the root hint test was advanced from its old Phase 1 prohibition to require the now-native Issue/PR targets while retaining a five-hint orientation budget. Focused `/pull/<n>/files`, `/commits`, and `/checks` routes remain explicitly unsupported by native classification until Phase 4. `make check` passes search/map-site plus npm shim/postinstall validation.
+- **Live evidence:** forced-anonymous `cli/cli#13250` returned 19 submitted review headings and grouped 28 REST inline review comments into 13 threads while preserving bot reviews and normal Issue comments. Live timeline data exercised force pushes, base-ref changes, commits, ready-for-review, individual/team review requests, and rename behavior. `#discussion_r3118513169` returned that exact thread with all observed replies; `#pullrequestreview-4148860648` returned the selected approval and its review comments; `#issuecomment-4447874096` returned the selected normal PR comment through shared Issue-comment identity. Current GitHub first-party REST docs were rechecked for review/comment relationships, and GraphQL docs were rechecked for `reviewThreads`, `isResolved`, `isOutdated`, and `fullDatabaseId`. No live authenticated GraphQL claim is made because the live validation was deliberately forced anonymous.
+- **Documentation:** README plus read-link, credentials, quickstart, CLI reference, troubleshooting, architecture, agent-workflows, and landing copy describe native PR conversations/exact anchors and optional thread-state enrichment. PR `/files`, `/commits`, and `/checks` are described only as focused navigation targets, not as native Phase 3 reads. `npm run docs:check` completed with zero errors (the same seven existing Astro `z` deprecation hints), `npm run docs:build` passed, and Vercel docs-ignore tests passed 6/6.
+- **Decisions made:** REST `in_reply_to_id` is the anonymous content-authority for grouping threads; timeline `reviewed` events are intentionally skipped because the complete reviews endpoint owns formal-review text. Exact `discussion_r` reads fetch the selected comment plus the paginated PR review-comment universe only, then render just its thread; exact review reads use the selected review plus that review's comments. GraphQL uses `fullDatabaseId` to map provider thread state back to REST root-comment IDs and never prints provider GraphQL error bodies.
+- **Amendments:** none; current first-party GitHub behavior supported the Phase 3 plan assumptions.
+- **Known defects/risks:** resolved/outdated thread state remains unavailable on anonymous reads by provider design; the output gives at most one optional-auth hint. Exact formal-review output includes comments submitted with that review, while later replies belonging to other reviews are available through their `discussion_r` thread or the full PR conversation. No Phase 3 correctness blocker is known.
+- **Next handoff:** Phase 4 should inspect `GitHubTargetPull`, the PR-specific URL hints and selector parser, `githubPullRequest`/review-comment types, provider-Link pagination, and the existing raw/REST content primitives before adding files/commits/checks ownership. Do not re-expand focused tabs into the Phase 3 conversation renderer.
 
 When a phase is completed or blocked, append an entry in this exact shape:
 

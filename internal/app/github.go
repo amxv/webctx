@@ -40,6 +40,7 @@ const (
 	GitHubTargetLabelList  GitHubTargetKind = "label_list"
 	GitHubTargetMilestone  GitHubTargetKind = "milestone"
 	GitHubTargetMilestones GitHubTargetKind = "milestones"
+	GitHubTargetPull       GitHubTargetKind = "pull"
 )
 
 // GitHubTarget is the semantic identity parsed from a GitHub URL. Blob/tree
@@ -243,6 +244,18 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 			}
 		}
 		return nil
+	case "pull":
+		if len(parts) == 4 {
+			number, err := strconv.Atoi(parts[3])
+			if err == nil && number > 0 {
+				target.Kind = GitHubTargetPull
+				target.Number = number
+				return target
+			}
+		}
+		// Focused PR tabs (/files, /commits, /checks) are intentionally
+		// left to Phase 4 rather than being consumed by the conversation reader.
+		return nil
 	default:
 		// Security pages and every route family not yet implemented remain on
 		// the existing generic markdown/Firecrawl fallback path.
@@ -307,6 +320,71 @@ func (c *GitHubClient) RESTPages(ctx context.Context, endpoint, accept string) (
 		next = resp.Links()["next"]
 	}
 	return pages, nil
+}
+
+// GraphQL performs an authenticated GitHub GraphQL query using the same
+// injected HTTP boundary as REST. GraphQL is capability-specific enrichment;
+// callers decide whether a failure is fatal for the selected native resource.
+func (c *GitHubClient) GraphQL(ctx context.Context, query string, variables map[string]any, result any) error {
+	if c == nil {
+		return fmt.Errorf("GitHub client is nil")
+	}
+	if !c.hasToken() {
+		return &GitHubError{Kind: GitHubErrorAuthentication, StatusCode: http.StatusUnauthorized, HasToken: false}
+	}
+	endpoint := strings.TrimRight(c.apiBase, "/") + "/graphql"
+	if !sameOrigin(endpoint, c.apiBase) {
+		return fmt.Errorf("refusing GitHub GraphQL request to an untrusted origin")
+	}
+	payload, err := json.Marshal(map[string]any{"query": query, "variables": variables})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(c.userAgent) != "" {
+		req.Header.Set("User-Agent", c.userAgent)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, githubBlobMaxBytes+1))
+	if err != nil {
+		return err
+	}
+	providerResp := GitHubResponse{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: body}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return classifyGitHubError(providerResp, true)
+	}
+	var envelope struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return fmt.Errorf("decode GitHub GraphQL response: %w", err)
+	}
+	if len(envelope.Errors) > 0 {
+		// Do not echo provider error bodies because auth/private responses can
+		// contain details that should not become normal CLI output.
+		return fmt.Errorf("GitHub GraphQL query failed")
+	}
+	if result == nil {
+		return nil
+	}
+	if err := json.Unmarshal(envelope.Data, result); err != nil {
+		return fmt.Errorf("decode GitHub GraphQL data: %w", err)
+	}
+	return nil
 }
 
 func (c *GitHubClient) Raw(ctx context.Context, rawURL string) (GitHubResponse, error) {
@@ -507,6 +585,8 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubMilestone(ctx, client, target)
 	case GitHubTargetMilestones:
 		markdown, err = readGitHubMilestones(ctx, client, target)
+	case GitHubTargetPull:
+		markdown, err = readGitHubPullRequest(ctx, client, target)
 	default:
 		return GitHubNativeResult{Outcome: GitHubNativeUnsupported}
 	}
@@ -675,9 +755,9 @@ func githubRootHints(repo githubRepository, readme *githubContent) []string {
 	}
 	hints = append(hints,
 		"Select source lines: "+base+"/blob/"+refPath+"/path/to/file#L20-L40",
-		"Select a Markdown section: "+base+"/blob/"+refPath+"/README.md#installation",
 		"List one directory level: "+base+"/tree/"+refPath+"/path/to/directory",
 		"Browse Issues: "+base+"/issues",
+		"Read a Pull Request: "+base+"/pull/123",
 	)
 	return hints
 }

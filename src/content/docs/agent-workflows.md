@@ -47,11 +47,15 @@ webctx read-link https://github.com/amxv/webctx/blob/main/docs/porting-status.md
 webctx read-link https://github.com/amxv/webctx/tree/main/internal/app
 webctx read-link https://github.com/amxv/webctx/issues/6
 webctx read-link 'https://github.com/amxv/webctx/issues?q=is%3Aissue'
+webctx read-link https://github.com/cli/cli/pull/13250
+webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
 ```
 
-The repository root is an orientation read: compact metadata, a bounded README preview, and native navigation hints. Direct public blobs use the raw-content fast path and return the full source; line fragments narrow a file before it reaches the agent. Tree URLs return a one-level listing without GitHub navigation chrome. Issue URLs preserve substantive conversation, while Issue/search/label/milestone list views remain compact and bounded.
+The repository root is an orientation read: compact metadata, a bounded README preview, and native navigation hints. Direct public blobs use the raw-content fast path and return the full source; line fragments narrow a file before it reaches the agent. Tree URLs return a one-level listing without GitHub navigation chrome. Issue and Pull Request URLs preserve substantive conversation, while Issue/search/label/milestone list views remain compact and bounded.
 
 When you already have an exact Issue comment URL, keep its `#issuecomment-...` fragment. webctx resolves that comment directly instead of reading the whole Issue first.
+
+For Pull Requests, keep exact `#issuecomment-...`, `#discussion_r...`, and `#pullrequestreview-...` anchors too. They select a normal PR comment, one inline review thread, or one formal review rather than returning the entire PR conversation. Public PR conversations work anonymously; optional GitHub auth adds resolved/outdated review-thread state when GitHub GraphQL is available.
 
 For private repository source, configure optional `GH_TOKEN` or `GITHUB_TOKEN`. Public GitHub reads stay anonymous by default.
 

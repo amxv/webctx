@@ -36,7 +36,7 @@ Confirm `EXA_API_KEY` is available. Also remember that the keyword phrase is tru
 
 ## read-link works for native GitHub URLs but fails elsewhere
 
-Public GitHub repository, blob, tree, Issue, label, and milestone URLs use native/direct provider reads and do not need Firecrawl. Normal pages and unsupported GitHub route families need Firecrawl when the direct `.md` path is not available.
+Public GitHub repository, blob, tree, Issue, Pull Request conversation, label, and milestone URLs use native/direct provider reads and do not need Firecrawl. Normal pages and unsupported GitHub route families need Firecrawl when the direct `.md` path is not available.
 
 Set:
 

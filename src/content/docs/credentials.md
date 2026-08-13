@@ -23,7 +23,7 @@ GH_TOKEN
 GITHUB_TOKEN
 ```
 
-Public GitHub repository, blob, tree, Issue, label, and milestone reads do not require a token. When both token variables contain values, `GH_TOKEN` takes precedence. `FIRECRAWL_API_KEY` is used only when a URL is not handled by a native/direct-markdown path and needs the Firecrawl fallback.
+Public GitHub repository, blob, tree, Issue, Pull Request conversation, label, and milestone reads do not require a token. A GitHub token additionally enables private/native reads and optional PR review-thread resolved/outdated enrichment through GraphQL. When both token variables contain values, `GH_TOKEN` takes precedence. `FIRECRAWL_API_KEY` is used only when a URL is not handled by a native/direct-markdown path and needs the Firecrawl fallback.
 
 `webctx map-site` uses:
 

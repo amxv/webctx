@@ -112,8 +112,18 @@ type githubTimelineEvent struct {
 	Assignee          *githubUser           `json:"assignee"`
 	CommitID          string                `json:"commit_id"`
 	CommitURL         string                `json:"commit_url"`
-	LockReason        string                `json:"lock_reason"`
-	Rename            *struct {
+	SHA               string                `json:"sha"`
+	Message           string                `json:"message"`
+	State             string                `json:"state"`
+	SubmittedAt       string                `json:"submitted_at"`
+	RequestedReviewer *githubUser           `json:"requested_reviewer"`
+	ReviewRequester   *githubUser           `json:"review_requester"`
+	RequestedTeam     *struct {
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+	} `json:"requested_team"`
+	LockReason string `json:"lock_reason"`
+	Rename     *struct {
 		From string `json:"from"`
 		To   string `json:"to"`
 	} `json:"rename"`
@@ -417,10 +427,16 @@ func renderGitHubIssue(target *GitHubTarget, issue githubIssue, timeline []githu
 }
 
 func renderGitHubIssueComment(target *GitHubTarget, comment githubIssueComment) string {
+	identityKey := "issue"
+	headingNoun := "Comment on"
+	if target.Kind == GitHubTargetPull {
+		identityKey = "pull_request"
+		headingNoun = "Comment on Pull Request"
+	}
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
-		fmt.Sprintf("issue: %d", target.Number),
+		fmt.Sprintf("%s: %d", identityKey, target.Number),
 		fmt.Sprintf("comment_id: %d", comment.ID),
 	}
 	if comment.User.Login != "" {
@@ -441,7 +457,7 @@ func renderGitHubIssueComment(target *GitHubTarget, comment githubIssueComment) 
 	if comment.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(comment.HTMLURL))
 	}
-	lines = append(lines, "---", "", fmt.Sprintf("# Comment on %s/%s#%d", target.Owner, target.Repo, target.Number), "")
+	lines = append(lines, "---", "", fmt.Sprintf("# %s %s/%s#%d", headingNoun, target.Owner, target.Repo, target.Number), "")
 	lines = append(lines, renderIssueCommentBody(comment, false)...)
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }

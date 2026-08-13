@@ -1,6 +1,6 @@
 ---
 title: Read-link command
-description: Convert URLs into clean text with native GitHub repository/source/Issue reads, direct markdown detection, and Firecrawl fallback scraping.
+description: Convert URLs into clean text with native GitHub repository/source/Issue/Pull Request reads, direct markdown detection, and Firecrawl fallback scraping.
 order: 5
 category: Commands
 summary: The behavior of `webctx read-link`.
@@ -12,7 +12,7 @@ summary: The behavior of `webctx read-link`.
 webctx read-link https://github.com/amxv/webctx/blob/main/README.md
 ```
 
-`read-link` returns terminal-friendly markdown/text. Normal pages keep the familiar title, original URL, and extracted content shape; native GitHub repository, tree, Issue, and bounded list views use compact structured metadata instead of scraped GitHub chrome.
+`read-link` returns terminal-friendly markdown/text. Normal pages keep the familiar title, original URL, and extracted content shape; native GitHub repository, tree, Issue, Pull Request conversation, and bounded list views use compact structured metadata instead of scraped GitHub chrome.
 
 ## Native GitHub repository reads
 
@@ -24,7 +24,7 @@ webctx read-link https://github.com/amxv/webctx
 
 return a compact frontmatter-style block with high-signal repository metadata, followed by a README preview targeted at roughly 5,000 Unicode characters. The preview is cut at a safe Markdown boundary where possible, and invisible HTML comments from the human repository view are removed.
 
-If the README is longer, webctx includes GitHub's canonical README blob URL for the full source. The root output also includes a short set of useful source/tree/Issue URL forms supported by the native reader.
+If the README is longer, webctx includes GitHub's canonical README blob URL for the full source. The root output also includes a short set of useful source/tree/Issue/Pull Request URL forms supported by the native reader.
 
 ## Blob reads and selectors
 
@@ -106,7 +106,31 @@ webctx read-link https://github.com/amxv/webctx/milestones
 
 These list/detail views stay page-bounded and link to the Issues they describe rather than recursively expanding conversations.
 
-GitHub routes that do not yet have a native reader continue through the normal fallback chain. Pull Request routes remain separate from the Issue reader, and security pages are intentionally outside native GitHub handling.
+## Pull Request conversations and exact anchors
+
+A Pull Request conversation URL is native:
+
+```bash
+webctx read-link https://github.com/cli/cli/pull/13250
+```
+
+The conversation read combines compact PR identity/state/base/head/change-count metadata with the human-visible body, normal Issue-style comments, meaningful timeline transitions, submitted reviews, and inline review comments grouped into threads. Timeline `reviewed` events are not re-rendered when the same review comes from GitHub's complete reviews endpoint, so review bodies appear once. Bot and non-member content is preserved.
+
+Inline threads are reconstructed from REST `in_reply_to_id`, path, and line/range coordinates, so anonymous public reads retain the substantive thread even without GraphQL. When `GH_TOKEN` or `GITHUB_TOKEN` is configured, webctx additionally asks GitHub GraphQL for provider-truthful resolved/outdated thread state. If that optional enrichment fails, the successful REST conversation remains available and the output says only that enrichment was unavailable.
+
+Copied GitHub conversation anchors narrow the read before rendering unrelated PR content:
+
+```bash
+webctx read-link 'https://github.com/cli/cli/pull/13250#issuecomment-4447874096'
+webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
+webctx read-link 'https://github.com/cli/cli/pull/13250#pullrequestreview-4148860648'
+```
+
+The first uses the shared normal-comment identity from Issues. A `discussion_r` anchor returns that inline thread with reply context. A `pullrequestreview` anchor returns the selected formal review and its review comments.
+
+The conversation output points to the PR's `/files`, `/commits`, and `/checks` views as useful next URLs. Those focused tabs are separate resource views rather than being expanded into the conversation; unsupported focused routes continue through the generic fallback until they have their own native reader.
+
+GitHub routes that do not yet have a native reader continue through the normal fallback chain. Security pages are intentionally outside native GitHub handling.
 
 ## Direct markdown path
 
