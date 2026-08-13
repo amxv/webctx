@@ -50,7 +50,7 @@ webctx --help
 
 ## Add credentials
 
-Search uses Brave, Tavily, and Exa. Public GitHub repository/source/Issue/PR/commit/compare/history/Actions/branch/tag/release/social-list/Gist reads work without a token when GitHub exposes them anonymously. Optional `GH_TOKEN` or `GITHUB_TOKEN` enables authenticated/private GitHub reads, richer PR review-thread state, GraphQL blame ranges, and Discussions. Firecrawl handles site mapping and `read-link` pages that reach the generic fallback.
+Search uses Brave, Tavily, and Exa. Public GitHub repository/source/Issue/PR/commit/compare/history/Actions-run/branch/tag/release/social-list/Gist/Search/profile/activity/statistics/deployment/Project-v2 reads work without a token when GitHub exposes them anonymously. Optional `GH_TOKEN` or `GITHUB_TOKEN` adds authenticated capacity and unlocks provider surfaces such as exact Actions job logs, GraphQL blame ranges, Discussions, richer PR review-thread state, and private/native reads where the token has permission. GitHub Packages use endpoint-specific authentication and may need a different token permission/type. Firecrawl handles site mapping and `read-link` pages that reach the generic fallback.
 
 Create a `.env.local` file where webctx can find it:
 

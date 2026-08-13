@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"unicode/utf8"
 )
@@ -69,7 +70,7 @@ func TestParseGitHubTargetTable(t *testing.T) {
 		{name: "pull request raw patch", rawURL: "https://github.com/amxv/webctx/pull/1.patch", kind: GitHubTargetPullPatch, supported: true},
 		{name: "security excluded", rawURL: "https://github.com/amxv/webctx/security/code-scanning", supported: false},
 		{name: "settings excluded", rawURL: "https://github.com/amxv/webctx/settings", supported: false},
-		{name: "profile excluded", rawURL: "https://github.com/amxv", supported: false},
+		{name: "profile", rawURL: "https://github.com/amxv", kind: GitHubTargetProfile, supported: true},
 		{name: "other host", rawURL: "https://example.com/amxv/webctx", supported: false},
 	}
 
@@ -85,7 +86,7 @@ func TestParseGitHubTargetTable(t *testing.T) {
 			if target == nil {
 				t.Fatal("expected native GitHub target")
 			}
-			if target.Owner == "" || target.Repo == "" || target.Kind != tt.kind {
+			if target.Owner == "" || (target.Kind != GitHubTargetProfile && target.Repo == "") || target.Kind != tt.kind {
 				t.Fatalf("unexpected target: %#v", target)
 			}
 			if got := strings.Join(target.Tail, "/"); got != tt.tail {
@@ -134,6 +135,52 @@ func TestGitHubClientRESTHeadersAndTokenPrecedence(t *testing.T) {
 	}
 	if seenAuth != "Bearer github-fallback" {
 		t.Fatalf("expected GITHUB_TOKEN fallback, got %q", seenAuth)
+	}
+}
+
+func TestGitHubClientRetriesPublicGETWithoutRejectedFineGrainedToken(t *testing.T) {
+	var authCalls, anonymousCalls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			atomic.AddInt32(&authCalls, 1)
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"message":"Resource not accessible by personal access token"}`)
+			return
+		}
+		atomic.AddInt32(&anonymousCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"login":"public-user"}]`)
+	}))
+	defer server.Close()
+
+	client := testGitHubClient(server.URL, server.URL, "narrow-token")
+	resp, err := client.RESTPublic(context.Background(), http.MethodGet, "/repos/o/r/subscribers?per_page=30", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(resp.Body), "public-user") {
+		t.Fatalf("anonymous retry body missing: %s", resp.Body)
+	}
+	if atomic.LoadInt32(&authCalls) != 1 || atomic.LoadInt32(&anonymousCalls) != 1 {
+		t.Fatalf("unexpected retry calls auth=%d anon=%d", authCalls, anonymousCalls)
+	}
+}
+
+func TestGitHubClientKeepsAuthenticatedErrorWhenAnonymousRetryAlsoFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"message":"Resource not accessible by personal access token"}`)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"message":"Requires authentication"}`)
+	}))
+	defer server.Close()
+	client := testGitHubClient(server.URL, server.URL, "narrow-token")
+	_, err := client.RESTPublic(context.Background(), http.MethodGet, "/orgs/o/packages/container/p", "")
+	if err == nil || !strings.Contains(err.Error(), "configured token permissions") {
+		t.Fatalf("expected original fine-grained permission error, got %v", err)
 	}
 }
 
@@ -214,6 +261,11 @@ func TestGitHubClientErrorClassificationAndSecretNonLeakage(t *testing.T) {
 		if !ok || ghErr.Kind != tt.kind {
 			t.Fatalf("%s: got %#v, want kind %s", tt.path, err, tt.kind)
 		}
+	}
+
+	_, requiredErr := client.REST(context.Background(), http.MethodGet, "/auth", "")
+	if requiredErr == nil || !strings.Contains(requiredErr.Error(), "authentication is required") {
+		t.Fatalf("no-token 401 wording is not truthful: %v", requiredErr)
 	}
 
 	_, rateErr := client.REST(context.Background(), http.MethodGet, "/rate", "")

@@ -492,8 +492,10 @@ func fetchGitHubGistRaw(ctx context.Context, client *GitHubClient, rawURL string
 	if err != nil {
 		return "", false
 	}
-	req.Header.Set("User-Agent", githubUserAgent)
-	resp, err := client.doer.Do(req)
+	if strings.TrimSpace(client.userAgent) != "" {
+		req.Header.Set("User-Agent", client.userAgent)
+	}
+	resp, err := client.httpClient.Do(req)
 	if err != nil {
 		return "", false
 	}
@@ -502,7 +504,7 @@ func fetchGitHubGistRaw(ctx context.Context, client *GitHubClient, rawURL string
 		return "", false
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, githubBlobMaxBytes+1))
-	if err != nil || len(body) > githubBlobMaxBytes || !utf8.Valid(body) {
+	if err != nil || int64(len(body)) > githubBlobMaxBytes || !utf8.Valid(body) {
 		return "", false
 	}
 	return string(body), true

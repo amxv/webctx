@@ -86,7 +86,7 @@ func readGitHubBranches(ctx context.Context, client *GitHubClient, target *GitHu
 		return "", err
 	}
 	endpoint := fmt.Sprintf("/repos/%s/%s/branches?%s", url.PathEscape(target.Owner), url.PathEscape(target.Repo), query.Encode())
-	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	resp, err := client.RESTPublic(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
 		return "", err
 	}
@@ -217,7 +217,7 @@ func readGitHubStargazers(ctx context.Context, client *GitHubClient, target *Git
 		return "", err
 	}
 	endpoint := fmt.Sprintf("/repos/%s/%s/stargazers?%s", url.PathEscape(target.Owner), url.PathEscape(target.Repo), query.Encode())
-	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github.star+json")
+	resp, err := client.RESTPublic(ctx, http.MethodGet, endpoint, "application/vnd.github.star+json")
 	if err != nil {
 		return "", err
 	}
@@ -237,7 +237,7 @@ func readGitHubWatchers(ctx context.Context, client *GitHubClient, target *GitHu
 		return "", err
 	}
 	endpoint := fmt.Sprintf("/repos/%s/%s/subscribers?%s", url.PathEscape(target.Owner), url.PathEscape(target.Repo), query.Encode())
-	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	resp, err := client.RESTPublic(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
 		return "", err
 	}

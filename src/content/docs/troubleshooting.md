@@ -76,6 +76,14 @@ Blame is intentionally different from ordinary public source/history reads. webc
 
 Discussions are another GraphQL-authenticated GitHub surface. Configure `GH_TOKEN` or `GITHUB_TOKEN` for `/discussions` and `/discussions/<number>`. A public repository page may be browser-readable while the structured GraphQL call still requires authentication; webctx reports that requirement directly instead of substituting scraped HTML.
 
+Projects v2 use GitHub's current REST Projects v2 endpoints. Public Projects can be read without a token when GitHub permits anonymous access. A protected Project, or a Project reached with a token that lacks the relevant Project permission, retains GitHub's provider error rather than falling back to scraped board UI. For public GET endpoints, webctx can retry without Authorization when a narrowly scoped fine-grained token is rejected.
+
+GitHub Packages have a separate permission model. A 401 with no configured token is shown as “authentication is required”; a 403 with a configured token means GitHub rejected that credential for the package endpoint. A fine-grained repository token is not automatically a substitute for the package token/scopes GitHub accepts.
+
+## GitHub Search is rate-limited while other GitHub reads still work
+
+GitHub Search uses a distinct rate-limit resource from ordinary core REST reads. webctx reports the resource/reset values from the actual Search response. Exhausting Search therefore does not imply every repository/source/profile read is out of quota, and a core quota failure is not mislabeled as a Search failure.
+
 ## GitHub rate-limit errors
 
 Native GitHub rate-limit errors include retry/reset context when GitHub provides it. Anonymous reads have lower provider capacity; configuring `GH_TOKEN` or `GITHUB_TOKEN` can provide authenticated capacity, but webctx does not hide provider rate limits by falling back to a scraped page.

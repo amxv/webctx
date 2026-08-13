@@ -318,6 +318,98 @@ webctx read-link 'https://gist.github.com/<owner>/<gist-id>#file-readme-md-L10-L
 
 When the Gist API marks a file `truncated`, webctx attempts a direct raw read without forwarding the configured GitHub Authorization header to the raw host. If a complete UTF-8 raw read is unavailable, the partial API `content` is **not** presented as complete; output states that GitHub marked it truncated and gives the provider `raw_url` instead.
 
+## GitHub search and public profiles
+
+Copied GitHub Search URLs stay bounded to the selected page rather than expanding the whole result universe:
+
+```bash
+webctx read-link 'https://github.com/search?q=webctx&type=repositories'
+webctx read-link 'https://github.com/search?q=rate+limit&type=issues&s=updated&o=desc&p=2'
+webctx read-link 'https://github.com/amxv/webctx/search?q=GitHubTarget&type=code'
+```
+
+Supported search views map to GitHub's repository, Issue, Pull Request, code, commit, or user Search APIs. Issue and Pull Request views add the provider `is:issue` / `is:pr` qualifier so GitHub's shared Issue Search endpoint does not mix the two resource families. Repository-scoped search adds the selected `repo:<owner>/<repo>` qualifier while preserving the copied query text. `s`, `o`, and `p` are mapped to provider sort/order/page, and next/previous links return to the same copied GitHub UI query with only `p` changed.
+
+Search output is deliberately compact: repository rows show identity/stars/language/description; Issue/PR rows show number/title/state/author; code rows show path/repository/SHA; commit rows show SHA/message/repository/date; user rows show login/provider type. GitHub's `incomplete_results` flag is surfaced, as is the provider's 1,000-result Search ceiling. Search rate-limit errors use GitHub's actual `search` rate-limit resource/reset rather than pretending the ordinary core quota is the same pool.
+
+One-segment public profile URLs are provider-resolved before rendering:
+
+```bash
+webctx read-link https://github.com/torvalds
+webctx read-link 'https://github.com/torvalds?tab=repositories&page=2'
+webctx read-link 'https://github.com/torvalds?tab=followers'
+webctx read-link https://github.com/openai
+webctx read-link https://github.com/orgs/openai/people
+```
+
+webctx first asks GitHub for `/users/<name>` and reads its provider `type`. A `User` can then expose bounded repositories, Gists, stars, followers, and following tabs. An `Organization` is enriched from `/orgs/<name>` and can expose bounded organization repositories and public members. Invalid User/Organization tab combinations fail after type resolution and before fetching an unrelated list. Reserved GitHub global pages such as `/settings`, `/login`, and `/marketplace` are not claimed as fake profiles merely because they contain one path segment.
+
+Profile/list pagination stays bounded to the copied page. A provider 404/privacy/rate-limit failure remains a native GitHub error rather than falling through to scraped account/login UI.
+
+## Repository activity, statistics, and deployments
+
+Repository activity URLs use GitHub's structured activity API and preserve provider-backed filters such as ref, activity type, actor, time window, before/after, and page:
+
+```bash
+webctx read-link https://github.com/cli/cli/activity
+webctx read-link 'https://github.com/cli/cli/activity?activity_type=push&page=2'
+```
+
+The result is one bounded activity page with actor/ref/before-after/timestamp identity plus provider-returned previous/next navigation. webctx performs a fresh request and stores no response cache.
+
+Stable repository graph pages with first-party statistics mappings are native too:
+
+```bash
+webctx read-link https://github.com/cli/cli/graphs/contributors
+webctx read-link https://github.com/cli/cli/graphs/commit-activity
+webctx read-link https://github.com/cli/cli/graphs/code-frequency
+```
+
+GitHub computes and caches these statistics upstream. A fresh webctx request can therefore still receive cached statistics, and GitHub may return HTTP 202 while generating them. In that case webctx returns an explicit `provider_status: computing` result and tells the caller to retry later; it does not render an empty graph as though the repository had no activity.
+
+Deployment pages use GitHub's deployment/environment/status APIs:
+
+```bash
+webctx read-link https://github.com/<owner>/<repo>/deployments
+webctx read-link https://github.com/<owner>/<repo>/deployments/production
+```
+
+The repository deployment list is bounded and can preserve stable sha/ref/task/environment/page filters without fanning out every deployment's status history. A selected environment page reads environment metadata, one bounded page of deployments for that environment, and every status page GitHub returns for those selected deployments. Status rows preserve state/description/actor/time/log URL when available.
+
+GitHub controls provider-side deployment-status retention. webctx therefore states that the selected environment output contains the status pages GitHub returned now; it never claims older deployment status history is retained indefinitely merely because the current call was fresh.
+
+Forks, stargazers, and watchers remain the dedicated social-list readers rather than being duplicated by the activity/metrics implementation. In particular, `/watchers` still means subscribers, not the historical star-count aliases in repository metadata.
+
+## Packages, Projects v2, and long-tail route boundaries
+
+Exact GitHub Package URLs are native only when the copied URL contains enough stable provider identity to map to the REST Packages API:
+
+```bash
+webctx read-link https://github.com/orgs/<org>/packages/container/package/<name>
+webctx read-link https://github.com/users/<user>/packages/npm/package/<name>
+```
+
+The exact package page returns package type/visibility/repository/timestamps plus one bounded page of versions. Container version tags are preserved when GitHub exposes them, and previous/next version-page links retain the copied package URL. GitHub Packages authentication is endpoint-specific: a no-token 401 is reported as authentication required, while a configured token that GitHub does not accept for that package endpoint returns a permission error. Package indexes that do not encode a package type/name remain on generic fallback rather than triggering speculative package-type API scans.
+
+GitHub Projects v2 exact URLs use GitHub's current REST Projects v2 API:
+
+```bash
+webctx read-link https://github.com/orgs/<org>/projects/<number>
+webctx read-link https://github.com/users/<user>/projects/<number>
+```
+
+The selected Project returns compact identity/state/description and the first 50 Project items, preserving linked Issue/PR identity when available. If more items exist, output says so explicitly instead of silently implying the whole board fit in context. Public organization Projects can be read anonymously when GitHub permits it. If a configured fine-grained token is rejected by a public Project endpoint solely because its Project permission is narrower, webctx retries that same GitHub GET anonymously; protected Projects still retain the authenticated provider error.
+
+The route audit deliberately leaves these families outside native clean reading unless a future stable first-party mapping is added:
+
+- repository wiki content and settings/admin/billing/forms;
+- GitHub security surfaces such as code/secret/dependency scanning;
+- archive/binary download payloads;
+- package indexes lacking type/name identity;
+- long-tail UI routes whose current URL cannot be mapped faithfully to supported first-party structured/raw data.
+
+Those URLs keep the established generic behavior; they are not claimed merely because they share `github.com`.
+
 GitHub routes that do not yet have a native reader continue through the normal fallback chain. Security pages are intentionally outside native GitHub handling.
 
 ## Direct markdown path

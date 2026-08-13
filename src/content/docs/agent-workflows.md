@@ -62,6 +62,13 @@ webctx read-link https://github.com/amxv/webctx/branches
 webctx read-link https://github.com/amxv/webctx/releases/latest
 webctx read-link https://github.com/vercel/next.js/discussions/35773
 webctx read-link 'https://gist.github.com/<owner>/<gist-id>#file-readme-md-L10-L20'
+webctx read-link 'https://github.com/search?q=agent+runtime&type=repositories&s=stars&o=desc'
+webctx read-link 'https://github.com/torvalds?tab=repositories'
+webctx read-link https://github.com/cli/cli/activity
+webctx read-link https://github.com/cli/cli/graphs/contributors
+webctx read-link https://github.com/<owner>/<repo>/deployments/production
+webctx read-link https://github.com/orgs/<org>/packages/container/package/<name>
+webctx read-link https://github.com/orgs/<org>/projects/<number>
 ```
 
 The repository root is an orientation read: compact metadata, a bounded README preview, and native navigation hints. Direct public blobs use the raw-content fast path and return the full source; line fragments narrow a file before it reaches the agent. Tree URLs return a one-level listing without GitHub navigation chrome. Issue and Pull Request URLs preserve substantive conversation, while Issue/search/label/milestone list views remain compact and bounded.
@@ -81,6 +88,12 @@ For Actions, start broad and narrow by URL. `/actions` or `/actions/workflows/<w
 Repository navigation stays URL-scoped too. Use `/branches` or `/tags` to discover refs, then follow the returned `/tree/<ref>` link for source. Use `/releases` for a compact release index and `/releases/tag/<tag>` or `/releases/latest` when you actually want the full notes/assets. `/stargazers` and `/watchers` are intentionally different lists: stars versus real subscribers/watchers.
 
 Discussions and Gists have different auth/completeness rules. Discussions need a GitHub token because the structured conversation comes from GraphQL; exact Discussions paginate the whole comment/reply conversation. Public Gists do not need auth, and a copied `#file-...-L...` anchor is the cheapest way to select one file/range. If GitHub marks a Gist file truncated, follow the raw URL rather than trusting the partial API body.
+
+For GitHub Search, keep the copied `type` and sort/page query instead of asking webctx to reinterpret the results afterward. Search stays bounded and the provider's separate Search quota/completeness limits remain visible. For profiles, use the profile URL or its existing `?tab=` URL—webctx resolves whether the account is a User or Organization from GitHub before selecting repositories, stars, followers, Gists, or public organization members.
+
+For activity/metrics, treat the provider caveat as part of the evidence. `/activity` is a bounded current provider page, while graph statistics can be GitHub-cached or still computing even though webctx itself never caches them. For deployments, start with `/deployments` for a compact list and follow the environment URL only when you need that environment's deployment/status history.
+
+For long-tail GitHub pages, prefer exact copied URLs over guessing. An exact Package URL carries the package scope/type/name needed for a native REST read, but GitHub Packages may require a package-compatible credential rather than an ordinary fine-grained repository token. An exact Projects v2 URL carries the owner/project number and uses the current REST Projects v2 API; public Projects can stay anonymous, while protected Projects follow the configured token's Project permissions. Generic package indexes, wiki/settings/security pages, and archive downloads intentionally remain outside native projection.
 
 For private repository source, configure optional `GH_TOKEN` or `GITHUB_TOKEN`. Public GitHub reads stay anonymous by default.
 

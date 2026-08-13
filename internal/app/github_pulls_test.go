@@ -307,7 +307,7 @@ func TestPullConversationProviderFailureStaysNative(t *testing.T) {
 
 func TestGraphQLRequiresTokenAndDoesNotLeakProviderErrors(t *testing.T) {
 	client := testGitHubClient("https://api.github.test", "https://raw.github.test", "")
-	if err := client.GraphQL(context.Background(), "query{viewer{login}}", nil, &struct{}{}); err == nil || !strings.Contains(err.Error(), "authentication failed") {
+	if err := client.GraphQL(context.Background(), "query{viewer{login}}", nil, &struct{}{}); err == nil || !strings.Contains(err.Error(), "authentication is required") {
 		t.Fatalf("expected no-token GraphQL auth error, got %v", err)
 	}
 

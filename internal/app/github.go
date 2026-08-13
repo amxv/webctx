@@ -31,62 +31,74 @@ const (
 type GitHubTargetKind string
 
 const (
-	GitHubTargetRepository    GitHubTargetKind = "repository"
-	GitHubTargetBlob          GitHubTargetKind = "blob"
-	GitHubTargetTree          GitHubTargetKind = "tree"
-	GitHubTargetIssue         GitHubTargetKind = "issue"
-	GitHubTargetIssueList     GitHubTargetKind = "issue_list"
-	GitHubTargetLabel         GitHubTargetKind = "label"
-	GitHubTargetLabelList     GitHubTargetKind = "label_list"
-	GitHubTargetMilestone     GitHubTargetKind = "milestone"
-	GitHubTargetMilestones    GitHubTargetKind = "milestones"
-	GitHubTargetPull          GitHubTargetKind = "pull"
-	GitHubTargetPullFiles     GitHubTargetKind = "pull_files"
-	GitHubTargetPullCommits   GitHubTargetKind = "pull_commits"
-	GitHubTargetPullChecks    GitHubTargetKind = "pull_checks"
-	GitHubTargetPullDiff      GitHubTargetKind = "pull_diff"
-	GitHubTargetPullPatch     GitHubTargetKind = "pull_patch"
-	GitHubTargetCommit        GitHubTargetKind = "commit"
-	GitHubTargetCommitDiff    GitHubTargetKind = "commit_diff"
-	GitHubTargetCommitPatch   GitHubTargetKind = "commit_patch"
-	GitHubTargetCompare       GitHubTargetKind = "compare"
-	GitHubTargetCompareDiff   GitHubTargetKind = "compare_diff"
-	GitHubTargetComparePatch  GitHubTargetKind = "compare_patch"
-	GitHubTargetHistory       GitHubTargetKind = "history"
-	GitHubTargetBlame         GitHubTargetKind = "blame"
-	GitHubTargetActions       GitHubTargetKind = "actions"
-	GitHubTargetWorkflows     GitHubTargetKind = "actions_workflows"
-	GitHubTargetWorkflow      GitHubTargetKind = "actions_workflow"
-	GitHubTargetActionsRun    GitHubTargetKind = "actions_run"
-	GitHubTargetActionsJob    GitHubTargetKind = "actions_job"
-	GitHubTargetBranches      GitHubTargetKind = "branches"
-	GitHubTargetTags          GitHubTargetKind = "tags"
-	GitHubTargetReleases      GitHubTargetKind = "releases"
-	GitHubTargetRelease       GitHubTargetKind = "release"
-	GitHubTargetReleaseLatest GitHubTargetKind = "release_latest"
-	GitHubTargetForks         GitHubTargetKind = "forks"
-	GitHubTargetStargazers    GitHubTargetKind = "stargazers"
-	GitHubTargetWatchers      GitHubTargetKind = "watchers"
-	GitHubTargetDiscussions   GitHubTargetKind = "discussions"
-	GitHubTargetDiscussion    GitHubTargetKind = "discussion"
-	GitHubTargetGist          GitHubTargetKind = "gist"
+	GitHubTargetRepository            GitHubTargetKind = "repository"
+	GitHubTargetBlob                  GitHubTargetKind = "blob"
+	GitHubTargetTree                  GitHubTargetKind = "tree"
+	GitHubTargetIssue                 GitHubTargetKind = "issue"
+	GitHubTargetIssueList             GitHubTargetKind = "issue_list"
+	GitHubTargetLabel                 GitHubTargetKind = "label"
+	GitHubTargetLabelList             GitHubTargetKind = "label_list"
+	GitHubTargetMilestone             GitHubTargetKind = "milestone"
+	GitHubTargetMilestones            GitHubTargetKind = "milestones"
+	GitHubTargetPull                  GitHubTargetKind = "pull"
+	GitHubTargetPullFiles             GitHubTargetKind = "pull_files"
+	GitHubTargetPullCommits           GitHubTargetKind = "pull_commits"
+	GitHubTargetPullChecks            GitHubTargetKind = "pull_checks"
+	GitHubTargetPullDiff              GitHubTargetKind = "pull_diff"
+	GitHubTargetPullPatch             GitHubTargetKind = "pull_patch"
+	GitHubTargetCommit                GitHubTargetKind = "commit"
+	GitHubTargetCommitDiff            GitHubTargetKind = "commit_diff"
+	GitHubTargetCommitPatch           GitHubTargetKind = "commit_patch"
+	GitHubTargetCompare               GitHubTargetKind = "compare"
+	GitHubTargetCompareDiff           GitHubTargetKind = "compare_diff"
+	GitHubTargetComparePatch          GitHubTargetKind = "compare_patch"
+	GitHubTargetHistory               GitHubTargetKind = "history"
+	GitHubTargetBlame                 GitHubTargetKind = "blame"
+	GitHubTargetActions               GitHubTargetKind = "actions"
+	GitHubTargetWorkflows             GitHubTargetKind = "actions_workflows"
+	GitHubTargetWorkflow              GitHubTargetKind = "actions_workflow"
+	GitHubTargetActionsRun            GitHubTargetKind = "actions_run"
+	GitHubTargetActionsJob            GitHubTargetKind = "actions_job"
+	GitHubTargetBranches              GitHubTargetKind = "branches"
+	GitHubTargetTags                  GitHubTargetKind = "tags"
+	GitHubTargetReleases              GitHubTargetKind = "releases"
+	GitHubTargetRelease               GitHubTargetKind = "release"
+	GitHubTargetReleaseLatest         GitHubTargetKind = "release_latest"
+	GitHubTargetForks                 GitHubTargetKind = "forks"
+	GitHubTargetStargazers            GitHubTargetKind = "stargazers"
+	GitHubTargetWatchers              GitHubTargetKind = "watchers"
+	GitHubTargetDiscussions           GitHubTargetKind = "discussions"
+	GitHubTargetDiscussion            GitHubTargetKind = "discussion"
+	GitHubTargetGist                  GitHubTargetKind = "gist"
+	GitHubTargetSearch                GitHubTargetKind = "search"
+	GitHubTargetProfile               GitHubTargetKind = "profile"
+	GitHubTargetActivity              GitHubTargetKind = "activity"
+	GitHubTargetStatsContributors     GitHubTargetKind = "stats_contributors"
+	GitHubTargetStatsCommitActivity   GitHubTargetKind = "stats_commit_activity"
+	GitHubTargetStatsCodeFrequency    GitHubTargetKind = "stats_code_frequency"
+	GitHubTargetDeployments           GitHubTargetKind = "deployments"
+	GitHubTargetDeploymentEnvironment GitHubTargetKind = "deployment_environment"
+	GitHubTargetPackage               GitHubTargetKind = "package"
+	GitHubTargetProjectV2             GitHubTargetKind = "project_v2"
 )
 
 // GitHubTarget is the semantic identity parsed from a GitHub URL. Blob/tree
 // tails deliberately stay unresolved until a provider-backed reader needs to
 // distinguish the ref from the repository path.
 type GitHubTarget struct {
-	Owner       string
-	Repo        string
-	Kind        GitHubTargetKind
-	Tail        []string
-	Number      int
-	Name        string
-	RunID       int64
-	JobID       int64
-	Fragment    string
-	Query       url.Values
-	OriginalURL string
+	Host         string
+	Owner        string
+	Repo         string
+	Kind         GitHubTargetKind
+	Tail         []string
+	Number       int
+	Name         string
+	RunID        int64
+	JobID        int64
+	Fragment     string
+	Query        url.Values
+	OriginalURL  string
+	CanonicalURL string
 }
 
 type GitHubNativeOutcome int
@@ -163,7 +175,10 @@ func (e *GitHubError) Error() string {
 		}
 		return "GitHub resource was not found or may be private" + status + ". Hint: set GH_TOKEN or GITHUB_TOKEN to read resources your account can access."
 	case GitHubErrorAuthentication:
-		return "GitHub authentication failed" + status + ". Check GH_TOKEN or GITHUB_TOKEN."
+		if e.HasToken {
+			return "GitHub authentication failed" + status + ". Check GH_TOKEN or GITHUB_TOKEN."
+		}
+		return "GitHub authentication is required" + status + ". Set GH_TOKEN or GITHUB_TOKEN."
 	case GitHubErrorForbidden:
 		if e.HasToken {
 			return "GitHub denied access to this resource" + status + ". Check the configured token permissions."
@@ -197,6 +212,29 @@ func (e *GitHubError) Error() string {
 }
 
 type GitHubLinkRelations map[string]string
+
+func splitGitHubPath(raw string) []string {
+	trimmed := strings.Trim(raw, "/")
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.Split(trimmed, "/")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func cloneURLValues(in url.Values) url.Values {
+	out := make(url.Values, len(in))
+	for key, values := range in {
+		out[key] = append([]string(nil), values...)
+	}
+	return out
+}
 
 func parseGitHubTarget(raw string) *GitHubTarget {
 	parsed, err := url.Parse(raw)
@@ -233,26 +271,75 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 	if !strings.EqualFold(parsed.Hostname(), "github.com") {
 		return nil
 	}
-	trimmed := strings.Trim(parsed.Path, "/")
-	if trimmed == "" {
+	parts := splitGitHubPath(parsed.Path)
+	if len(parts) == 0 {
 		return nil
 	}
-	parts := strings.Split(trimmed, "/")
+
+	// Global namespaces are resolved before the generic owner/repository shape
+	// so pages such as /settings/profile can never be misclassified as a repo.
+	if parts[0] == "search" {
+		if len(parts) != 1 || !isSupportedGitHubSearchURLQuery(parsed.Query()) {
+			return nil
+		}
+		return &GitHubTarget{Host: "github.com", Kind: GitHubTargetSearch, Query: cloneURLValues(parsed.Query()), Fragment: parsed.Fragment, OriginalURL: raw, CanonicalURL: parsed.String()}
+	}
+	if (parts[0] == "orgs" || parts[0] == "users") && len(parts) >= 2 {
+		scope := strings.TrimSuffix(parts[0], "s")
+		owner := parts[1]
+		if len(parts) == 3 && parts[0] == "orgs" && parts[2] == "people" {
+			return &GitHubTarget{Host: "github.com", Owner: owner, Kind: GitHubTargetProfile, Name: "people", Query: cloneURLValues(parsed.Query()), Fragment: parsed.Fragment, OriginalURL: raw, CanonicalURL: parsed.String()}
+		}
+		if len(parts) == 4 && parts[2] == "projects" {
+			n, err := strconv.Atoi(parts[3])
+			if err == nil && n > 0 {
+				return &GitHubTarget{Host: "github.com", Owner: owner, Kind: GitHubTargetProjectV2, Number: n, Tail: []string{scope}, Query: cloneURLValues(parsed.Query()), Fragment: parsed.Fragment, OriginalURL: raw, CanonicalURL: parsed.String()}
+			}
+		}
+		if len(parts) == 6 && parts[2] == "packages" && parts[4] == "package" && isSupportedGitHubPackageType(parts[3]) {
+			name, err := url.PathUnescape(parts[5])
+			if err == nil && strings.TrimSpace(name) != "" {
+				return &GitHubTarget{Host: "github.com", Owner: owner, Kind: GitHubTargetPackage, Name: name, Tail: []string{scope, parts[3]}, Query: cloneURLValues(parsed.Query()), Fragment: parsed.Fragment, OriginalURL: raw, CanonicalURL: parsed.String()}
+			}
+		}
+		return nil
+	}
+
+	reserved := map[string]struct{}{
+		"settings": {}, "login": {}, "logout": {}, "join": {}, "marketplace": {}, "notifications": {}, "codespaces": {}, "features": {}, "enterprise": {}, "sponsors": {}, "topics": {}, "trending": {}, "collections": {}, "events": {}, "security": {}, "site": {}, "about": {}, "pricing": {}, "organizations": {},
+	}
+	if _, blocked := reserved[parts[0]]; blocked {
+		return nil
+	}
+	if len(parts) == 1 {
+		if !isSupportedGitHubProfileURLQuery(parsed.Query()) {
+			return nil
+		}
+		return &GitHubTarget{Host: "github.com", Owner: parts[0], Kind: GitHubTargetProfile, Query: cloneURLValues(parsed.Query()), Fragment: parsed.Fragment, OriginalURL: raw, CanonicalURL: parsed.String()}
+	}
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 		return nil
 	}
 	target := &GitHubTarget{
-		Owner:       parts[0],
-		Repo:        parts[1],
-		Fragment:    parsed.Fragment,
-		Query:       parsed.Query(),
-		OriginalURL: raw,
+		Host:         "github.com",
+		Owner:        parts[0],
+		Repo:         parts[1],
+		Fragment:     parsed.Fragment,
+		Query:        cloneURLValues(parsed.Query()),
+		OriginalURL:  raw,
+		CanonicalURL: parsed.String(),
 	}
 	if len(parts) == 2 {
 		target.Kind = GitHubTargetRepository
 		return target
 	}
 	switch parts[2] {
+	case "search":
+		if len(parts) == 3 && isSupportedGitHubSearchURLQuery(parsed.Query()) {
+			target.Kind = GitHubTargetSearch
+			return target
+		}
+		return nil
 	case "blob":
 		target.Kind = GitHubTargetBlob
 		target.Tail = append([]string(nil), parts[3:]...)
@@ -280,8 +367,8 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 			target.Kind = GitHubTargetLabelList
 			return target
 		}
-		if len(parts) == 4 {
-			name, err := url.PathUnescape(parts[3])
+		if len(parts) >= 4 {
+			name, err := url.PathUnescape(strings.Join(parts[3:], "/"))
 			if err == nil && strings.TrimSpace(name) != "" {
 				target.Kind = GitHubTargetLabel
 				target.Name = name
@@ -503,6 +590,41 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 			}
 		}
 		return nil
+	case "activity":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetActivity
+			return target
+		}
+		return nil
+	case "graphs":
+		if len(parts) != 4 {
+			return nil
+		}
+		switch parts[3] {
+		case "contributors":
+			target.Kind = GitHubTargetStatsContributors
+		case "commit-activity":
+			target.Kind = GitHubTargetStatsCommitActivity
+		case "code-frequency":
+			target.Kind = GitHubTargetStatsCodeFrequency
+		default:
+			return nil
+		}
+		return target
+	case "deployments":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetDeployments
+			return target
+		}
+		if len(parts) >= 4 {
+			name, err := url.PathUnescape(strings.Join(parts[3:], "/"))
+			if err == nil && strings.TrimSpace(name) != "" {
+				target.Kind = GitHubTargetDeploymentEnvironment
+				target.Name = name
+				return target
+			}
+		}
+		return nil
 	default:
 		// Security pages and every route family not yet implemented remain on
 		// the existing generic markdown/Firecrawl fallback path.
@@ -545,7 +667,41 @@ func (c *GitHubClient) REST(ctx context.Context, method, endpoint, accept string
 	if accept == "" {
 		accept = "application/vnd.github+json"
 	}
-	return c.request(ctx, method, rawURL, accept, true)
+	return c.request(ctx, method, rawURL, accept, true, c.hasToken())
+}
+
+// RESTPublic is for provider endpoints that GitHub documents as anonymously
+// readable for public resources. A narrow fine-grained token can be rejected
+// by such an endpoint even though the same public URL is readable without a
+// token, so retry token-specific auth/permission/not-found failures once
+// without Authorization. Private/auth-required callers should use REST.
+func (c *GitHubClient) RESTPublic(ctx context.Context, method, endpoint, accept string) (GitHubResponse, error) {
+	resp, err := c.REST(ctx, method, endpoint, accept)
+	if err == nil || method != http.MethodGet || !c.hasToken() || !githubShouldRetryAnonymous(err) {
+		return resp, err
+	}
+	rawURL := endpoint
+	if strings.HasPrefix(endpoint, "/") {
+		rawURL = strings.TrimRight(c.apiBase, "/") + endpoint
+	}
+	anonymous, anonymousErr := c.request(ctx, method, rawURL, accept, true, false)
+	if anonymousErr == nil {
+		return anonymous, nil
+	}
+	return resp, err
+}
+
+func githubShouldRetryAnonymous(err error) bool {
+	ghErr, ok := err.(*GitHubError)
+	if !ok {
+		return false
+	}
+	switch ghErr.Kind {
+	case GitHubErrorAuthentication, GitHubErrorForbidden, GitHubErrorNotFound:
+		return true
+	default:
+		return false
+	}
 }
 
 // RESTPages follows GitHub-provided Link rel=next URLs until the selected
@@ -641,10 +797,10 @@ func (c *GitHubClient) Raw(ctx context.Context, rawURL string) (GitHubResponse, 
 	if !sameOrigin(rawURL, c.rawBase) {
 		return GitHubResponse{}, fmt.Errorf("refusing GitHub raw request to an untrusted origin")
 	}
-	return c.request(ctx, http.MethodGet, rawURL, "", false)
+	return c.request(ctx, http.MethodGet, rawURL, "", false, false)
 }
 
-func (c *GitHubClient) request(ctx context.Context, method, rawURL, accept string, rest bool) (GitHubResponse, error) {
+func (c *GitHubClient) request(ctx context.Context, method, rawURL, accept string, rest bool, sendToken bool) (GitHubResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
 	if err != nil {
 		return GitHubResponse{}, err
@@ -655,7 +811,7 @@ func (c *GitHubClient) request(ctx context.Context, method, rawURL, accept strin
 	if rest {
 		req.Header.Set("Accept", accept)
 		req.Header.Set("X-GitHub-Api-Version", githubRESTAPIVersion)
-		if c.hasToken() {
+		if sendToken && c.hasToken() {
 			req.Header.Set("Authorization", "Bearer "+c.token)
 		}
 	}
@@ -687,7 +843,7 @@ func (c *GitHubClient) request(ctx context.Context, method, rawURL, accept strin
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return out, classifyGitHubError(out, c.hasToken())
+		return out, classifyGitHubError(out, sendToken && c.hasToken())
 	}
 	return out, nil
 }
@@ -892,6 +1048,26 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubDiscussion(ctx, client, target)
 	case GitHubTargetGist:
 		markdown, err = readGitHubGist(ctx, client, target)
+	case GitHubTargetSearch:
+		markdown, err = readGitHubSearch(ctx, client, target)
+	case GitHubTargetProfile:
+		markdown, err = readGitHubProfile(ctx, client, target)
+	case GitHubTargetActivity:
+		markdown, err = readGitHubActivity(ctx, client, target)
+	case GitHubTargetStatsContributors:
+		markdown, err = readGitHubContributorStats(ctx, client, target)
+	case GitHubTargetStatsCommitActivity:
+		markdown, err = readGitHubCommitActivityStats(ctx, client, target)
+	case GitHubTargetStatsCodeFrequency:
+		markdown, err = readGitHubCodeFrequencyStats(ctx, client, target)
+	case GitHubTargetDeployments:
+		markdown, err = readGitHubDeployments(ctx, client, target)
+	case GitHubTargetDeploymentEnvironment:
+		markdown, err = readGitHubDeploymentEnvironment(ctx, client, target)
+	case GitHubTargetPackage:
+		markdown, err = readGitHubPackage(ctx, client, target)
+	case GitHubTargetProjectV2:
+		markdown, err = readGitHubProjectV2(ctx, client, target)
 	default:
 		return GitHubNativeResult{Outcome: GitHubNativeUnsupported}
 	}
