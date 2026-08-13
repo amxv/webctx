@@ -67,6 +67,9 @@ const (
 	GitHubTargetForks         GitHubTargetKind = "forks"
 	GitHubTargetStargazers    GitHubTargetKind = "stargazers"
 	GitHubTargetWatchers      GitHubTargetKind = "watchers"
+	GitHubTargetDiscussions   GitHubTargetKind = "discussions"
+	GitHubTargetDiscussion    GitHubTargetKind = "discussion"
+	GitHubTargetGist          GitHubTargetKind = "gist"
 )
 
 // GitHubTarget is the semantic identity parsed from a GitHub URL. Blob/tree
@@ -197,7 +200,37 @@ type GitHubLinkRelations map[string]string
 
 func parseGitHubTarget(raw string) *GitHubTarget {
 	parsed, err := url.Parse(raw)
-	if err != nil || !strings.EqualFold(parsed.Hostname(), "github.com") {
+	if err != nil {
+		return nil
+	}
+	if strings.EqualFold(parsed.Hostname(), "gist.github.com") {
+		parts := splitGitHubPath(parsed.Path)
+		if len(parts) < 2 || len(parts) > 3 {
+			return nil
+		}
+		gistID := parts[1]
+		if strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(gistID) == "" || gistID == "raw" {
+			return nil
+		}
+		target := &GitHubTarget{
+			Host:         "gist.github.com",
+			Owner:        parts[0],
+			Kind:         GitHubTargetGist,
+			Name:         gistID,
+			OriginalURL:  raw,
+			CanonicalURL: parsed.String(),
+			Query:        cloneURLValues(parsed.Query()),
+			Fragment:     parsed.Fragment,
+		}
+		if len(parts) == 3 {
+			if parts[2] == "raw" {
+				return nil
+			}
+			target.Tail = []string{parts[2]}
+		}
+		return target
+	}
+	if !strings.EqualFold(parsed.Hostname(), "github.com") {
 		return nil
 	}
 	trimmed := strings.Trim(parsed.Path, "/")
@@ -454,6 +487,20 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 		if len(parts) == 3 {
 			target.Kind = GitHubTargetWatchers
 			return target
+		}
+		return nil
+	case "discussions":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetDiscussions
+			return target
+		}
+		if len(parts) == 4 {
+			number, err := strconv.Atoi(parts[3])
+			if err == nil && number > 0 {
+				target.Kind = GitHubTargetDiscussion
+				target.Number = number
+				return target
+			}
 		}
 		return nil
 	default:
@@ -839,6 +886,12 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubStargazers(ctx, client, target)
 	case GitHubTargetWatchers:
 		markdown, err = readGitHubWatchers(ctx, client, target)
+	case GitHubTargetDiscussions:
+		markdown, err = readGitHubDiscussions(ctx, client, target)
+	case GitHubTargetDiscussion:
+		markdown, err = readGitHubDiscussion(ctx, client, target)
+	case GitHubTargetGist:
+		markdown, err = readGitHubGist(ctx, client, target)
 	default:
 		return GitHubNativeResult{Outcome: GitHubNativeUnsupported}
 	}

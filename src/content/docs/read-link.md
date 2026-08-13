@@ -289,6 +289,35 @@ webctx read-link https://github.com/amxv/webctx/watchers
 
 These list views preserve only provider-backed filters/pagination they can represent faithfully and reject unknown UI query parameters rather than silently changing the selected list.
 
+## Discussions and Gists
+
+Repository Discussions use GitHub's GraphQL Discussions data, which requires authentication:
+
+```bash
+webctx read-link https://github.com/vercel/next.js/discussions
+webctx read-link https://github.com/vercel/next.js/discussions/35773
+```
+
+Without `GH_TOKEN` or `GITHUB_TOKEN`, webctx fails before the provider request with a concise auth hint rather than scraping Discussion UI. The list is intentionally bounded to the first 30 GraphQL Discussions; an exact Discussion follows every top-level comment page and every reply page, marks the provider-selected accepted answer without duplicating its text, and strips invisible HTML automation comments from the human-view body/comments.
+
+Public Gists are native REST resources on `gist.github.com`:
+
+```bash
+webctx read-link https://gist.github.com/<owner>/<gist-id>
+webctx read-link https://gist.github.com/<owner>/<gist-id>/<revision>
+```
+
+A full Gist returns compact metadata, all files, paginated Gist comments, and revision history exposed by GitHub. Source files remain source, so `<!-- HTML comments -->` inside Markdown/text files are preserved; only human comment bodies are sanitized.
+
+Copied Gist file/line anchors narrow before rendering unrelated files/comments:
+
+```bash
+webctx read-link 'https://gist.github.com/<owner>/<gist-id>#file-readme-md'
+webctx read-link 'https://gist.github.com/<owner>/<gist-id>#file-readme-md-L10-L20'
+```
+
+When the Gist API marks a file `truncated`, webctx attempts a direct raw read without forwarding the configured GitHub Authorization header to the raw host. If a complete UTF-8 raw read is unavailable, the partial API `content` is **not** presented as complete; output states that GitHub marked it truncated and gives the provider `raw_url` instead.
+
 GitHub routes that do not yet have a native reader continue through the normal fallback chain. Security pages are intentionally outside native GitHub handling.
 
 ## Direct markdown path

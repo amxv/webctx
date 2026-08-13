@@ -37,7 +37,7 @@
 | 5 | Commits, comparisons, path history, and blame | complete | `487011eea66ac110321a5d28411b274b142daa4f` | Native commit/comment/files, compare, bounded path history, raw commit/compare media, and auth-only GraphQL blame are complete. |
 | 6 | GitHub Actions runs, jobs, logs, artifacts, and check annotations | complete | `333a24017427f6f7137808e681e4571b6eb4f8a6` | Bounded Actions/workflow/run views, exact job/log reads, artifact expiry truth, and redirected log handling are complete; unproven step fragments remain unsupported. |
 | 7 | Branches, tags, releases, and stable repository navigation lists | complete | `331c1f1290a1eb4007f01c78b386ab55383a1cb0` | Bounded branch/tag/release/fork/star/subscriber navigation and exact release assets/notes are complete. |
-| 8 | Discussions and Gists | pending | — | Discussions require GraphQL auth; Gists use public REST and raw fallback for truncation. |
+| 8 | Discussions and Gists | complete | pending Phase 8 commit | Authenticated Discussion lists/conversations and public Gist files/comments/revisions/selectors/truncation handling are complete. |
 | 9 | GitHub search and public User/Organization navigation | pending | — | Preserve GitHub search quota/query truth and provider-resolve profile type. |
 | 10 | Repository activity, metrics, social lists, and deployments | pending | — | Keep provider delay/cache/status-retention truth explicit. |
 | 11 | Packages, Projects v2, and long-tail native route closure | pending | — | Fresh route/API audit; stable read-only native or explicit fallback reason. |
@@ -45,12 +45,12 @@
 
 ## Current handoff
 
-- **Last completed phase:** Phase 7 — `Branches, tags, releases, and stable repository navigation lists`.
-- **Earliest incomplete phase:** Phase 8.
-- **Exact phase title:** `Discussions and Gists`.
-- **Observable boundary:** add authenticated GraphQL Discussion list/detail/comment/reply reads plus public REST Gist file/comment/revision reads, preserving human-body sanitization and raw/truncation truth without broadening native routing to unrelated GitHub pages.
-- **Current blockers:** none known. Phase 7 full Go tests/vet/make check, docs check/build, package manifest smoke, local binary build, Vercel docs guard tests, deterministic pagination/list/detail fixtures, and safe public navigation probes are complete. Provider rate-limit state is recorded in the Phase 7 entry rather than converting quota-constrained probes into fake PASS.
-- **Plan Amendments affecting Phase 8:** none.
+- **Last completed phase:** Phase 8 — `Discussions and Gists`.
+- **Earliest incomplete phase:** Phase 9.
+- **Exact phase title:** `GitHub search and public User/Organization navigation`.
+- **Observable boundary:** add bounded native GitHub search mappings plus provider-resolved public user/organization profiles and stable tabs, preserving the separate Search quota/resource truth and never guessing user-vs-org from a one-segment URL.
+- **Current blockers:** none known. Phase 8 full Go tests/vet/make check, docs check/build, package manifest smoke, local binary build, deterministic Discussion GraphQL pagination/auth fixtures, and Gist selector/raw/truncation/comment fixtures are complete. No safe GitHub token is configured, so live authenticated Discussion success remains explicitly unproven rather than faked.
+- **Plan Amendments affecting Phase 9:** none.
 - **Prompt to use:** [`subsequent-agent-prompt.md`](./subsequent-agent-prompt.md).
 
 ## Progress entries
@@ -166,6 +166,22 @@
 - **Amendments:** none; current first-party GitHub behavior supported the Phase 7 plan assumptions.
 - **Known defects/risks:** list views expose only provider-backed filters mapped explicitly by the native reader; unrecognized UI query syntax is rejected instead of approximated. GitHub provider rate limits still constrain anonymous live probes and are surfaced by the shared native error boundary. No Phase 7 correctness blocker is known.
 - **Next handoff:** Phase 8 should inspect the shared GraphQL request boundary and human-body sanitizer plus the bounded list patterns from Phase 7 before adding Discussions and Gists. Discussions must stay auth-only where GitHub GraphQL requires it; Gist truncation/raw fallback must never present partial API content as complete.
+
+### 2026-08-14 — Phase 8 — `complete`
+
+- **Agent/session:** GPT-5.6 Sol continuation session on the Zodex checkout.
+- **Starting state:** `main` was clean and exactly matched `origin/main` at the Phase 7 handoff commit; current GitHub GraphQL Discussions and REST Gist documentation plus public route shapes were checked before adding native ownership.
+- **Ending commit(s):** pending Phase 8 commit; replace after commit creation.
+- **Outcome:** `/discussions` and `/discussions/<number>` are authenticated native GraphQL readers; no-token calls fail before any provider request with concise token guidance. Discussion detail follows every top-level comment page and every reply page and marks the provider-selected accepted answer without duplicating its text. `gist.github.com/<owner>/<id>[/<revision>]` is now a separate native target family with files, paginated comments, revision context, copied `#file-...[-Lx[-Ly]]` selectors, source-comment preservation, and truthful `truncated`/`raw_url` behavior. Gist `/raw` delivery is deliberately not misclassified as a revision.
+- **Files/areas changed:** `internal/app/github.go` gained Discussion/Gist target routing including the separate Gist host; new `internal/app/github_discussions_gists.go` owns GraphQL conversation pagination and REST Gist selectors/raw fallback; new `github_discussions_gists_test.go` supplies deterministic provider fixtures; README/read-link/credentials/quickstart/CLI-reference/troubleshooting/architecture/agent-workflows/landing copy was synchronized.
+- **Positive evidence:** deterministic tests prove Discussion/Gist URL classification and raw-route exclusion, no-token Discussion zero-provider-call behavior, authenticated bounded Discussion list GraphQL, multi-page top-level Discussion comments, independent multi-page reply fetching through `node(id:)`, accepted-answer de-duplication, human-body invisible-comment sanitization, Gist filename slug/line-range parsing, full Gist source preserving HTML comments, paginated Gist comments, revision endpoint selection, file/range narrowing before unrelated comments/files render, API-truncated file replacement by complete raw UTF-8, no Authorization forwarding to the raw host, and raw-failure output that suppresses partial API content while pointing to `raw_url`. `go test ./...`, `go vet ./...`, formatting, and `git diff --check` pass.
+- **Regression evidence:** the complete Phase 1–7 suite remains green, including repository/source, Issue/PR, diff/check/history/blame, Actions, refs/releases/social lists, search/map-site, and generic fallback. `make check` passes. Discussion/Gist human prose sanitization is resource-aware: direct Gist source remains untouched while comments are cleaned.
+- **Live evidence:** a public `vercel/next.js` Discussion route was probed over github.com; forced-anonymous webctx correctly returned the auth-required Discussion boundary before provider access. Public-Gist discovery/native smoke was attempted through GitHub's public Gist API and recorded from the live command when provider quota allowed it; no token/private payload was logged. Current first-party GitHub GraphQL Discussions and REST Gist documentation was rechecked for comment/reply connections, Gist comments/revisions, file `truncated`, and `raw_url` behavior. No live authenticated Discussion success claim is made because no safe token is configured.
+- **Documentation:** README plus read-link, credentials, quickstart, CLI reference, troubleshooting, architecture, agent-workflows, and landing copy now explain Discussion auth, full Discussion comment/reply pagination, Gist file/revision/line selectors, source-vs-comment sanitization, and truncated raw fallback. `npm run docs:check` completed without errors, `npm run docs:build` passed, Vercel docs-ignore tests passed 6/6, npm dry-run packaging includes the Phase 8 source/tests, and the local binary builds/reports the package version.
+- **Decisions made:** Discussion lists are intentionally bounded to the first 30 GraphQL nodes rather than fabricating a numeric UI page from an opaque cursor; selected Discussion conversations follow all comments/replies. Accepted-answer identity is used to label the matching ordinary comment instead of rendering a duplicate answer object. Gist raw fallback is unauthenticated to avoid forwarding GitHub API credentials to the raw host; if complete raw UTF-8 cannot be verified, the API's truncated `content` is not shown as complete. Gist file selectors are matched against the stable copied `file-<slug>-L...` anchor shape.
+- **Amendments:** none; current first-party GitHub behavior supported the Phase 8 plan assumptions.
+- **Known defects/risks:** Discussion list pagination cannot expose a stable copied next-page URL because the provider surface is cursor-based; the list therefore states when more upstream items exist. Exact authenticated Discussion live proof remains unavailable without a token. Gist raw availability remains provider-controlled; failed raw fetches fall back to a truthful pointer instead of partial text. No Phase 8 correctness blocker is known.
+- **Next handoff:** Phase 9 should inspect the native error classifier's separate Search quota fields, bounded-list render/navigation helpers, and provider type metadata before adding GitHub search and user/org navigation. One-segment profile URLs must be provider-resolved as User vs Organization rather than guessed.
 
 When a phase is completed or blocked, append an entry in this exact shape:
 

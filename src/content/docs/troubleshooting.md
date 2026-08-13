@@ -72,6 +72,10 @@ If an authenticated read still fails, check that the token is valid and has acce
 
 Blame is intentionally different from ordinary public source/history reads. webctx uses GitHub GraphQL's structured blame ranges, and GitHub GraphQL requires authentication. Configure `GH_TOKEN` or `GITHUB_TOKEN` and retry the same `/blame/<ref>/<path>` URL. Without a token, webctx fails before the provider read and does not fall back to scraped blame UI.
 
+## GitHub Discussions ask for a token
+
+Discussions are another GraphQL-authenticated GitHub surface. Configure `GH_TOKEN` or `GITHUB_TOKEN` for `/discussions` and `/discussions/<number>`. A public repository page may be browser-readable while the structured GraphQL call still requires authentication; webctx reports that requirement directly instead of substituting scraped HTML.
+
 ## GitHub rate-limit errors
 
 Native GitHub rate-limit errors include retry/reset context when GitHub provides it. Anonymous reads have lower provider capacity; configuring `GH_TOKEN` or `GITHUB_TOKEN` can provide authenticated capacity, but webctx does not hide provider rate limits by falling back to a scraped page.
