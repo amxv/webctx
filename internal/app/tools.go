@@ -39,6 +39,7 @@ type providerDocs struct {
 
 type scoredURL struct {
 	Result         SearchDoc
+	InsertionOrder int
 	TotalScore     float64
 	DuplicateCount int
 	BestPosition   int
@@ -446,7 +447,13 @@ func scoreAndRankResults(providerResults []providerDocs) ([]SearchDoc, int) {
 				}
 				continue
 			}
-			urlScores[normalized] = &scoredURL{Result: doc, TotalScore: weightedScore, DuplicateCount: 1, BestPosition: position}
+			urlScores[normalized] = &scoredURL{
+				Result:         doc,
+				InsertionOrder: len(urlScores),
+				TotalScore:     weightedScore,
+				DuplicateCount: 1,
+				BestPosition:   position,
+			}
 		}
 	}
 
@@ -466,7 +473,7 @@ func scoreAndRankResults(providerResults []providerDocs) ([]SearchDoc, int) {
 
 	sort.SliceStable(scored, func(i, j int) bool {
 		if scored[i].FinalScore == scored[j].FinalScore {
-			return scored[i].Result.URL < scored[j].Result.URL
+			return scored[i].InsertionOrder < scored[j].InsertionOrder
 		}
 		return scored[i].FinalScore > scored[j].FinalScore
 	})

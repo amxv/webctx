@@ -72,6 +72,17 @@ func TestScoreAndRankResultsDuplicateBoost(t *testing.T) {
 	}
 }
 
+func TestScoreAndRankResultsPreservesInsertionOrderForTies(t *testing.T) {
+	results, _ := scoreAndRankResults([]providerDocs{
+		{Provider: "Brave", Docs: []SearchDoc{{URL: "https://z.example", Title: "Z"}}},
+		{Provider: "Tavily", Docs: []SearchDoc{{URL: "https://a.example", Title: "A"}}},
+	})
+
+	if len(results) != 2 || results[0].URL != "https://z.example" || results[1].URL != "https://a.example" {
+		t.Fatalf("expected insertion order for tied results, got %#v", results)
+	}
+}
+
 func TestParseGitHubURL(t *testing.T) {
 	info := parseGitHubURL("https://github.com/amxv/webctx-ts/blob/main/cli.ts")
 	if info == nil || !info.IsFile || info.Owner != "amxv" || info.Repo != "webctx-ts" || info.Branch != "main" || info.Path != "cli.ts" {
