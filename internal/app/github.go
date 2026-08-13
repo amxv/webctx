@@ -54,6 +54,11 @@ const (
 	GitHubTargetComparePatch GitHubTargetKind = "compare_patch"
 	GitHubTargetHistory      GitHubTargetKind = "history"
 	GitHubTargetBlame        GitHubTargetKind = "blame"
+	GitHubTargetActions      GitHubTargetKind = "actions"
+	GitHubTargetWorkflows    GitHubTargetKind = "actions_workflows"
+	GitHubTargetWorkflow     GitHubTargetKind = "actions_workflow"
+	GitHubTargetActionsRun   GitHubTargetKind = "actions_run"
+	GitHubTargetActionsJob   GitHubTargetKind = "actions_job"
 )
 
 // GitHubTarget is the semantic identity parsed from a GitHub URL. Blob/tree
@@ -66,6 +71,8 @@ type GitHubTarget struct {
 	Tail        []string
 	Number      int
 	Name        string
+	RunID       int64
+	JobID       int64
 	Fragment    string
 	Query       url.Values
 	OriginalURL string
@@ -350,6 +357,49 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 		target.Kind = GitHubTargetBlame
 		target.Tail = append([]string(nil), parts[3:]...)
 		return target
+	case "actions":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetActions
+			return target
+		}
+		switch parts[3] {
+		case "workflows":
+			if len(parts) == 4 {
+				target.Kind = GitHubTargetWorkflows
+				return target
+			}
+			if len(parts) == 5 {
+				workflow, err := url.PathUnescape(parts[4])
+				if err == nil && strings.TrimSpace(workflow) != "" {
+					target.Kind = GitHubTargetWorkflow
+					target.Name = workflow
+					return target
+				}
+			}
+		case "runs":
+			if len(parts) < 5 {
+				return nil
+			}
+			runID, err := strconv.ParseInt(parts[4], 10, 64)
+			if err != nil || runID <= 0 {
+				return nil
+			}
+			if len(parts) == 5 {
+				target.Kind = GitHubTargetActionsRun
+				target.RunID = runID
+				return target
+			}
+			if len(parts) == 7 && parts[5] == "job" {
+				jobID, err := strconv.ParseInt(parts[6], 10, 64)
+				if err == nil && jobID > 0 {
+					target.Kind = GitHubTargetActionsJob
+					target.RunID = runID
+					target.JobID = jobID
+					return target
+				}
+			}
+		}
+		return nil
 	default:
 		// Security pages and every route family not yet implemented remain on
 		// the existing generic markdown/Firecrawl fallback path.
@@ -707,6 +757,16 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubHistory(ctx, client, target)
 	case GitHubTargetBlame:
 		markdown, err = readGitHubBlame(ctx, client, target)
+	case GitHubTargetActions:
+		markdown, err = readGitHubActionsOverview(ctx, client, target)
+	case GitHubTargetWorkflows:
+		markdown, err = readGitHubWorkflows(ctx, client, target)
+	case GitHubTargetWorkflow:
+		markdown, err = readGitHubWorkflow(ctx, client, target)
+	case GitHubTargetActionsRun:
+		markdown, err = readGitHubActionsRun(ctx, client, target)
+	case GitHubTargetActionsJob:
+		markdown, err = readGitHubActionsJob(ctx, client, target)
 	default:
 		return GitHubNativeResult{Outcome: GitHubNativeUnsupported}
 	}

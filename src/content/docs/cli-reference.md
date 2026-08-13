@@ -47,7 +47,7 @@ GITHUB_TOKEN        optional GitHub auth fallback for the same capabilities
 
 `search` returns markdown links with indented summaries.
 
-`read-link` returns terminal-friendly markdown/text. Native GitHub repository/source/Issue/PR/commit/compare/history/list reads use compact metadata plus selected content; raw diff/patch URLs preserve their provider media. Ordinary pages keep the title/URL/content shape.
+`read-link` returns terminal-friendly markdown/text. Native GitHub repository/source/Issue/PR/commit/compare/history/Actions/list reads use compact metadata plus selected content; raw diff/patch and explicit job-log content preserve their provider semantics. Ordinary pages keep the title/URL/content shape.
 
 `map-site` returns a URL list with optional titles and descriptions.
 

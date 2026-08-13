@@ -36,7 +36,7 @@ Confirm `EXA_API_KEY` is available. Also remember that the keyword phrase is tru
 
 ## read-link works for native GitHub URLs but fails elsewhere
 
-Public GitHub repository, blob, tree, Issue, Pull Request, commit, comparison, path-history, label, and milestone URLs use native/direct provider reads and do not need Firecrawl. Normal pages and unsupported GitHub route families need Firecrawl when the direct `.md` path is not available.
+Public GitHub repository, blob, tree, Issue, Pull Request, commit, comparison, path-history, Actions, label, and milestone URLs use native/direct provider reads and do not need Firecrawl. Normal pages and unsupported GitHub route families need Firecrawl when the direct `.md` path is not available.
 
 Set:
 
@@ -75,6 +75,10 @@ Blame is intentionally different from ordinary public source/history reads. webc
 ## GitHub rate-limit errors
 
 Native GitHub rate-limit errors include retry/reset context when GitHub provides it. Anonymous reads have lower provider capacity; configuring `GH_TOKEN` or `GITHUB_TOKEN` can provide authenticated capacity, but webctx does not hide provider rate limits by falling back to a scraped page.
+
+## An Actions job has no log
+
+The job page can still be valid when its log is unavailable. GitHub may return a gone/not-found log after retention expiry, deletion, or before a log is generated. webctx keeps the selected job/step metadata and states that the log is unavailable. It does not substitute unrelated jobs or treat an empty/expired download as successful log content.
 
 ## map-site fails
 

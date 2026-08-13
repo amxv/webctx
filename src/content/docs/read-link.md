@@ -220,6 +220,37 @@ webctx read-link https://github.com/cli/cli/blame/andyfeller/test/README.md
 
 With `GH_TOKEN` or `GITHUB_TOKEN`, webctx resolves the slash-containing ref/path and returns compact line ranges with commit, author, date, and message identity. Without a token it returns a concise auth-required result before making provider requests; it never disguises missing GraphQL auth by scraping the blame page.
 
+## GitHub Actions runs, jobs, logs, and artifacts
+
+Repository Actions and workflow URLs are bounded navigation reads:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/actions
+webctx read-link https://github.com/amxv/webctx/actions/workflows/release.yml
+```
+
+The repository view returns a compact workflow list plus one selected page of workflow runs. Workflow detail returns workflow identity/state and one selected page of its runs. Stable REST-style filters such as branch, event, status, actor, creation range, head SHA, and page are preserved when present; an unproven GitHub UI `query=` filter is rejected rather than silently ignored.
+
+A selected workflow run is a structured overview, not a log dump:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/actions/runs/<run-id>
+```
+
+It includes run identity/status/conclusion/event/ref/SHA/timestamps plus all paginated jobs for the latest attempt and all paginated artifacts. Each job uses GitHub's exact `html_url` when available, so an agent can request only the job it needs. Artifact metadata includes size, expiry state/time, and GitHub's archive download URL; an expired artifact is labeled expired rather than offered as though it were still downloadable.
+
+Only a canonical job URL fetches a job log:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/actions/runs/<run-id>/job/<job-id>
+```
+
+The reader first verifies that the job belongs to the selected run, renders the structured job steps, then fetches only that job's log. GitHub log delivery may redirect to storage; webctx relies on redirect-safe HTTP behavior so the configured GitHub Authorization header is not forwarded to a different storage host. Plaintext logs are preserved, ZIP-delivered log archives are unpacked deterministically, and malformed/non-text/oversized archives fail truthfully rather than appearing as successful logs.
+
+If GitHub reports a job log as gone/not found—for example expired, deleted, or not yet generated—the job metadata still renders with an explicit unavailable-log note. Run pages never prefetch logs. webctx does not advertise or accept Actions step fragments because a stable current GitHub step-fragment contract has not been proven.
+
+Check Run annotations remain available through the native PR/check targeting described above; Actions run/job output does not duplicate them as a second inconsistent model.
+
 GitHub routes that do not yet have a native reader continue through the normal fallback chain. Security pages are intentionally outside native GitHub handling.
 
 ## Direct markdown path
