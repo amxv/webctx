@@ -86,7 +86,7 @@ Required keys by command:
 - `search`
   Uses `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY`
 - `read-link`
-  Reads public GitHub repositories, blobs, trees, Issues, Pull Requests, commits, comparisons, path history, Actions runs/jobs, labels, and milestones without a token. Optional `GH_TOKEN` (preferred) or `GITHUB_TOKEN` enables authenticated/private GitHub reads, PR thread-state enrichment, and structured blame ranges. Uses `FIRECRAWL_API_KEY` for pages that are not handled natively or as direct `.md` content.
+  Reads public GitHub repositories, blobs, trees, Issues, Pull Requests, commits, comparisons, path history, Actions runs/jobs, branches, tags, releases, forks, stars, watchers, labels, and milestones without a token. Optional `GH_TOKEN` (preferred) or `GITHUB_TOKEN` enables authenticated/private GitHub reads, PR thread-state enrichment, and structured blame ranges. Uses `FIRECRAWL_API_KEY` for pages that are not handled natively or as direct `.md` content.
 - `map-site`
   Uses `FIRECRAWL_API_KEY`
 
@@ -104,6 +104,7 @@ Required keys by command:
 - Compare URLs preserve base/head/status/ahead-behind state and all paginated commits. GitHub exposes changed files only on the first compare page and up to 300 files, so webctx states that ceiling when reached. Repository `/commits/<ref>/<path>` URLs stay page-bounded and resolve slash-containing refs against provider history data.
 - Blame URLs are native but require `GH_TOKEN` or `GITHUB_TOKEN`: GitHub's structured blame ranges come from GraphQL. Without auth, webctx returns a concise token hint instead of scraping blame UI.
 - GitHub Actions repository/workflow pages stay bounded; a selected run returns run state plus all jobs/artifacts, with exact job URLs. Only `/actions/runs/<run>/job/<job>` fetches that job's log, keeping unrelated logs out of context. Plain or ZIP-delivered logs are decoded as text, while expired/unavailable logs and artifacts stay explicit.
+- `/branches`, `/tags`, `/releases`, `/forks`, `/stargazers`, and `/watchers` are compact bounded repository-navigation views. Exact release/latest URLs preserve full release notes and paginated asset metadata. Stars and watchers stay distinct: GitHub's historical `watchers_count` aliases stars, while `/watchers` is backed by the subscribers API for actual watchers/subscribers.
 - Optional `GH_TOKEN`, then `GITHUB_TOKEN`, is used for authenticated GitHub API reads. Ordinary public reads do not require or prompt for a token.
 - For direct markdown-style URLs, it checks the `.md` path.
 - GitHub route families that do not yet have a native reader, and normal web pages, continue through the existing direct-markdown and Firecrawl fallbacks.

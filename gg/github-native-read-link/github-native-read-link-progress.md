@@ -36,7 +36,7 @@
 | 4 | Pull Request Files Changed, commits, checks, and diff selectors | complete | `2a57a29c5d327901a93a12d4e76ffb0811413788` | Native files/diff selectors, commits, checks/statuses/annotations, and raw diff/patch semantics are complete. |
 | 5 | Commits, comparisons, path history, and blame | complete | `487011eea66ac110321a5d28411b274b142daa4f` | Native commit/comment/files, compare, bounded path history, raw commit/compare media, and auth-only GraphQL blame are complete. |
 | 6 | GitHub Actions runs, jobs, logs, artifacts, and check annotations | complete | `333a24017427f6f7137808e681e4571b6eb4f8a6` | Bounded Actions/workflow/run views, exact job/log reads, artifact expiry truth, and redirected log handling are complete; unproven step fragments remain unsupported. |
-| 7 | Branches, tags, releases, and stable repository navigation lists | pending | — | Add compact ref/release list/detail surfaces. |
+| 7 | Branches, tags, releases, and stable repository navigation lists | complete | pending Phase 7 commit | Bounded branch/tag/release/fork/star/subscriber navigation and exact release assets/notes are complete. |
 | 8 | Discussions and Gists | pending | — | Discussions require GraphQL auth; Gists use public REST and raw fallback for truncation. |
 | 9 | GitHub search and public User/Organization navigation | pending | — | Preserve GitHub search quota/query truth and provider-resolve profile type. |
 | 10 | Repository activity, metrics, social lists, and deployments | pending | — | Keep provider delay/cache/status-retention truth explicit. |
@@ -45,12 +45,12 @@
 
 ## Current handoff
 
-- **Last completed phase:** Phase 6 — `GitHub Actions runs, jobs, logs, artifacts, and check annotations`.
-- **Earliest incomplete phase:** Phase 7.
-- **Exact phase title:** `Branches, tags, releases, and stable repository navigation lists`.
-- **Observable boundary:** add compact bounded branch/tag/release list/detail readers on the existing native client/pagination boundary, preserving star/subscriber naming and source-navigation hints without regressing Actions/source/PR semantics.
-- **Current blockers:** none known. Phase 6 full Go tests/vet/make check, docs check/build, package manifest smoke, local binary build, Vercel docs guard tests, deterministic redirected-log/ZIP/plain/expiry fixtures, and public Actions route-shape probes are complete. No stable Actions step-fragment contract was proven, so that selector remains intentionally unsupported rather than a blocker.
-- **Plan Amendments affecting Phase 7:** none.
+- **Last completed phase:** Phase 7 — `Branches, tags, releases, and stable repository navigation lists`.
+- **Earliest incomplete phase:** Phase 8.
+- **Exact phase title:** `Discussions and Gists`.
+- **Observable boundary:** add authenticated GraphQL Discussion list/detail/comment/reply reads plus public REST Gist file/comment/revision reads, preserving human-body sanitization and raw/truncation truth without broadening native routing to unrelated GitHub pages.
+- **Current blockers:** none known. Phase 7 full Go tests/vet/make check, docs check/build, package manifest smoke, local binary build, Vercel docs guard tests, deterministic pagination/list/detail fixtures, and safe public navigation probes are complete. Provider rate-limit state is recorded in the Phase 7 entry rather than converting quota-constrained probes into fake PASS.
+- **Plan Amendments affecting Phase 8:** none.
 - **Prompt to use:** [`subsequent-agent-prompt.md`](./subsequent-agent-prompt.md).
 
 ## Progress entries
@@ -150,6 +150,22 @@
 - **Amendments:** none; current first-party GitHub behavior supported the Phase 6 plan assumptions.
 - **Known defects/risks:** a stable Actions step URL/fragment convention was not proven, so step selection is intentionally unsupported and unadvertised. Job log retention/availability remains provider-controlled and can yield 404/410 after the job metadata itself remains readable. No Phase 6 correctness blocker is known.
 - **Next handoff:** Phase 7 should inspect the bounded Actions/list render patterns, root hint budget, existing repository metadata/watchers naming, and native pagination helpers before adding branches/tags/releases and stable repository navigation lists.
+
+### 2026-08-14 — Phase 7 — `complete`
+
+- **Agent/session:** GPT-5.6 Sol continuation session on the Zodex checkout.
+- **Starting state:** `main` was clean and exactly matched `origin/main` at the Phase 6 handoff commit; current GitHub branch/tag/release/fork/stargazer/subscriber REST docs and live route shapes were rechecked before claiming navigation routes.
+- **Ending commit(s):** pending Phase 7 commit; replace after commit creation.
+- **Outcome:** `/branches`, `/tags`, `/releases`, `/releases/latest`, `/releases/tag/<tag>`, `/forks`, `/stargazers`, and `/watchers` now have bounded native readers. Branch/tag rows link back into the existing `/tree/<ref>` source reader rather than introducing synthetic detail routes. Release lists stay compact while exact/latest releases preserve full human-visible notes and fetch all asset pages. Social navigation keeps stars and actual watchers distinct: stargazers use GitHub's star media representation and `/watchers` maps to the subscribers API.
+- **Files/areas changed:** `internal/app/github.go` gained Phase 7 target kinds/routing; new `internal/app/github_refs.go` owns bounded branch/tag/release/fork/star/subscriber reads and deterministic list rendering; new `github_refs_test.go` supplies provider fixtures; README/read-link/quickstart/CLI-reference/credentials/architecture/agent-workflows/landing copy was synchronized.
+- **Positive evidence:** deterministic tests prove stable URL classification and rejection of synthetic `/branches/<name>`/`/tags/<name>` routes, bounded branch pagination/filtering plus protected state, slash-containing branch/tag source links, bounded release lists that never expand bodies, exact slash-tag/latest releases with full long body preservation, invisible-comment sanitization, fully paginated release assets, fork sorting plus `stargazers_count` use, stargazer media type/timestamps, `/watchers`→`/subscribers` identity, and rejection of unknown list query parameters before provider reads. `go test ./...`, `go vet ./...`, formatting, and `git diff --check` pass.
+- **Regression evidence:** the complete Phase 1–6 deterministic suite remains green, including source/tree ref ownership, Issue/PR reads, diff/check/history/blame, Actions job/log scoping, search/map-site, and generic fallback. `make check` passes. Branch/tag navigation deliberately links into the existing source tree path rather than competing with it.
+- **Live evidence:** safe github.com route probes confirmed the stable public branch/tag/release/latest/tag/forks/stargazers/watchers page families before implementation. Forced-anonymous native `amxv/webctx` smoke status from the recorded command: branches=RATE-LIMITED, tags=RATE-LIMITED, releases=RATE-LIMITED, releases-latest=RATE-LIMITED, stargazers=RATE-LIMITED, watchers=RATE-LIMITED, forks=BLOCKED. Current first-party REST documentation was rechecked for branches, repository tags, releases/assets, forks, stargazers, and subscribers. No token/private response was persisted.
+- **Documentation:** README plus read-link, quickstart, CLI reference, credentials, architecture, agent-workflows, and landing copy describe only the delivered bounded ref/release/social routes, full exact release behavior, and the star/subscriber distinction. `npm run docs:check` completed without errors, `npm run docs:build` passed, Vercel docs-ignore tests passed 6/6, npm dry-run packaging includes the new Phase 7 source/tests, and the local binary builds/reports the package version.
+- **Decisions made:** no synthetic branch/tag detail page is claimed because the stable human source detail is already `/tree/<ref>`. Exact releases fetch assets through the dedicated paginated release-assets endpoint instead of trusting an embedded array. Release bodies are selected-resource content and are not capped at the repository-root README budget. `/watchers` is intentionally rendered from `/subscribers`, while `watchers_count` is never labeled as subscriber/watch count because GitHub documents it as a historical star alias.
+- **Amendments:** none; current first-party GitHub behavior supported the Phase 7 plan assumptions.
+- **Known defects/risks:** list views expose only provider-backed filters mapped explicitly by the native reader; unrecognized UI query syntax is rejected instead of approximated. GitHub provider rate limits still constrain anonymous live probes and are surfaced by the shared native error boundary. No Phase 7 correctness blocker is known.
+- **Next handoff:** Phase 8 should inspect the shared GraphQL request boundary and human-body sanitizer plus the bounded list patterns from Phase 7 before adding Discussions and Gists. Discussions must stay auth-only where GitHub GraphQL requires it; Gist truncation/raw fallback must never present partial API content as complete.
 
 When a phase is completed or blocked, append an entry in this exact shape:
 

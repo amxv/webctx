@@ -251,6 +251,44 @@ If GitHub reports a job log as gone/not found—for example expired, deleted, or
 
 Check Run annotations remain available through the native PR/check targeting described above; Actions run/job output does not duplicate them as a second inconsistent model.
 
+## Branches, tags, releases, and repository navigation
+
+Repository branch and tag lists are compact, bounded navigation reads:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/branches
+webctx read-link https://github.com/amxv/webctx/tags
+```
+
+Branches include the current commit SHA and protected state when GitHub reports it. Tags include their commit SHA. Both link into the existing native `/tree/<ref>` source reader, so slash-containing refs remain source-navigation URLs rather than a competing synthetic branch-detail route.
+
+Release lists stay bounded and never expand every release body:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/releases
+```
+
+An exact release or latest release is authoritative and preserves the full selected release notes rather than the repository-root 5k preview budget:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/releases/latest
+webctx read-link https://github.com/amxv/webctx/releases/tag/v0.1.1
+```
+
+Release metadata includes tag/target/author/times/draft/prerelease state. Assets are fetched through all GitHub pagination and rendered with size, media type, download count, and browser download URL. Invisible HTML comments are removed from the human-view release body just as they are from Issues and Pull Requests.
+
+Stable repository social/navigation lists are also bounded:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/forks
+webctx read-link https://github.com/amxv/webctx/stargazers
+webctx read-link https://github.com/amxv/webctx/watchers
+```
+
+`/stargazers` means users who starred the repository and uses GitHub's stargazer media type when available so star timestamps are preserved. `/watchers` deliberately maps to GitHub's subscribers endpoint: these are actual repository watchers/subscribers, **not** `watchers_count`. GitHub's REST `watchers`/`watchers_count` fields are historical aliases for star count, so webctx never labels those aliases as subscriber/watch counts. Fork rows likewise use `stargazers_count` when showing stars.
+
+These list views preserve only provider-backed filters/pagination they can represent faithfully and reject unknown UI query parameters rather than silently changing the selected list.
+
 GitHub routes that do not yet have a native reader continue through the normal fallback chain. Security pages are intentionally outside native GitHub handling.
 
 ## Direct markdown path

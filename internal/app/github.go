@@ -31,34 +31,42 @@ const (
 type GitHubTargetKind string
 
 const (
-	GitHubTargetRepository   GitHubTargetKind = "repository"
-	GitHubTargetBlob         GitHubTargetKind = "blob"
-	GitHubTargetTree         GitHubTargetKind = "tree"
-	GitHubTargetIssue        GitHubTargetKind = "issue"
-	GitHubTargetIssueList    GitHubTargetKind = "issue_list"
-	GitHubTargetLabel        GitHubTargetKind = "label"
-	GitHubTargetLabelList    GitHubTargetKind = "label_list"
-	GitHubTargetMilestone    GitHubTargetKind = "milestone"
-	GitHubTargetMilestones   GitHubTargetKind = "milestones"
-	GitHubTargetPull         GitHubTargetKind = "pull"
-	GitHubTargetPullFiles    GitHubTargetKind = "pull_files"
-	GitHubTargetPullCommits  GitHubTargetKind = "pull_commits"
-	GitHubTargetPullChecks   GitHubTargetKind = "pull_checks"
-	GitHubTargetPullDiff     GitHubTargetKind = "pull_diff"
-	GitHubTargetPullPatch    GitHubTargetKind = "pull_patch"
-	GitHubTargetCommit       GitHubTargetKind = "commit"
-	GitHubTargetCommitDiff   GitHubTargetKind = "commit_diff"
-	GitHubTargetCommitPatch  GitHubTargetKind = "commit_patch"
-	GitHubTargetCompare      GitHubTargetKind = "compare"
-	GitHubTargetCompareDiff  GitHubTargetKind = "compare_diff"
-	GitHubTargetComparePatch GitHubTargetKind = "compare_patch"
-	GitHubTargetHistory      GitHubTargetKind = "history"
-	GitHubTargetBlame        GitHubTargetKind = "blame"
-	GitHubTargetActions      GitHubTargetKind = "actions"
-	GitHubTargetWorkflows    GitHubTargetKind = "actions_workflows"
-	GitHubTargetWorkflow     GitHubTargetKind = "actions_workflow"
-	GitHubTargetActionsRun   GitHubTargetKind = "actions_run"
-	GitHubTargetActionsJob   GitHubTargetKind = "actions_job"
+	GitHubTargetRepository    GitHubTargetKind = "repository"
+	GitHubTargetBlob          GitHubTargetKind = "blob"
+	GitHubTargetTree          GitHubTargetKind = "tree"
+	GitHubTargetIssue         GitHubTargetKind = "issue"
+	GitHubTargetIssueList     GitHubTargetKind = "issue_list"
+	GitHubTargetLabel         GitHubTargetKind = "label"
+	GitHubTargetLabelList     GitHubTargetKind = "label_list"
+	GitHubTargetMilestone     GitHubTargetKind = "milestone"
+	GitHubTargetMilestones    GitHubTargetKind = "milestones"
+	GitHubTargetPull          GitHubTargetKind = "pull"
+	GitHubTargetPullFiles     GitHubTargetKind = "pull_files"
+	GitHubTargetPullCommits   GitHubTargetKind = "pull_commits"
+	GitHubTargetPullChecks    GitHubTargetKind = "pull_checks"
+	GitHubTargetPullDiff      GitHubTargetKind = "pull_diff"
+	GitHubTargetPullPatch     GitHubTargetKind = "pull_patch"
+	GitHubTargetCommit        GitHubTargetKind = "commit"
+	GitHubTargetCommitDiff    GitHubTargetKind = "commit_diff"
+	GitHubTargetCommitPatch   GitHubTargetKind = "commit_patch"
+	GitHubTargetCompare       GitHubTargetKind = "compare"
+	GitHubTargetCompareDiff   GitHubTargetKind = "compare_diff"
+	GitHubTargetComparePatch  GitHubTargetKind = "compare_patch"
+	GitHubTargetHistory       GitHubTargetKind = "history"
+	GitHubTargetBlame         GitHubTargetKind = "blame"
+	GitHubTargetActions       GitHubTargetKind = "actions"
+	GitHubTargetWorkflows     GitHubTargetKind = "actions_workflows"
+	GitHubTargetWorkflow      GitHubTargetKind = "actions_workflow"
+	GitHubTargetActionsRun    GitHubTargetKind = "actions_run"
+	GitHubTargetActionsJob    GitHubTargetKind = "actions_job"
+	GitHubTargetBranches      GitHubTargetKind = "branches"
+	GitHubTargetTags          GitHubTargetKind = "tags"
+	GitHubTargetReleases      GitHubTargetKind = "releases"
+	GitHubTargetRelease       GitHubTargetKind = "release"
+	GitHubTargetReleaseLatest GitHubTargetKind = "release_latest"
+	GitHubTargetForks         GitHubTargetKind = "forks"
+	GitHubTargetStargazers    GitHubTargetKind = "stargazers"
+	GitHubTargetWatchers      GitHubTargetKind = "watchers"
 )
 
 // GitHubTarget is the semantic identity parsed from a GitHub URL. Blob/tree
@@ -398,6 +406,54 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 					return target
 				}
 			}
+		}
+		return nil
+	case "branches":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetBranches
+			return target
+		}
+		return nil
+	case "tags":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetTags
+			return target
+		}
+		return nil
+	case "releases":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetReleases
+			return target
+		}
+		if len(parts) == 4 && parts[3] == "latest" {
+			target.Kind = GitHubTargetReleaseLatest
+			return target
+		}
+		if len(parts) >= 5 && parts[3] == "tag" {
+			tag, err := url.PathUnescape(strings.Join(parts[4:], "/"))
+			if err == nil && strings.TrimSpace(tag) != "" {
+				target.Kind = GitHubTargetRelease
+				target.Name = tag
+				return target
+			}
+		}
+		return nil
+	case "forks":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetForks
+			return target
+		}
+		return nil
+	case "stargazers":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetStargazers
+			return target
+		}
+		return nil
+	case "watchers":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetWatchers
+			return target
 		}
 		return nil
 	default:
@@ -767,6 +823,22 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubActionsRun(ctx, client, target)
 	case GitHubTargetActionsJob:
 		markdown, err = readGitHubActionsJob(ctx, client, target)
+	case GitHubTargetBranches:
+		markdown, err = readGitHubBranches(ctx, client, target)
+	case GitHubTargetTags:
+		markdown, err = readGitHubTags(ctx, client, target)
+	case GitHubTargetReleases:
+		markdown, err = readGitHubReleases(ctx, client, target)
+	case GitHubTargetRelease:
+		markdown, err = readGitHubRelease(ctx, client, target, false)
+	case GitHubTargetReleaseLatest:
+		markdown, err = readGitHubRelease(ctx, client, target, true)
+	case GitHubTargetForks:
+		markdown, err = readGitHubForks(ctx, client, target)
+	case GitHubTargetStargazers:
+		markdown, err = readGitHubStargazers(ctx, client, target)
+	case GitHubTargetWatchers:
+		markdown, err = readGitHubWatchers(ctx, client, target)
 	default:
 		return GitHubNativeResult{Outcome: GitHubNativeUnsupported}
 	}

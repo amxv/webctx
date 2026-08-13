@@ -58,6 +58,8 @@ webctx read-link https://github.com/cli/cli/commits/andyfeller/test/README.md
 webctx read-link https://github.com/amxv/webctx/actions
 webctx read-link https://github.com/amxv/webctx/actions/runs/<run-id>
 webctx read-link https://github.com/amxv/webctx/actions/runs/<run-id>/job/<job-id>
+webctx read-link https://github.com/amxv/webctx/branches
+webctx read-link https://github.com/amxv/webctx/releases/latest
 ```
 
 The repository root is an orientation read: compact metadata, a bounded README preview, and native navigation hints. Direct public blobs use the raw-content fast path and return the full source; line fragments narrow a file before it reaches the agent. Tree URLs return a one-level listing without GitHub navigation chrome. Issue and Pull Request URLs preserve substantive conversation, while Issue/search/label/milestone list views remain compact and bounded.
@@ -73,6 +75,8 @@ For repository history, use the URL that already encodes the scope you need. `/c
 Blame is the exception to ordinary public reads: `/blame/<ref>/<path>` needs `GH_TOKEN` or `GITHUB_TOKEN` because webctx uses GitHub GraphQL's structured blame ranges. Without a token it fails early with auth guidance rather than scraping the UI.
 
 For Actions, start broad and narrow by URL. `/actions` or `/actions/workflows/<workflow>` gives a bounded run list; `/actions/runs/<run>` gives run/job/artifact state without logs; the canonical `/actions/runs/<run>/job/<job>` URL fetches only that job and its log. This keeps a large workflow from dumping every job log into the agent's context.
+
+Repository navigation stays URL-scoped too. Use `/branches` or `/tags` to discover refs, then follow the returned `/tree/<ref>` link for source. Use `/releases` for a compact release index and `/releases/tag/<tag>` or `/releases/latest` when you actually want the full notes/assets. `/stargazers` and `/watchers` are intentionally different lists: stars versus real subscribers/watchers.
 
 For private repository source, configure optional `GH_TOKEN` or `GITHUB_TOKEN`. Public GitHub reads stay anonymous by default.
 
