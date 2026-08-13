@@ -40,17 +40,17 @@
 | 8 | Discussions and Gists | complete | `38a1fd20a57ecc3533a012500f844924c238aaac` | Authenticated Discussion lists/conversations and public Gist files/comments/revisions/selectors/truncation handling are complete. |
 | 9 | GitHub search and public User/Organization navigation | complete | `a6e066924adc51884a34f33da10374cfdef82a83` | Bounded Search plus provider-resolved User/Organization profiles/tabs and separate Search-quota truth are complete. |
 | 10 | Repository activity, metrics, social lists, and deployments | complete | `e230bec7bdd3be2d6d94a14d2c4eb9f4969f8974` | Bounded activity, provider-computed statistics, and deployment/environment/status history with freshness/retention truth are complete. |
-| 11 | Packages, Projects v2, and long-tail native route closure | pending | — | Fresh route/API audit; stable read-only native or explicit fallback reason. |
+| 11 | Packages, Projects v2, and long-tail native route closure | complete | `3a529a875eb239f51b886f8150f4b449599dbd49` | Exact Packages and auth-only Projects v2 are native where stable identity is encoded; unproven/admin/security/binary long-tail routes remain fallback/excluded. |
 | 12 | Independent acceptance, output hardening, docs/package verification, and route-fidelity audit | pending | — | Map all 127 acceptance criteria to current evidence and close gaps. |
 
 ## Current handoff
 
-- **Last completed phase:** Phase 10 — `Repository activity, metrics, social lists, and deployments`.
-- **Earliest incomplete phase:** Phase 11.
-- **Exact phase title:** `Packages, Projects v2, and long-tail native route closure`.
-- **Observable boundary:** audit current long-tail read-only GitHub routes and add native readers only where stable current UI URLs map faithfully to first-party REST/GraphQL data, especially packages and Projects v2 auth-only cases; explicitly preserve generic fallback for unproven/admin/security/binary routes.
-- **Current blockers:** none known. Phase 10 full Go tests/vet/make check, docs check/build, package manifest smoke, local binary build, deterministic activity/statistics/deployment fixtures, and public provider smokes are complete. Provider-computed/cache/retention caveats remain explicit instead of being hidden by webctx's fresh requests.
-- **Plan Amendments affecting Phase 11:** none.
+- **Last completed phase:** Phase 11 — `Packages, Projects v2, and long-tail native route closure`.
+- **Earliest incomplete phase:** Phase 12.
+- **Exact phase title:** `Independent acceptance, output hardening, docs/package verification, and route-fidelity audit`.
+- **Observable boundary:** independently map all 127 acceptance criteria to current code/tests/live evidence, rerun the whole validation/package/docs/live route matrix from the pushed branch, harden any output/route gaps found, and leave no temporary duplicate GitHub path or over-broad native classifier.
+- **Current blockers:** none known. Phase 11 full Go tests/vet/make check, docs check/build, package manifest smoke, local binary build, deterministic Package/Project auth/bounds fixtures, and long-tail route exclusion probes are complete. No safe token is configured, so auth-only Project live success remains explicitly unproven rather than faked.
+- **Plan Amendments affecting Phase 12:** none.
 - **Prompt to use:** [`subsequent-agent-prompt.md`](./subsequent-agent-prompt.md).
 
 ## Progress entries
@@ -214,6 +214,22 @@
 - **Amendments:** none; current first-party GitHub behavior supported the Phase 10 plan assumptions.
 - **Known defects/risks:** GitHub statistics freshness remains provider-controlled; a fresh call can still return cached/provider-computed values. Deployment status history is limited by whatever GitHub still returns for the selected deployment and webctx cannot recover provider-expired history. No Phase 10 correctness blocker is known.
 - **Next handoff:** Phase 11 should perform a fresh route/API audit before native ownership expands. Add packages/Projects v2 or other long-tail readers only where a current stable GitHub URL maps faithfully to supported first-party data; auth-only routes must fail concisely without scraped fallback, and security/settings/admin/binary routes must remain outside native ownership.
+
+### 2026-08-14 — Phase 11 — `complete`
+
+- **Agent/session:** GPT-5.6 Sol continuation session on the Zodex checkout.
+- **Starting state:** `main` was clean and exactly matched `origin/main` at the Phase 10 handoff commit; current GitHub Packages REST, Projects v2 GraphQL, and long-tail UI route shapes were freshly audited before native ownership expanded.
+- **Ending commit(s):** `3a529a875eb239f51b886f8150f4b449599dbd49` — Phase 11 implementation, tests, public docs, and initial durable handoff.
+- **Outcome:** exact organization/user Package pages whose URL encodes package scope/type/name now map to REST package metadata plus one bounded package-version page. Exact organization/user Projects v2 URLs now use authenticated GraphQL and return compact project identity plus the first 50 linked/draft items with explicit `more_items_available`; no-token calls fail before GraphQL. Package indexes lacking type/name identity, wiki/settings/security/admin/billing/forms, archive/binary payloads, and other unproven long-tail routes remain generic fallback/excluded rather than fake native reads.
+- **Files/areas changed:** `internal/app/github.go` gained exact Package/Project v2 target routing before generic repository parsing; new `internal/app/github_packages_projects.go` owns Package REST/version and bounded Project GraphQL behavior; new `github_packages_projects_test.go` supplies deterministic provider/exclusion fixtures; README/read-link/credentials/quickstart/CLI-reference/troubleshooting/architecture/agent-workflows/landing copy was synchronized.
+- **Positive evidence:** deterministic tests prove exact org/user Package and Project URL classification, supported package-type validation, generic package-index/wiki/settings/security/archive exclusion, bounded Package version pagination/tags/navigation, no-token Project zero-provider-call behavior, organization/user GraphQL owner-field selection, first-50 Project item bounding plus explicit more-items truth, linked Issue identity, draft item rendering, and native Package provider-failure/no-body-leakage. `go test ./...`, `go vet ./...`, formatting, and `git diff --check` pass.
+- **Regression evidence:** the complete Phase 1–10 suite remains green across repository/source, Issue/PR, history/blame, Actions, refs/releases/social, Discussions/Gists, Search/profiles, activity/statistics/deployments, generic fallback, search command, and map-site. `make check` passes. Long-tail exclusion tests specifically protect wiki/settings/security/archive behavior from broad GitHub route claims.
+- **Live evidence:** current github.com organization Package index, organization/user Projects paths, wiki, settings, and security route shapes were probed during the closure audit. Forced-anonymous exact Project smoke correctly exercised the auth-required native boundary before GraphQL. Current first-party Packages REST and Projects v2 GraphQL documentation was rechecked. No live authenticated Project success claim is made because no safe token is configured; no private/package token payload was persisted.
+- **Documentation:** README plus read-link, credentials, quickstart, CLI reference, troubleshooting, architecture, agent-workflows, and landing copy now describe exact Package/version behavior, auth-only bounded Projects v2, and explicit long-tail exclusions. `npm run docs:check` completed without errors, `npm run docs:build` passed, Vercel docs-ignore tests passed 6/6, npm dry-run packaging includes the Phase 11 source/tests, and the local binary builds/reports the package version.
+- **Decisions made:** generic Package index pages remain fallback because the REST list API requires a package type not encoded by those URLs; webctx does not issue speculative scans across all package types. Exact Package details use the copied scope/type/name and bound the versions page. Projects v2 use the stable owner/number URL plus GraphQL auth and intentionally return the first 50 items rather than dumping an unbounded board. Admin/security/binary routes remain excluded even where some API exists because the workstream is read-only context optimization, not broad GitHub administration.
+- **Amendments:** none; current first-party GitHub behavior supported the Phase 11 plan assumptions.
+- **Known defects/risks:** package list/index pages remain generic by design when the URL does not encode package type; Projects v2 live authenticated success remains unproven without a token and the native projection is intentionally bounded to 50 items. Long-tail GitHub UI can drift independently of APIs, so Phase 12 performs the final fresh route-fidelity audit. No Phase 11 correctness blocker is known.
+- **Next handoff:** Phase 12 must treat current code/tests/provider docs as truth, map all 127 acceptance criteria independently, rerun the full repository/docs/package/live route matrix, scan for route over-claiming/duplicate legacy paths/secrets/private payloads, and fix any gap found before declaring the workstream complete.
 
 When a phase is completed or blocked, append an entry in this exact shape:
 
