@@ -43,6 +43,8 @@ webctx read-link https://developers.openai.com/apps-sdk/reference
 
 Search is for discovery. `read-link` is for turning the promising result into context an agent can actually use.
 
+If you want the exact scoring model behind the merged list, see [How search ranking works](/docs/ranking).
+
 ## Output
 
 ```markdown

@@ -7,7 +7,7 @@ export async function GET() {
   const lines = [
     `# ${siteConfig.name} Docs`,
     "",
-    "Raw markdown index for getting started, searching the web, reading useful URLs, mapping sites, agent workflows, credentials, and troubleshooting.",
+    "Raw markdown index for getting started, search, URL reading, site mapping, agent workflows, credentials, troubleshooting, and concise technical guides to read fast paths and search ranking.",
     ""
   ];
 

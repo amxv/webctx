@@ -111,5 +111,7 @@ Start with the guides in `src/content/docs`:
 - **Search the web** — federated search and filtering
 - **Map a site** — discover pages before reading them
 - **Credentials** — keys and optional GitHub auth
+- **How URL reading works** — native/direct fast paths before Firecrawl
+- **How search ranking works** — URL normalization, position scoring, and provider agreement
 
 Maintainer notes, repository layout, development commands, and release steps live in [`CONTRIBUTORS.md`](CONTRIBUTORS.md).

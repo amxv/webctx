@@ -15,7 +15,7 @@ export const siteConfig = {
     {
       title: "Start here",
       text:
-        "Paste the URL you already have. webctx keeps useful URL intent—source lines, Issues, PR threads, Actions jobs, and more—while removing browser noise."
+        "Start with examples, then read the short How it works guides when you want the technical model behind URL fast paths and search ranking."
     },
     {
       title: "Repository",
@@ -26,7 +26,7 @@ export const siteConfig = {
   ]
 } as const;
 
-export const docCategories = ["Start", "Guides", "Reference"] as const;
+export const docCategories = ["Start", "Guides", "How it works", "Reference"] as const;
 
 export const primaryNav = [
   { href: "/docs", label: "Docs" },

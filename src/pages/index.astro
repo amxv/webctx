@@ -6,7 +6,7 @@ import "../styles/global.css";
 
 const docs = (await getCollection("docs"))
   .sort((a, b) => a.data.order - b.data.order)
-  .filter((entry) => ["quickstart", "read-link", "agent-workflows", "search", "map-site", "credentials"].includes(entry.id));
+  .filter((entry) => ["quickstart", "read-link", "agent-workflows", "search", "map-site", "credentials", "architecture", "ranking"].includes(entry.id));
 
 const commands = [
   {
@@ -351,8 +351,8 @@ const workflow = [
         <p class="wc-kicker">05 / Documentation</p>
         <h2 id="docs-title">Pick a task.<br /><em>Copy an example.</em></h2>
         <p>
-          The guides are organized around outcomes: get started, read a URL, research with an agent,
-          search the web, map a site, or add the credentials a workflow needs.
+          Start with task-focused examples. When you want the technical model, the How it works guides explain
+          automatic URL fast paths and federated search ranking without turning into a code walkthrough.
         </p>
         <a class="wc-button wc-button--secondary" href="/docs">
           <span>Browse every guide</span><span aria-hidden="true">→</span>

@@ -1,22 +1,67 @@
 ---
 title: Read a URL
-description: Paste a useful URL and get focused text without manually cleaning browser pages.
+description: Read any useful URL as clean text; webctx automatically chooses native, direct-markdown, or crawl paths.
 order: 11
 category: Guides
-summary: Keep the meaning of GitHub URLs, read normal pages cleanly, and give agents only the context they asked for.
+summary: Give webctx a URL; it chooses the cleanest available read path and preserves precise URL intent when it can.
 ---
 
-## One command
+## Read any useful URL
 
 ```bash
 webctx read-link <url>
 ```
 
-`read-link` is useful because the URL often already tells webctx what you want.
+`read-link` is the general page-reading command. Give it a documentation page, an article, a GitHub URL, a Gist, or another useful web page and get terminal-friendly text back.
 
-A repository URL means “give me an overview.” A source line anchor means “give me these lines.” An Issue URL means “give me the Issue conversation.” A PR review-thread anchor means “give me this thread.” An Actions job URL means “give me this job and its log.”
+```bash
+# Normal web page
+webctx read-link https://docs.firecrawl.dev/introduction
 
-webctx keeps that intent instead of returning the whole browser page.
+# Markdown/source page
+webctx read-link https://github.com/amxv/webctx/blob/main/README.md
+
+# Precise GitHub resource
+webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
+```
+
+You do not choose a parser. webctx chooses the cleanest available path automatically.
+
+## What happens automatically
+
+webctx prefers more direct and structured reads before paying for a full page crawl:
+
+```text
+supported structured URL → native/direct provider read
+clean markdown available → fetch markdown directly
+otherwise               → Firecrawl page extraction
+```
+
+GitHub has the deepest optimization because its URLs often encode exactly what you want: a repository, source range, Issue, PR thread, CI job, commit, or other structured resource. Normal web pages are still first-class inputs; they simply use the direct-markdown or Firecrawl paths when there is no richer native interpretation.
+
+See [How URL reading works](/docs/architecture) for the short technical model.
+
+## Read a normal website
+
+```bash
+webctx read-link https://example.com/article
+```
+
+When a clean markdown representation is available, webctx prefers it. Otherwise it uses Firecrawl to extract the rendered page. The result stays simple:
+
+```markdown
+# Page title
+
+**URL:** https://example.com/article
+
+<useful page content>
+```
+
+## GitHub URLs keep their meaning
+
+A GitHub URL is more than a page address. Its path, query, and fragment often describe the exact context you meant to copy. webctx preserves that intent instead of flattening everything into a generic page scrape.
+
+For example, a repository URL means “give me an overview,” while a source line anchor means “give me these lines.” An Issue URL means “give me the conversation,” and an Actions job URL means “give me this job and its log.”
 
 ## Understand a repository
 
@@ -183,24 +228,6 @@ GitHub Packages have unusual credential rules. A public Package page can be visi
 If that happens for an auth or permission error and `FIRECRAWL_API_KEY` is available, webctx can crawl the public Package page instead. The output is clearly marked **best-effort** because page scraping can be incomplete or contain GitHub UI noise.
 
 webctx does **not** use that escape hatch for GitHub rate limits, private/not-found resources, security/admin pages, or unrelated GitHub resource families.
-
-## Normal websites work too
-
-```bash
-webctx read-link https://example.com/article
-```
-
-For non-GitHub pages, webctx looks for a clean markdown version when possible and falls back to Firecrawl when rendered-page extraction is needed.
-
-The result stays simple:
-
-```markdown
-# Page title
-
-**URL:** https://example.com/article
-
-<useful page content>
-```
 
 ## Add GitHub auth when it helps
 
