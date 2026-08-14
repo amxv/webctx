@@ -25,7 +25,7 @@ A phase is `complete` only after its observable outcome, phase-specific positive
 | Phase | Capability | Status | Completion commit | Evidence / next boundary |
 | ---: | --- | --- | --- | --- |
 | 1 | Shared bounded-context contract and resilient Issues | complete | `68db77888bc136f97086aad62d4b844bb4d25159` | Large Issue roots are bounded/adaptive, `minimized` shape drift is tolerant, and exact `#issue-*` body reads are proven live. |
-| 2 | Native Pull Request lists and PR-qualified search correctness | pending | — | `/pulls` and `/issues?q=is:pr...` become truthful native PR lists. |
+| 2 | Native Pull Request lists and PR-qualified search correctness | complete | `8d85e3cdf5629fb36bc1f8eb48031282e2e8bf2b` | `/pulls` is native and bounded; PR-qualified `/issues?q=...` preserves PR semantics instead of being rewritten as Issues. |
 | 3 | Bounded PR root and complete selector discoverability | pending | — | PR root becomes a compact map to body/comments/reviews/threads/files/commits/checks. |
 | 4 | PR Files and Checks bounded subviews | pending | — | Large patch/check fan-out becomes index-first; focused selectors remain exact. |
 | 5 | Actions overview/run/job context safety and raw-log navigation | pending | — | Runs/jobs stop injecting huge child/log output and expose raw log navigation. |
@@ -37,9 +37,9 @@ A phase is `complete` only after its observable outcome, phase-specific positive
 
 ## Current handoff
 
-- **Last completed phase:** Phase 1 — `Shared bounded-context contract and resilient Issues`.
-- **Earliest incomplete phase:** Phase 2 — `Native Pull Request lists and PR-qualified search correctness`.
-- **Observable boundary:** Issue roots now preserve the complete readable conversation when small and switch to a deterministic bounded overview when large; `#issue-<id>` reads the exact Issue description, and live object-shaped Issue timeline `minimized` data no longer erases the primary Issue. `/pulls` and PR-qualified `/issues?q=...` remain the next unsupported/incorrect public boundary.
+- **Last completed phase:** Phase 2 — `Native Pull Request lists and PR-qualified search correctness`.
+- **Earliest incomplete phase:** Phase 3 — `Bounded PR root and complete selector discoverability`.
+- **Observable boundary:** repository `/pulls` pages now use the Pull Requests REST list directly with compact stable rows, validated filter/sort/page semantics and provider-derived web navigation; PR-search `q=` URLs use Search Issues with explicit `is:pr`, including copied `/issues?q=is:pr...` forms. PR roots themselves still render the existing complete conversation/reviews/threads transcript and lack the Phase 3 stable bounded map/selectable full-description contract.
 - **Current blockers:** none known. GitHub/provider behavior listed as assumptions in the plan must be verified at the phase that depends on it.
 - **Plan Amendments affecting next phase:** none.
 - **Prompt to use now:** `subsequent-agent-prompt.md`.
@@ -98,6 +98,22 @@ Never place credentials, private live content, tokens, raw private provider payl
 - **Amendments:** none.
 - **Known defects/risks:** `/pulls` is still non-native and PR-qualified `/issues?q=...` is still handled as an Issue search; those are intentionally Phase 2. Other PR/Actions/compare context growth remains in later phases.
 - **Next handoff:** Phase 2 — read `subsequent-agent-prompt.md`, reconcile current remote state, then inspect only the Phase 2 plan/sweep/source boundaries for native `/pulls` and PR-qualified search correctness.
+
+### 2026-08-14 — Phase 2 — `complete`
+
+- **Agent/session:** continuation in the same ChatGPT Atlas implementation session on `/workspace/repos/webctx`.
+- **Starting state:** clean synchronized `main` at `5bd3fb8d0a382dcf22ddc5a3b1c319a2513a3ce9` after the Phase 1 remote verification.
+- **Ending commit(s):** `8d85e3cdf5629fb36bc1f8eb48031282e2e8bf2b` (implementation/tests/public docs); this ledger handoff follows as a separate administrative commit.
+- **Outcome:** `/owner/repo/pulls` is now a first-class native target backed by the List Pull Requests REST endpoint; supported state/head/base/sort/direction/page intent is validated and preserved, PR rows expose state/draft/author/time/canonical URLs without N+1 enrichment, and provider Link pagination becomes copied GitHub web navigation. Query-mode `/pulls?q=...` and `/issues?q=is:pr...` now use repository-scoped Search Issues with truthful `is:pr` semantics instead of silently appending `is:issue` and filtering the intended results away.
+- **Files/areas changed:** GitHub target/dispatch in `internal/app/github.go`; token-aware Issue-vs-PR search classification in `internal/app/github_issues.go`; native PR list/search/query validation/rendering in `internal/app/github_pulls.go`; Phase 2 parser/list/search/regression coverage in the corresponding tests plus the route-fidelity acceptance matrix; public examples in `src/content/docs/read-link.md`.
+- **Positive evidence:** deterministic PR-list fixtures prove one provider call, open/draft/closed identity, exact filter forwarding and Previous/Next reconstruction; deterministic search fixtures prove both `/pulls?q=...` and `/issues?q=is:pr...` generate repository-scoped `is:pr` provider queries and render canonical PR URLs; token-aware qualifier fixtures do not misclassify quoted/textual `is:pr`; explicit `is:issue` remains an Issue search; conflicting resource qualifiers and unsupported PR query parameters/values fail before any provider call.
+- **Regression evidence:** existing PR detail/selectors, generic GitHub Search `type=pullrequests`, Issue lists/search, native route exclusions, provider error behavior and repository-wide tests remain green. Final validation passed `go test ./...`, `go vet ./...`, `npm test`, `make build`, and `git diff --check`.
+- **Live evidence:** built `webctx` read `vercel/next.js/pulls` natively in 4,961 runes / 43 lines and page 2 in 5,059 runes / 44 lines; the copied PR search `vercel/next.js/issues?q=is:pr+is:open` rendered `view: pull_requests` in 5,233 runes. No `Uh oh!`, ProTip, sign-in, or loading-placeholder UI chrome appeared; text containing the word “loading” in an earlier probe was confirmed to be legitimate current PR titles/branch names rather than scrape artifacts.
+- **Documentation:** `read-link` now teaches `/pulls`, query-mode PR lists, and the fact that copied `/issues?q=is:pr...` links retain PR semantics; no Phase 3 PR-root selector promises were documented early.
+- **Decisions made:** native PR containers own a fixed compact provider page size of 30 rather than accepting UI `per_page` overrides, preventing a copied page-size knob from defeating the shared bounded-container goal; official GitHub REST state/head/base/sort/direction/page behavior remains forwarded. Search result ceilings are surfaced separately from current-page size.
+- **Amendments:** none; GitHub's current first-party Pull Requests REST documentation still supports the planned list filters and pagination contract.
+- **Known defects/risks:** PR root still expands complete conversation, reviews and inline threads and does not yet expose an exact `#issue-<Issue-side id>` description selector; that is the intentional Phase 3 boundary. Later PR Files/Checks/Actions/compare fan-out remains untouched.
+- **Next handoff:** Phase 3 — start from `subsequent-agent-prompt.md`, reconcile remote state, then read only the Phase 3 plan/sweep/source surfaces for the always-bounded PR root and selector map.
 
 ## Execution rules
 
