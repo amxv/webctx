@@ -132,11 +132,15 @@ webctx read-link 'https://github.com/vercel/next.js/pulls?q=is%3Apr+is%3Aopen'
 
 Copied PR searches stay PR searches even when GitHub uses an `/issues?q=is:pr...` URL. Native list URLs preserve supported state/branch/sort/page intent and return compact rows with direct PR links.
 
-Read the conversation:
+Read the Pull Request overview:
 
 ```bash
 webctx read-link https://github.com/amxv/webctx/pull/15
 ```
+
+The root stays compact: it previews the description and indexes the substantive conversation, submitted reviews, and inline review threads with exact GitHub selector URLs. Follow the printed `#issue-<id>` URL when you need the complete PR description without loading the rest of the conversation.
+
+If you already copied a GitHub anchor, keep it. `#issuecomment-*`, `#pullrequestreview-*`, and `#discussion_r*` select the corresponding full comment, review, or thread instead of rebuilding the PR root.
 
 Read one inline review thread:
 

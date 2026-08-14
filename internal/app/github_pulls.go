@@ -18,6 +18,7 @@ type githubPullRef struct {
 }
 
 type githubPullRequest struct {
+	ID                int64         `json:"id"`
 	Number            int           `json:"number"`
 	State             string        `json:"state"`
 	Title             string        `json:"title"`
@@ -89,6 +90,13 @@ type githubPullThread struct {
 	Root    githubPullReviewComment
 	Replies []githubPullReviewComment
 	State   *githubPullThreadState
+}
+
+type githubPullOverviewAvailability struct {
+	TimelineProviderMore       bool
+	ReviewsProviderMore        bool
+	ReviewCommentsProviderMore bool
+	ReviewCommentsReturned     int
 }
 
 type githubPullListItem struct {
@@ -328,6 +336,12 @@ func readGitHubPullRequest(ctx context.Context, client *GitHubClient, target *Gi
 	if target == nil || target.Number <= 0 {
 		return "", fmt.Errorf("GitHub Pull Request URL is missing a number")
 	}
+	if issueID, ok, err := parseIssueBodySelector(target.Fragment); ok {
+		if err != nil {
+			return "", err
+		}
+		return readGitHubPullBody(ctx, client, target, issueID)
+	}
 	if commentID, ok, err := parseIssueCommentSelector(target.Fragment); ok {
 		if err != nil {
 			return "", err
@@ -359,16 +373,22 @@ func readGitHubPullRequest(ctx context.Context, client *GitHubClient, target *Gi
 	if err := json.Unmarshal(prResp.Body, &pr); err != nil {
 		return "", fmt.Errorf("decode GitHub Pull Request: %w", err)
 	}
-
-	timeline, err := fetchGitHubIssueTimeline(ctx, client, target)
+	issue, err := fetchGitHubIssue(ctx, client, target)
 	if err != nil {
 		return "", err
 	}
-	reviews, err := fetchGitHubPullReviews(ctx, client, target)
+	if issue.PullRequest == nil || issue.ID <= 0 {
+		return "", fmt.Errorf("GitHub Issue-side identity for Pull Request %s/%s#%d was unavailable", target.Owner, target.Repo, target.Number)
+	}
+	timeline, timelineMore, err := fetchGitHubPullTimelinePage(ctx, client, target)
 	if err != nil {
 		return "", err
 	}
-	comments, err := fetchGitHubPullReviewComments(ctx, client, target)
+	reviews, reviewsMore, err := fetchGitHubPullReviewsPage(ctx, client, target)
+	if err != nil {
+		return "", err
+	}
+	comments, commentsMore, err := fetchGitHubPullReviewCommentsPage(ctx, client, target)
 	if err != nil {
 		return "", err
 	}
@@ -387,7 +407,93 @@ func readGitHubPullRequest(ctx context.Context, client *GitHubClient, target *Gi
 			}
 		}
 	}
-	return renderGitHubPullRequest(target, pr, timeline, reviews, threads, enrichmentNote, client.hasToken()), nil
+	availability := githubPullOverviewAvailability{
+		TimelineProviderMore:       timelineMore,
+		ReviewsProviderMore:        reviewsMore,
+		ReviewCommentsProviderMore: commentsMore,
+		ReviewCommentsReturned:     len(comments),
+	}
+	return renderGitHubPullRequest(target, pr, issue.ID, timeline, reviews, threads, availability, enrichmentNote, client.hasToken()), nil
+}
+
+func readGitHubPullBody(ctx context.Context, client *GitHubClient, target *GitHubTarget, issueID int64) (string, error) {
+	issue, err := fetchGitHubIssue(ctx, client, target)
+	if err != nil {
+		return "", err
+	}
+	if issue.PullRequest == nil {
+		return "", fmt.Errorf("GitHub #%d is an Issue, not a Pull Request", target.Number)
+	}
+	if issue.ID != issueID {
+		return "", fmt.Errorf("GitHub Pull Request body selector issue-%d does not belong to %s/%s#%d (Issue-side id %d)", issueID, target.Owner, target.Repo, target.Number, issue.ID)
+	}
+	return renderGitHubPullBody(target, issue), nil
+}
+
+func renderGitHubPullBody(target *GitHubTarget, issue githubIssue) string {
+	selector := pullBaseURL(target) + "#issue-" + strconv.FormatInt(issue.ID, 10)
+	lines := []string{
+		"---",
+		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
+		fmt.Sprintf("pull_request: %d", target.Number),
+		fmt.Sprintf("issue_id: %d", issue.ID),
+		"title: " + yamlScalar(issue.Title),
+	}
+	if issue.User.Login != "" {
+		lines = append(lines, "author: "+yamlScalar("@"+issue.User.Login))
+	}
+	lines = append(lines, "url: "+yamlScalar(selector), "---", "", fmt.Sprintf("# Description of %s/%s#%d", target.Owner, target.Repo, target.Number), "")
+	if issue.Body == nil || strings.TrimSpace(stripInvisibleHTMLComments(*issue.Body)) == "" {
+		lines = append(lines, "_No description provided._")
+	} else {
+		lines = append(lines, stripInvisibleHTMLComments(*issue.Body))
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func fetchGitHubPullTimelinePage(ctx context.Context, client *GitHubClient, target *GitHubTarget) ([]githubTimelineEvent, bool, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/issues/%d/timeline?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), target.Number)
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return nil, false, err
+	}
+	var events []githubTimelineEvent
+	if err := json.Unmarshal(resp.Body, &events); err != nil {
+		return nil, false, fmt.Errorf("decode GitHub Pull Request timeline: %w", err)
+	}
+	return events, strings.TrimSpace(resp.Links()["next"]) != "", nil
+}
+
+func fetchGitHubPullReviewsPage(ctx context.Context, client *GitHubClient, target *GitHubTarget) ([]githubPullReview, bool, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), target.Number)
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return nil, false, err
+	}
+	var reviews []githubPullReview
+	if err := json.Unmarshal(resp.Body, &reviews); err != nil {
+		return nil, false, fmt.Errorf("decode GitHub Pull Request reviews: %w", err)
+	}
+	sort.SliceStable(reviews, func(i, j int) bool {
+		if reviews[i].SubmittedAt == reviews[j].SubmittedAt {
+			return reviews[i].ID < reviews[j].ID
+		}
+		return reviews[i].SubmittedAt < reviews[j].SubmittedAt
+	})
+	return reviews, strings.TrimSpace(resp.Links()["next"]) != "", nil
+}
+
+func fetchGitHubPullReviewCommentsPage(ctx context.Context, client *GitHubClient, target *GitHubTarget) ([]githubPullReviewComment, bool, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/pulls/%d/comments?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), target.Number)
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return nil, false, err
+	}
+	var comments []githubPullReviewComment
+	if err := json.Unmarshal(resp.Body, &comments); err != nil {
+		return nil, false, fmt.Errorf("decode GitHub Pull Request review comments: %w", err)
+	}
+	return comments, strings.TrimSpace(resp.Links()["next"]) != "", nil
 }
 
 func parsePullDiscussionSelector(fragment string) (int64, bool, error) {
@@ -648,13 +754,57 @@ func readGitHubPullReviewSelector(ctx context.Context, client *GitHubClient, tar
 	return renderGitHubPullReviewSelector(target, review, groupGitHubPullThreads(comments)), nil
 }
 
-func renderGitHubPullRequest(target *GitHubTarget, pr githubPullRequest, timeline []githubTimelineEvent, reviews []githubPullReview, threads []githubPullThread, enrichmentNote string, hasToken bool) string {
+func renderGitHubPullRequest(target *GitHubTarget, pr githubPullRequest, issueID int64, timeline []githubTimelineEvent, reviews []githubPullReview, threads []githubPullThread, availability githubPullOverviewAvailability, enrichmentNote string, hasToken bool) string {
+	visible := substantivePullTimeline(timeline)
+	conversationLimit := minInt(10, len(visible))
+	reviewLimit := minInt(4, len(reviews))
+	threadLimit := minInt(4, len(threads))
+	bodyLimit := 900
+	for {
+		out := renderGitHubPullOverviewWithLimits(target, pr, issueID, visible, reviews, threads, availability, enrichmentNote, hasToken, conversationLimit, reviewLimit, threadLimit, bodyLimit)
+		if githubOverviewFits(out) {
+			return out
+		}
+		switch {
+		case threadLimit > 1:
+			threadLimit--
+		case reviewLimit > 1:
+			reviewLimit--
+		case conversationLimit > 1:
+			conversationLimit--
+		case bodyLimit > 400:
+			bodyLimit = 400
+		case bodyLimit > 200:
+			bodyLimit = 200
+		default:
+			// Mandatory metadata, one representative item per available child
+			// family, and exact navigation win over the shared soft target.
+			return out
+		}
+	}
+}
+
+func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullRequest, issueID int64, visible []githubTimelineEvent, reviews []githubPullReview, threads []githubPullThread, availability githubPullOverviewAvailability, enrichmentNote string, hasToken bool, conversationLimit, reviewLimit, threadLimit, bodyLimit int) string {
+	conversationLimit = minInt(conversationLimit, len(visible))
+	reviewLimit = minInt(reviewLimit, len(reviews))
+	threadLimit = minInt(threadLimit, len(threads))
+	commentReturned := 0
+	for _, event := range visible {
+		if event.Event == "commented" {
+			commentReturned++
+		}
+	}
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
 		fmt.Sprintf("number: %d", pr.Number),
+		fmt.Sprintf("issue_id: %d", issueID),
 		"state: " + yamlScalar(pullDisplayState(pr)),
 		"title: " + yamlScalar(pr.Title),
+		"overview: true",
+	}
+	if pr.ID > 0 {
+		lines = append(lines, fmt.Sprintf("pull_request_id: %d", pr.ID))
 	}
 	if pr.Draft {
 		lines = append(lines, "draft: true")
@@ -678,61 +828,258 @@ func renderGitHubPullRequest(target *GitHubTarget, pr githubPullRequest, timelin
 		fmt.Sprintf("changed_files: %d", pr.ChangedFiles),
 		fmt.Sprintf("additions: %d", pr.Additions),
 		fmt.Sprintf("deletions: %d", pr.Deletions),
-		fmt.Sprintf("conversation_comments: %d", pr.Comments),
-		fmt.Sprintf("review_comments: %d", pr.ReviewComments),
+		fmt.Sprintf("conversation_comments_reported: %d", pr.Comments),
+		fmt.Sprintf("conversation_comments_returned: %d", commentReturned),
+		fmt.Sprintf("conversation_items_returned: %d", len(visible)),
+		fmt.Sprintf("conversation_items_indexed: %d", conversationLimit),
+		fmt.Sprintf("conversation_items_omitted: %d", len(visible)-conversationLimit),
+		fmt.Sprintf("reviews_returned: %d", len(reviews)),
+		fmt.Sprintf("reviews_indexed: %d", reviewLimit),
+		fmt.Sprintf("reviews_omitted: %d", len(reviews)-reviewLimit),
+		fmt.Sprintf("review_comments_reported: %d", pr.ReviewComments),
+		fmt.Sprintf("review_comments_returned: %d", availability.ReviewCommentsReturned),
+		fmt.Sprintf("threads_returned: %d", len(threads)),
+		fmt.Sprintf("threads_indexed: %d", threadLimit),
+		fmt.Sprintf("threads_omitted: %d", len(threads)-threadLimit),
 	)
+	if availability.TimelineProviderMore {
+		lines = append(lines, "conversation_provider_more_available: true")
+	} else if pr.Comments > commentReturned {
+		lines = append(lines, "conversation_provider_complete: false")
+	}
+	if availability.ReviewsProviderMore {
+		lines = append(lines, "reviews_provider_more_available: true")
+	}
+	if availability.ReviewCommentsProviderMore {
+		lines = append(lines, "review_comments_provider_more_available: true")
+	} else if pr.ReviewComments > availability.ReviewCommentsReturned {
+		lines = append(lines, "review_comments_provider_complete: false")
+	}
+	if len(threads) > 0 && !hasToken {
+		lines = append(lines, "thread_state_enrichment: unavailable_without_auth")
+	} else if enrichmentNote != "" {
+		lines = append(lines, "thread_state_enrichment: unavailable")
+	}
 	if pr.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(pr.HTMLURL))
 	}
-	lines = append(lines, "---", "", fmt.Sprintf("# #%d %s", pr.Number, pr.Title), "", "## Body", "")
+	lines = append(lines, "---", "", fmt.Sprintf("# #%d %s", pr.Number, pr.Title), "", "> Pull Request overview: description and child conversations are previewed/indexed; use the exact URLs below for full scoped content.")
+
+	bodySelector := pullBaseURL(target) + "#issue-" + strconv.FormatInt(issueID, 10)
+	lines = append(lines, "", "## Description preview", "")
 	if pr.Body == nil || strings.TrimSpace(stripInvisibleHTMLComments(*pr.Body)) == "" {
 		lines = append(lines, "_No description provided._")
 	} else {
-		lines = append(lines, stripInvisibleHTMLComments(*pr.Body))
+		preview, truncated := githubOverviewPreview(stripInvisibleHTMLComments(*pr.Body), bodyLimit)
+		lines = append(lines, preview)
+		if truncated {
+			lines = append(lines, "", "> Description preview locally truncated for this overview.")
+		}
 	}
+	lines = append(lines, "> Full description: "+bodySelector)
 
-	lines = append(lines, "", "## Conversation", "")
-	visible := 0
-	for _, event := range timeline {
+	lines = append(lines, "", "## Conversation index", "")
+	if len(visible) == 0 {
+		lines = append(lines, "_No substantive conversation timeline activity._")
+	}
+	for _, event := range visible[:conversationLimit] {
 		if event.Event == "commented" {
 			comment := githubIssueComment{ID: event.ID, Body: event.Body, HTMLURL: event.HTMLURL, User: event.User, AuthorAssociation: event.AuthorAssociation, CreatedAt: event.CreatedAt, UpdatedAt: event.UpdatedAt, IsPinned: event.IsPinned, Minimized: event.Minimized, MinimizedReason: event.MinimizedReason}
-			lines = append(lines, renderTimelineComment(comment)...)
-			visible++
+			lines = append(lines, renderPullConversationCommentIndex(target, comment)...)
 			continue
 		}
 		if rendered, ok := renderPullTimelineState(event); ok {
 			lines = append(lines, rendered)
-			visible++
 		}
 	}
-	if visible == 0 {
-		lines = append(lines, "_No substantive conversation timeline activity._")
+	if note := githubLocalOmissionNote("substantive conversation items", len(visible)-conversationLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	if availability.TimelineProviderMore {
+		lines = append(lines, "", "> GitHub has more conversation timeline items beyond the provider page fetched for this overview.")
+	} else if pr.Comments > commentReturned {
+		lines = append(lines, "", "> GitHub reports more conversation comments than were returned by the fetched timeline page; this provider-incomplete state is separate from local overview omission.")
 	}
 
-	lines = append(lines, "", "## Reviews", "")
+	lines = append(lines, "", "## Review index", "")
 	if len(reviews) == 0 {
-		lines = append(lines, "_No submitted reviews._")
+		lines = append(lines, "_No submitted reviews returned on this provider page._")
 	}
-	for _, review := range reviews {
-		lines = append(lines, renderPullReview(review)...)
+	for _, review := range reviews[:reviewLimit] {
+		lines = append(lines, renderPullReviewIndex(target, review)...)
+	}
+	if note := githubLocalOmissionNote("reviews", len(reviews)-reviewLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	if availability.ReviewsProviderMore {
+		lines = append(lines, "", "> GitHub has more submitted reviews beyond the provider page fetched for this overview.")
 	}
 
-	lines = append(lines, "", "## Inline review threads", "")
+	lines = append(lines, "", "## Inline thread index", "")
 	if len(threads) == 0 {
-		lines = append(lines, "_No inline review threads._")
+		lines = append(lines, "_No inline review threads returned on this provider page._")
 	}
-	for _, thread := range threads {
-		lines = append(lines, renderPullThread(thread, 0)...)
+	for _, thread := range threads[:threadLimit] {
+		lines = append(lines, renderPullThreadIndex(target, thread)...)
+	}
+	if note := githubLocalOmissionNote("inline review threads", len(threads)-threadLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	if availability.ReviewCommentsProviderMore {
+		lines = append(lines, "", "> GitHub has more inline review comments beyond the provider page fetched for this overview; additional threads may therefore exist upstream.")
+	} else if pr.ReviewComments > availability.ReviewCommentsReturned {
+		lines = append(lines, "", "> GitHub reports more inline review comments than were returned by the fetched provider page; this provider-incomplete state is separate from local overview omission.")
 	}
 	if enrichmentNote != "" {
 		lines = append(lines, "", "> "+enrichmentNote)
-	} else if !hasToken && len(threads) > 0 {
-		lines = append(lines, "", "> Optional: set GH_TOKEN or GITHUB_TOKEN to enrich review threads with GitHub resolved/outdated state.")
 	}
 
-	base := fmt.Sprintf("https://github.com/%s/%s/pull/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), target.Number)
-	lines = append(lines, "", "## Useful GitHub URLs", "", "- Files changed: "+base+"/files", "- Commits: "+base+"/commits", "- Checks: "+base+"/checks")
+	base := pullBaseURL(target)
+	lines = append(lines, "", "## Useful GitHub URLs", "", "- Full description: "+bodySelector, "- Files changed: "+base+"/files", "- Commits: "+base+"/commits", "- Checks: "+base+"/checks")
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func substantivePullTimeline(timeline []githubTimelineEvent) []githubTimelineEvent {
+	visible := make([]githubTimelineEvent, 0, len(timeline))
+	for _, event := range timeline {
+		if event.Event == "commented" {
+			visible = append(visible, event)
+			continue
+		}
+		if _, ok := renderPullTimelineState(event); ok {
+			visible = append(visible, event)
+		}
+	}
+	return visible
+}
+
+func renderPullConversationCommentIndex(target *GitHubTarget, comment githubIssueComment) []string {
+	heading := fmt.Sprintf("### Comment `%d`", comment.ID)
+	if comment.User.Login != "" {
+		heading += " by @" + comment.User.Login
+	}
+	if comment.CreatedAt != "" {
+		heading += " — " + comment.CreatedAt
+	}
+	body := strings.Join(renderIssueCommentBody(comment, comment.IsPinned), "\n")
+	preview, truncated := githubOverviewPreview(body, githubIndexPreviewRunes)
+	lines := []string{heading, ""}
+	for _, line := range strings.Split(preview, "\n") {
+		lines = append(lines, "> "+line)
+	}
+	if truncated {
+		lines = append(lines, "> _Preview locally truncated._")
+	}
+	lines = append(lines, "", "Selector: "+pullIssueCommentSelectorURL(target, comment), "")
+	return lines
+}
+
+func renderPullReviewIndex(target *GitHubTarget, review githubPullReview) []string {
+	heading := fmt.Sprintf("### Review `%d`", review.ID)
+	if review.State != "" {
+		heading += " — " + strings.ToUpper(review.State)
+	}
+	if review.User.Login != "" {
+		heading += " by @" + review.User.Login
+	}
+	if review.SubmittedAt != "" {
+		heading += " — " + review.SubmittedAt
+	}
+	lines := []string{heading, ""}
+	if review.Body != nil {
+		body := strings.TrimSpace(stripInvisibleHTMLComments(*review.Body))
+		if body != "" {
+			preview, truncated := githubOverviewPreview(body, githubIndexPreviewRunes)
+			for _, line := range strings.Split(preview, "\n") {
+				lines = append(lines, "> "+line)
+			}
+			if truncated {
+				lines = append(lines, "> _Preview locally truncated._")
+			}
+		}
+	}
+	lines = append(lines, "", "Selector: "+pullReviewSelectorURL(target, review), "")
+	return lines
+}
+
+func renderPullThreadIndex(target *GitHubTarget, thread githubPullThread) []string {
+	root := thread.Root
+	heading := fmt.Sprintf("### Thread `%d`", root.ID)
+	if root.User.Login != "" {
+		heading += " by @" + root.User.Login
+	}
+	if root.CreatedAt != "" {
+		heading += " — " + root.CreatedAt
+	}
+	lines := []string{heading}
+	if coord := pullCommentCoordinate(root); coord != "" {
+		lines = append(lines, "Coordinate: "+coord)
+	}
+	if thread.State != nil {
+		state := "unresolved"
+		if thread.State.Resolved {
+			state = "resolved"
+		}
+		if thread.State.Outdated {
+			state += " · outdated"
+		}
+		if thread.State.ResolvedBy != "" {
+			state += " · by @" + thread.State.ResolvedBy
+		}
+		lines = append(lines, "State: "+state)
+	}
+	if len(thread.Replies) > 0 {
+		lines = append(lines, fmt.Sprintf("Replies: %d", len(thread.Replies)))
+	}
+	lines = append(lines, "")
+	body := "_Review comment body is unavailable or deleted._"
+	if root.Body != nil {
+		body = strings.TrimSpace(stripInvisibleHTMLComments(*root.Body))
+		if body == "" {
+			body = "_Review comment is empty after removing invisible GitHub markup._"
+		}
+	}
+	preview, truncated := githubOverviewPreview(body, githubIndexPreviewRunes)
+	for _, line := range strings.Split(preview, "\n") {
+		lines = append(lines, "> "+line)
+	}
+	if truncated {
+		lines = append(lines, "> _Preview locally truncated._")
+	}
+	lines = append(lines, "", "Selector: "+pullThreadSelectorURL(target, root), "")
+	return lines
+}
+
+func pullBaseURL(target *GitHubTarget) string {
+	return fmt.Sprintf("https://github.com/%s/%s/pull/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), target.Number)
+}
+
+func pullIssueCommentSelectorURL(target *GitHubTarget, comment githubIssueComment) string {
+	if strings.TrimSpace(comment.HTMLURL) != "" {
+		return comment.HTMLURL
+	}
+	return pullBaseURL(target) + "#issuecomment-" + strconv.FormatInt(comment.ID, 10)
+}
+
+func pullReviewSelectorURL(target *GitHubTarget, review githubPullReview) string {
+	if strings.TrimSpace(review.HTMLURL) != "" {
+		return review.HTMLURL
+	}
+	return pullBaseURL(target) + "#pullrequestreview-" + strconv.FormatInt(review.ID, 10)
+}
+
+func pullThreadSelectorURL(target *GitHubTarget, comment githubPullReviewComment) string {
+	if strings.TrimSpace(comment.HTMLURL) != "" {
+		return comment.HTMLURL
+	}
+	return pullBaseURL(target) + "#discussion_r" + strconv.FormatInt(comment.ID, 10)
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func pullDisplayState(pr githubPullRequest) string {

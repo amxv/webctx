@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseGitHubPullTargetsAndSelectors(t *testing.T) {
@@ -29,6 +30,7 @@ func TestParseGitHubPullTargetsAndSelectors(t *testing.T) {
 		fragment string
 	}{
 		{raw: "https://github.com/o/r/pull/42"},
+		{raw: "https://github.com/o/r/pull/42#issue-987", fragment: "issue-987"},
 		{raw: "https://github.com/o/r/pull/42#issuecomment-99", fragment: "issuecomment-99"},
 		{raw: "https://github.com/o/r/pull/42#discussion_r123", fragment: "discussion_r123"},
 		{raw: "https://github.com/o/r/pull/42#pullrequestreview-456", fragment: "pullrequestreview-456"},
@@ -193,31 +195,27 @@ func TestPullSelectorParsing(t *testing.T) {
 	}
 }
 
-func TestReadGitHubPullRequestAnonymousCompleteConversation(t *testing.T) {
-	var timelinePages, graphqlCalls int32
+func TestReadGitHubPullRequestAnonymousBoundedOverview(t *testing.T) {
+	var timelineCalls, reviewCalls, reviewCommentCalls, graphqlCalls int32
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/repos/o/r/pulls/42":
 			_, _ = io.WriteString(w, `{
-                "number":42,"state":"open","draft":false,"merged":false,"title":"Improve things",
+                "id":123456789,"number":42,"state":"open","draft":false,"merged":false,"title":"Improve things",
                 "body":"Visible PR body\n<!-- hidden automation -->\nStill visible","html_url":"https://github.com/o/r/pull/42",
                 "user":{"login":"author"},"created_at":"2026-08-01T00:00:00Z","updated_at":"2026-08-05T00:00:00Z",
                 "comments":2,"review_comments":3,"commits":2,"additions":50,"deletions":10,"changed_files":4,
                 "head":{"label":"fork:feature","ref":"feature","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
                 "base":{"label":"o:main","ref":"main","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
             }`)
+		case "/repos/o/r/issues/42":
+			_, _ = io.WriteString(w, `{"id":987654321,"number":42,"title":"Improve things","body":"Visible PR body","html_url":"https://github.com/o/r/pull/42","pull_request":{"html_url":"https://github.com/o/r/pull/42"}}`)
 		case "/repos/o/r/issues/42/timeline":
-			atomic.AddInt32(&timelinePages, 1)
-			if r.URL.Query().Get("page") == "2" {
-				_, _ = io.WriteString(w, `[
-                    {"event":"committed","sha":"cccccccccccccccccccccccccccccccccccccccc","message":"Second commit\nmore"},
-                    {"event":"ready_for_review","actor":{"login":"author"},"created_at":"2026-08-04T00:00:00Z"},
-                    {"event":"review_request_removed","actor":{"login":"author"},"requested_reviewer":{"login":"reviewer"},"created_at":"2026-08-04T01:00:00Z"},
-                    {"event":"mentioned","actor":{"login":"noise"},"created_at":"2026-08-04T02:00:00Z"}
-                ]`)
-				return
+			atomic.AddInt32(&timelineCalls, 1)
+			if r.URL.Query().Get("page") != "" {
+				t.Fatal("PR overview followed timeline pagination")
 			}
 			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/issues/42/timeline?per_page=100&page=2>; rel="next"`, server.URL))
 			_, _ = io.WriteString(w, `[
@@ -225,14 +223,22 @@ func TestReadGitHubPullRequestAnonymousCompleteConversation(t *testing.T) {
                 {"id":500,"event":"reviewed","body":"Review duplicate body","state":"approved","user":{"login":"reviewer"},"created_at":"2026-08-02T01:00:00Z"},
                 {"event":"head_ref_force_pushed","actor":{"login":"author"},"commit_id":"dddddddddddddddddddddddddddddddddddddddd","created_at":"2026-08-03T00:00:00Z"},
                 {"event":"base_ref_changed","actor":{"login":"author"},"created_at":"2026-08-03T01:00:00Z"},
-                {"event":"review_requested","actor":{"login":"author"},"requested_reviewer":{"login":"reviewer"},"created_at":"2026-08-03T02:00:00Z"}
+                {"event":"review_requested","actor":{"login":"author"},"requested_reviewer":{"login":"reviewer"},"created_at":"2026-08-03T02:00:00Z"},
+                {"event":"committed","sha":"cccccccccccccccccccccccccccccccccccccccc","message":"Second commit\nmore","created_at":"2026-08-03T03:00:00Z"},
+                {"event":"ready_for_review","actor":{"login":"author"},"created_at":"2026-08-04T00:00:00Z"},
+                {"event":"review_request_removed","actor":{"login":"author"},"requested_reviewer":{"login":"reviewer"},"created_at":"2026-08-04T01:00:00Z"},
+                {"event":"mentioned","actor":{"login":"noise"},"created_at":"2026-08-04T02:00:00Z"}
             ]`)
 		case "/repos/o/r/pulls/42/reviews":
+			atomic.AddInt32(&reviewCalls, 1)
+			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/pulls/42/reviews?per_page=100&page=2>; rel="next"`, server.URL))
 			_, _ = io.WriteString(w, `[
                 {"id":500,"state":"APPROVED","body":"Review duplicate body\n<!-- review hidden -->","commit_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","submitted_at":"2026-08-02T01:00:00Z","html_url":"https://github.com/o/r/pull/42#pullrequestreview-500","user":{"login":"reviewer"},"author_association":"MEMBER"},
                 {"id":501,"state":"COMMENTED","body":"","commit_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","submitted_at":"2026-08-02T03:00:00Z","html_url":"https://github.com/o/r/pull/42#pullrequestreview-501","user":{"login":"outsider"},"author_association":"NONE"}
             ]`)
 		case "/repos/o/r/pulls/42/comments":
+			atomic.AddInt32(&reviewCommentCalls, 1)
+			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/pulls/42/comments?per_page=100&page=2>; rel="next"`, server.URL))
 			_, _ = io.WriteString(w, `[
                 {"id":100,"pull_request_review_id":500,"path":"a.go","original_line":10,"side":"RIGHT","body":"Root comment","user":{"login":"reviewer"},"author_association":"MEMBER","created_at":"2026-08-02T01:10:00Z","html_url":"https://github.com/o/r/pull/42#discussion_r100"},
                 {"id":101,"pull_request_review_id":501,"in_reply_to_id":100,"path":"a.go","original_line":10,"side":"RIGHT","body":"Reply from outsider","user":{"login":"outsider"},"author_association":"NONE","created_at":"2026-08-02T03:10:00Z","html_url":"https://github.com/o/r/pull/42#discussion_r101"},
@@ -253,23 +259,32 @@ func TestReadGitHubPullRequestAnonymousCompleteConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`state: "open"`, `base: "o:main"`, `head: "fork:feature"`, `changed_files: 4`, `additions: 50`, `deletions: 10`,
-		"Visible PR body", "Still visible", "Normal bot comment", "kept", "force-pushed the head ref to `dddddddddddd`", "changed the base ref", "requested review from @reviewer", "added commit `cccccccccccc` — Second commit", "marked the Pull Request ready for review", "removed review request from @reviewer",
-		"APPROVED by @reviewer", "Review duplicate body", "COMMENTED by @outsider", "Thread 100 — `a.go` line 10 right", "Root comment", "Reply from outsider", "Thread 200 — `b.go` line 22 left", "Second thread",
-		"Optional: set GH_TOKEN or GITHUB_TOKEN", "/pull/42/files", "/pull/42/commits", "/pull/42/checks",
+		`state: "open"`, `overview: true`, `pull_request_id: 123456789`, `issue_id: 987654321`, `base: "o:main"`, `head: "fork:feature"`, `changed_files: 4`, `additions: 50`, `deletions: 10`,
+		"Visible PR body", "Still visible", "Full description: https://github.com/o/r/pull/42#issue-987654321", "Comment `900` by @ci-bot", "Normal bot comment", "kept", "Selector: https://github.com/o/r/pull/42#issuecomment-900",
+		"force-pushed the head ref to `dddddddddddd`", "changed the base ref", "requested review from @reviewer", "added commit `cccccccccccc` — Second commit", "marked the Pull Request ready for review", "removed review request from @reviewer",
+		"Review `500` — APPROVED by @reviewer", "Review duplicate body", "Selector: https://github.com/o/r/pull/42#pullrequestreview-500", "Review `501` — COMMENTED by @outsider",
+		"Thread `100` by @reviewer", "Coordinate: `a.go` line 10 right", "Root comment", "Replies: 1", "Selector: https://github.com/o/r/pull/42#discussion_r100", "Thread `200` by @outsider", "Second thread",
+		"conversation_provider_more_available: true", "reviews_provider_more_available: true", "review_comments_provider_more_available: true", "thread_state_enrichment: unavailable_without_auth",
+		"/pull/42/files", "/pull/42/commits", "/pull/42/checks",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("PR output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "hidden automation") || strings.Contains(out, "review hidden") || strings.Contains(out, "@noise") {
+	if strings.Contains(out, "hidden automation") || strings.Contains(out, "review hidden") || strings.Contains(out, "@noise") || strings.Contains(out, "Reply from outsider") || strings.Contains(out, "#issue-123456789") {
 		t.Fatalf("PR human-body sanitization/noise filtering regressed:\n%s", out)
 	}
-	if strings.Count(out, "Review duplicate body") != 1 {
-		t.Fatalf("review duplicated from timeline and reviews endpoint:\n%s", out)
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("PR overview exceeded shared target: %d runes\n%s", got, out)
 	}
-	if got := atomic.LoadInt32(&timelinePages); got != 2 {
-		t.Fatalf("expected two timeline pages, got %d", got)
+	if got := atomic.LoadInt32(&timelineCalls); got != 1 {
+		t.Fatalf("overview should fetch one timeline page, got %d", got)
+	}
+	if got := atomic.LoadInt32(&reviewCalls); got != 1 {
+		t.Fatalf("overview should fetch one review page, got %d", got)
+	}
+	if got := atomic.LoadInt32(&reviewCommentCalls); got != 1 {
+		t.Fatalf("overview should fetch one review-comment page, got %d", got)
 	}
 	if got := atomic.LoadInt32(&graphqlCalls); got != 0 {
 		t.Fatalf("anonymous PR made %d GraphQL calls", got)
@@ -298,6 +313,8 @@ func TestReadGitHubPullRequestGraphQLEnrichesThreadState(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/o/r/pulls/42":
 			_, _ = io.WriteString(w, `{"number":42,"state":"open","title":"x","html_url":"https://github.com/o/r/pull/42"}`)
+		case "/repos/o/r/issues/42":
+			_, _ = io.WriteString(w, `{"id":987,"number":42,"title":"x","pull_request":{"html_url":"https://github.com/o/r/pull/42"}}`)
 		case "/repos/o/r/issues/42/timeline", "/repos/o/r/pulls/42/reviews":
 			_, _ = io.WriteString(w, `[]`)
 		case "/repos/o/r/pulls/42/comments":
@@ -326,7 +343,7 @@ func TestReadGitHubPullRequestGraphQLEnrichesThreadState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "resolved · outdated · by @resolver") || strings.Contains(out, "Optional: set GH_TOKEN") {
+	if !strings.Contains(out, "State: resolved · outdated · by @resolver") || strings.Contains(out, "unavailable_without_auth") {
 		t.Fatalf("GraphQL thread state missing:\n%s", out)
 	}
 	if atomic.LoadInt32(&graphQLCalls) != 1 {
@@ -340,6 +357,8 @@ func TestPullGraphQLEnrichmentFailurePreservesRESTCore(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/o/r/pulls/42":
 			_, _ = io.WriteString(w, `{"number":42,"state":"open","title":"x"}`)
+		case "/repos/o/r/issues/42":
+			_, _ = io.WriteString(w, `{"id":987,"number":42,"title":"x","pull_request":{"html_url":"https://github.com/o/r/pull/42"}}`)
 		case "/repos/o/r/issues/42/timeline", "/repos/o/r/pulls/42/reviews":
 			_, _ = io.WriteString(w, `[]`)
 		case "/repos/o/r/pulls/42/comments":
@@ -358,6 +377,146 @@ func TestPullGraphQLEnrichmentFailurePreservesRESTCore(t *testing.T) {
 	}
 	if !strings.Contains(out, "REST survives") || !strings.Contains(out, "enrichment was unavailable") || strings.Contains(out, "private graph detail") {
 		t.Fatalf("graceful enrichment failure incorrect:\n%s", out)
+	}
+}
+
+func TestPullBodySelectorUsesIssueSideIDAndOneProviderRead(t *testing.T) {
+	longBody := "Exact Pull Request description\n\n" + strings.Repeat("selected PR body stays complete even when the root would preview it\n", 180)
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		if r.URL.Path != "/repos/o/r/issues/42" {
+			t.Fatalf("PR body selector fetched unrelated endpoint: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": 987, "number": 42, "title": "Body selector", "body": longBody,
+			"html_url": "https://github.com/o/r/pull/42", "user": map[string]any{"login": "alice"},
+			"pull_request": map[string]any{"html_url": "https://github.com/o/r/pull/42"},
+		})
+	}))
+	defer server.Close()
+
+	out, err := readGitHubPullRequest(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/pull/42#issue-987"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("exact PR body selector should use one Issue-side provider read, got %d", got)
+	}
+	for _, want := range []string{"pull_request: 42", "issue_id: 987", "url: \"https://github.com/o/r/pull/42#issue-987\"", strings.TrimSpace(longBody)} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("exact PR body selector missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "overview: true") || strings.Contains(out, "Conversation index") || strings.Contains(out, "preview truncated") {
+		t.Fatalf("exact PR body selector expanded or truncated parent context:\n%s", out)
+	}
+
+	atomic.StoreInt32(&requests, 0)
+	_, err = readGitHubPullRequest(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/pull/42#issue-123"))
+	if err == nil || !strings.Contains(err.Error(), "does not belong") || !strings.Contains(err.Error(), "Issue-side id 987") {
+		t.Fatalf("mismatched PR body selector was not rejected truthfully: %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("mismatched PR body selector should stop after one identity read, got %d", got)
+	}
+}
+
+func TestLargePullRootOverviewIsBoundedAndEveryIndexedChildHasSelector(t *testing.T) {
+	body := "Opening PR description context.\n\n" + strings.Repeat("Description paragraph that should be previewed safely.\n\n", 30) + "```go\n" + strings.Repeat("fmt.Println(\"inside PR fence\")\n", 70) + "```\n\nTAIL PR BODY MUST NOT APPEAR"
+	timeline := make([]githubTimelineEvent, 0, 20)
+	reviews := make([]githubPullReview, 0, 12)
+	threads := make([]githubPullThread, 0, 12)
+	for i := 1; i <= 20; i++ {
+		comment := fmt.Sprintf("Conversation %02d marker. %s TAIL CONVERSATION %02d MUST NOT APPEAR", i, strings.Repeat("comment detail. ", 50), i)
+		timeline = append(timeline, githubTimelineEvent{
+			ID: int64(i), Event: "commented", Body: stringPtr(comment), HTMLURL: fmt.Sprintf("https://github.com/o/r/pull/42#issuecomment-%d", i),
+			User: githubUser{Login: fmt.Sprintf("commenter-%02d", i)}, CreatedAt: fmt.Sprintf("2026-08-%02dT00:00:00Z", (i%28)+1),
+		})
+	}
+	for i := 1; i <= 12; i++ {
+		reviewID := int64(1000 + i)
+		reviewBody := fmt.Sprintf("Review %02d marker. %s TAIL REVIEW %02d MUST NOT APPEAR", i, strings.Repeat("review detail. ", 50), i)
+		reviews = append(reviews, githubPullReview{
+			ID: reviewID, State: "APPROVED", Body: stringPtr(reviewBody), HTMLURL: fmt.Sprintf("https://github.com/o/r/pull/42#pullrequestreview-%d", reviewID),
+			User: githubUser{Login: fmt.Sprintf("reviewer-%02d", i)}, SubmittedAt: fmt.Sprintf("2026-08-%02dT01:00:00Z", (i%28)+1),
+		})
+		threadID := int64(2000 + i)
+		line := i
+		threadBody := fmt.Sprintf("Thread %02d marker. %s TAIL THREAD %02d MUST NOT APPEAR", i, strings.Repeat("thread detail. ", 50), i)
+		threads = append(threads, githubPullThread{Root: githubPullReviewComment{
+			ID: threadID, Body: stringPtr(threadBody), HTMLURL: fmt.Sprintf("https://github.com/o/r/pull/42#discussion_r%d", threadID), Path: "internal/large.go", Line: &line, Side: "RIGHT",
+			User: githubUser{Login: fmt.Sprintf("threader-%02d", i)}, CreatedAt: fmt.Sprintf("2026-08-%02dT02:00:00Z", (i%28)+1),
+		}})
+	}
+	pr := githubPullRequest{
+		ID: 123, Number: 42, State: "open", Title: "Pathologically large PR", Body: stringPtr(body), HTMLURL: "https://github.com/o/r/pull/42",
+		User: githubUser{Login: "author"}, Comments: 25, ReviewComments: 30, Commits: 9, ChangedFiles: 18, Additions: 1200, Deletions: 450,
+		Head: githubPullRef{Label: "fork:feature"}, Base: githubPullRef{Label: "o:main"},
+	}
+	availability := githubPullOverviewAvailability{TimelineProviderMore: true, ReviewsProviderMore: true, ReviewCommentsProviderMore: true, ReviewCommentsReturned: 24}
+	out := renderGitHubPullRequest(&GitHubTarget{Owner: "o", Repo: "r", Number: 42}, pr, 987, timeline, reviews, threads, availability, "", false)
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("large PR overview exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{
+		"overview: true", "pull_request_id: 123", "issue_id: 987", "Opening PR description context.", "Description preview locally truncated",
+		"Full description: https://github.com/o/r/pull/42#issue-987", "locally omitted from this overview",
+		"conversation_provider_more_available: true", "reviews_provider_more_available: true", "review_comments_provider_more_available: true",
+		"Conversation 01 marker", "Review 01 marker", "Thread 01 marker", "/pull/42/files", "/pull/42/commits", "/pull/42/checks",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("large PR overview missing %q:\n%s", want, out)
+		}
+	}
+	for _, forbidden := range []string{"TAIL PR BODY MUST NOT APPEAR", "TAIL CONVERSATION 01 MUST NOT APPEAR", "TAIL REVIEW 01 MUST NOT APPEAR", "TAIL THREAD 01 MUST NOT APPEAR"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("large PR overview leaked full subordinate content %q:\n%s", forbidden, out)
+		}
+	}
+	assertPullOverviewChildSelectors(t, out)
+	previewStart := strings.Index(out, "## Description preview\n\n")
+	previewEnd := strings.Index(out, "\n\n> Description preview locally truncated")
+	if previewStart < 0 || previewEnd <= previewStart {
+		t.Fatalf("could not locate PR description preview boundaries:\n%s", out)
+	}
+	preview := out[previewStart+len("## Description preview\n\n") : previewEnd]
+	if strings.Count(preview, "```")%2 != 0 {
+		t.Fatalf("PR description preview ended inside a Markdown fence:\n%s", preview)
+	}
+}
+
+func assertPullOverviewChildSelectors(t *testing.T, out string) {
+	t.Helper()
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		var fragmentPrefix string
+		switch {
+		case strings.HasPrefix(line, "### Comment `"):
+			fragmentPrefix = "#issuecomment-"
+		case strings.HasPrefix(line, "### Review `"):
+			fragmentPrefix = "#pullrequestreview-"
+		case strings.HasPrefix(line, "### Thread `"):
+			fragmentPrefix = "#discussion_r"
+		default:
+			continue
+		}
+		parts := strings.Split(line, "`")
+		if len(parts) < 3 || parts[1] == "" {
+			t.Fatalf("indexed child lacks stable ID: %q", line)
+		}
+		want := fragmentPrefix + parts[1]
+		found := false
+		for j := i + 1; j < len(lines) && !strings.HasPrefix(lines[j], "### "); j++ {
+			if strings.HasPrefix(lines[j], "Selector: ") && strings.HasSuffix(lines[j], want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("indexed child %q lacks matching exact selector %q:\n%s", line, want, out)
+		}
 	}
 }
 
