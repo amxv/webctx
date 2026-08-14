@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -313,6 +315,61 @@ func TestReadGitHubPullCommitsIsCommitOnlyAndPaginated(t *testing.T) {
 	}
 	if !strings.Contains(out, "commits_returned: 2") || !strings.Contains(out, "First") || !strings.Contains(out, "Second") || strings.Contains(out, "body\n") || strings.Contains(out, "PR BODY MUST NOT RENDER") || strings.Contains(out, "```diff") {
 		t.Fatalf("commit-only view incorrect:\n%s", out)
+	}
+}
+
+func TestLargePullCommitListUsesProviderCeilingAndBoundedIndex(t *testing.T) {
+	var commitPages int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/o/r/pulls/42":
+			_, _ = io.WriteString(w, `{"number":42,"commits":400}`)
+		case "/repos/o/r/pulls/42/commits":
+			page := r.URL.Query().Get("page")
+			if page == "" {
+				page = "1"
+			}
+			atomic.AddInt32(&commitPages, 1)
+			pageNumber, _ := strconv.Atoi(page)
+			batch := make([]githubPullCommit, 100)
+			for i := range batch {
+				n := (pageNumber-1)*100 + i
+				batch[i].SHA = fmt.Sprintf("%040x", n+1)
+				batch[i].HTMLURL = fmt.Sprintf("https://github.com/o/r/commit/%040x", n+1)
+				batch[i].Author.Login = "author"
+				batch[i].Commit.Message = fmt.Sprintf("commit-%03d %s\nbody must not render", n, strings.Repeat("long subject ", 80))
+				batch[i].Commit.Author.Date = "2026-08-01T00:00:00Z"
+			}
+			if pageNumber < 4 {
+				w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/pulls/42/commits?per_page=100&page=%d>; rel="next"`, server.URL, pageNumber+1))
+			}
+			_ = json.NewEncoder(w).Encode(batch)
+		default:
+			t.Fatalf("unexpected request %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	out, err := readGitHubPullCommits(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/pull/42/commits"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("PR commit overview exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{
+		"commits_reported: 400", "commits_returned: 250", "provider_result_ceiling: 250", "provider_complete: false",
+		"commits_indexed:", "commits_local_omitted:", "locally omitted from this overview", "at most 250 commits",
+		"https://github.com/o/r/commit/0000000000000000000000000000000000000001",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("large PR commit overview missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "commits_local_omitted: 0") || strings.Contains(out, "body must not render") || atomic.LoadInt32(&commitPages) != 3 {
+		t.Fatalf("PR commit ceiling/rendering wrong pages=%d:\n%s", commitPages, out)
 	}
 }
 

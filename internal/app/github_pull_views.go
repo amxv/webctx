@@ -512,22 +512,58 @@ func readGitHubPullCommits(ctx context.Context, client *GitHubClient, target *Gi
 		return "", err
 	}
 	endpoint := fmt.Sprintf("/repos/%s/%s/pulls/%d/commits?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), target.Number)
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
-	if err != nil {
-		return "", err
-	}
 	commits := []githubPullCommit{}
-	for _, page := range pages {
+	next := endpoint
+	providerMore := false
+	for pageNumber := 0; pageNumber < 3 && strings.TrimSpace(next) != ""; pageNumber++ {
+		page, err := client.REST(ctx, http.MethodGet, next, "application/vnd.github+json")
+		if err != nil {
+			return "", err
+		}
 		var batch []githubPullCommit
 		if err := json.Unmarshal(page.Body, &batch); err != nil {
 			return "", fmt.Errorf("decode GitHub Pull Request commits: %w", err)
 		}
+		remaining := 250 - len(commits)
+		if remaining <= 0 {
+			break
+		}
+		if len(batch) > remaining {
+			batch = batch[:remaining]
+		}
 		commits = append(commits, batch...)
+		next = page.Links()["next"]
+		providerMore = strings.TrimSpace(next) != ""
+		if len(commits) >= 250 {
+			break
+		}
 	}
-	return renderGitHubPullCommits(target, pr, commits), nil
+	return renderGitHubPullCommits(target, pr, commits, providerMore), nil
 }
 
-func renderGitHubPullCommits(target *GitHubTarget, pr githubPullRequest, commits []githubPullCommit) string {
+func renderGitHubPullCommits(target *GitHubTarget, pr githubPullRequest, commits []githubPullCommit, providerMore bool) string {
+	limit := minInt(30, len(commits))
+	messageRunes := 180
+	for {
+		out := renderGitHubPullCommitsWithLimits(target, pr, commits, providerMore, limit, messageRunes)
+		if githubOverviewFits(out) || limit <= 1 {
+			return out
+		}
+		switch {
+		case limit > 8:
+			limit--
+		case messageRunes > 100:
+			messageRunes -= 20
+		case limit > 1:
+			limit--
+		default:
+			return out
+		}
+	}
+}
+
+func renderGitHubPullCommitsWithLimits(target *GitHubTarget, pr githubPullRequest, commits []githubPullCommit, providerMore bool, limit, messageRunes int) string {
+	limit = minInt(limit, len(commits))
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
@@ -535,16 +571,33 @@ func renderGitHubPullCommits(target *GitHubTarget, pr githubPullRequest, commits
 		"view: commits",
 		fmt.Sprintf("commits_returned: %d", len(commits)),
 		fmt.Sprintf("commits_reported: %d", pr.Commits),
+		fmt.Sprintf("commits_indexed: %d", limit),
+		fmt.Sprintf("commits_local_omitted: %d", len(commits)-limit),
+	}
+	if pr.Commits > 250 {
+		lines = append(lines, "provider_result_ceiling: 250", "provider_complete: false")
+	}
+	if providerMore {
+		lines = append(lines, "provider_more_available: true", "provider_complete: false")
+	}
+	lines = append(lines,
 		"---",
 		"",
 		fmt.Sprintf("# Commits for %s/%s#%d", target.Owner, target.Repo, target.Number),
 		"",
+	)
+	if pr.Commits > 250 {
+		lines = append(lines, "> GitHub's Pull Request commits endpoint exposes at most 250 commits. The Pull Request reports more commits than this endpoint can return; use repository commit history or the individual commit URLs below for deeper navigation.", "")
+	}
+	if providerMore {
+		lines = append(lines, "> GitHub reported another Pull Request commit page beyond the bounded three-page provider ceiling used by this view.", "")
 	}
 	if len(commits) == 0 {
 		lines = append(lines, "_No commits returned by GitHub._")
 	}
-	for _, commit := range commits {
-		message := firstLine(commit.Commit.Message)
+	for _, commit := range commits[:limit] {
+		message, truncated := githubOverviewPreview(firstLine(commit.Commit.Message), messageRunes)
+		message = strings.ReplaceAll(message, "\n", " ")
 		label := "`" + shortSHA(commit.SHA) + "`"
 		if commit.HTMLURL != "" {
 			label = "[" + label + "](" + commit.HTMLURL + ")"
@@ -561,11 +614,17 @@ func renderGitHubPullCommits(target *GitHubTarget, pr githubPullRequest, commits
 		line := "- " + label
 		if message != "" {
 			line += " " + message
+			if truncated {
+				line += "…"
+			}
 		}
 		if len(meta) > 0 {
 			line += " — " + strings.Join(meta, " · ")
 		}
 		lines = append(lines, line)
+	}
+	if note := githubLocalOmissionNote("Pull Request commits returned by GitHub", len(commits)-limit); note != "" {
+		lines = append(lines, "", note)
 	}
 	lines = append(lines, "", "## Useful GitHub URLs", "")
 	lines = append(lines, pullViewHints(target, "commits")...)

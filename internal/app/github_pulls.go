@@ -269,6 +269,18 @@ func validateGitHubPageSize(query url.Values) error {
 }
 
 func renderGitHubPullList(target *GitHubTarget, pulls []githubPullListItem, links GitHubLinkRelations, total int, incomplete bool) string {
+	limit := minInt(30, len(pulls))
+	for {
+		out := renderGitHubPullListWithLimit(target, pulls, links, total, incomplete, limit)
+		if githubOverviewFits(out) || limit <= 1 {
+			return out
+		}
+		limit--
+	}
+}
+
+func renderGitHubPullListWithLimit(target *GitHubTarget, pulls []githubPullListItem, links GitHubLinkRelations, total int, incomplete bool, limit int) string {
+	limit = minInt(limit, len(pulls))
 	page := target.Query.Get("page")
 	if page == "" {
 		page = "1"
@@ -279,9 +291,15 @@ func renderGitHubPullList(target *GitHubTarget, pulls []githubPullListItem, link
 		"view: pull_requests",
 		"page: " + yamlScalar(page),
 		fmt.Sprintf("results: %d", len(pulls)),
+		fmt.Sprintf("results_indexed: %d", limit),
+		fmt.Sprintf("results_local_omitted: %d", len(pulls)-limit),
 	}
 	if q := target.Query.Get("q"); q != "" {
-		lines = append(lines, "query: "+yamlScalar(q))
+		preview, truncated := githubOverviewInlinePreview(q, 300)
+		lines = append(lines, "query: "+yamlScalar(preview))
+		if truncated {
+			lines = append(lines, "query_preview_truncated: true")
+		}
 	}
 	if total >= 0 {
 		lines = append(lines, fmt.Sprintf("total_matches: %d", total))
@@ -302,7 +320,7 @@ func renderGitHubPullList(target *GitHubTarget, pulls []githubPullListItem, link
 	if len(pulls) == 0 {
 		lines = append(lines, "_No Pull Requests on this page._")
 	}
-	for _, pr := range pulls {
+	for _, pr := range pulls[:limit] {
 		href := pr.HTMLURL
 		if href == "" {
 			href = fmt.Sprintf("https://github.com/%s/%s/pull/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), pr.Number)
@@ -321,9 +339,16 @@ func renderGitHubPullList(target *GitHubTarget, pulls []githubPullListItem, link
 			meta = append(meta, "created "+pr.CreatedAt)
 		}
 		if labels := issueLabelNames(pr.Labels); len(labels) > 0 {
-			meta = append(meta, "labels: "+strings.Join(labels, ", "))
+			meta = append(meta, "labels: "+githubOverviewLabelList(labels, 3))
 		}
-		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", pr.Number, escapeMarkdownLinkText(pr.Title), href, strings.Join(meta, " · ")))
+		title, truncated := githubOverviewInlinePreview(pr.Title, 140)
+		if truncated {
+			title += "…"
+		}
+		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", pr.Number, escapeMarkdownLinkText(title), href, strings.Join(meta, " · ")))
+	}
+	if note := githubLocalOmissionNote("Pull Requests returned on this provider page", len(pulls)-limit); note != "" {
+		lines = append(lines, "", note)
 	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")
@@ -794,14 +819,21 @@ func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullReque
 			commentReturned++
 		}
 	}
+	titlePreview, titleTruncated := githubOverviewInlinePreview(pr.Title, 180)
+	if titleTruncated {
+		titlePreview += "…"
+	}
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
 		fmt.Sprintf("number: %d", pr.Number),
 		fmt.Sprintf("issue_id: %d", issueID),
 		"state: " + yamlScalar(pullDisplayState(pr)),
-		"title: " + yamlScalar(pr.Title),
+		"title: " + yamlScalar(titlePreview),
 		"overview: true",
+	}
+	if titleTruncated {
+		lines = append(lines, "title_preview_truncated: true")
 	}
 	if pr.ID > 0 {
 		lines = append(lines, fmt.Sprintf("pull_request_id: %d", pr.ID))
@@ -813,10 +845,18 @@ func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullReque
 		lines = append(lines, "author: "+yamlScalar("@"+pr.User.Login))
 	}
 	if pr.Base.Label != "" {
-		lines = append(lines, "base: "+yamlScalar(pr.Base.Label))
+		base, truncated := githubOverviewInlinePreview(pr.Base.Label, 140)
+		if truncated {
+			base += "…"
+		}
+		lines = append(lines, "base: "+yamlScalar(base))
 	}
 	if pr.Head.Label != "" {
-		lines = append(lines, "head: "+yamlScalar(pr.Head.Label))
+		head, truncated := githubOverviewInlinePreview(pr.Head.Label, 140)
+		if truncated {
+			head += "…"
+		}
+		lines = append(lines, "head: "+yamlScalar(head))
 	}
 	for _, value := range []struct{ key, value string }{{"created", pr.CreatedAt}, {"updated", pr.UpdatedAt}, {"closed", pr.ClosedAt}, {"merged", pr.MergedAt}} {
 		if value.value != "" {
@@ -863,7 +903,7 @@ func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullReque
 	if pr.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(pr.HTMLURL))
 	}
-	lines = append(lines, "---", "", fmt.Sprintf("# #%d %s", pr.Number, pr.Title), "", "> Pull Request overview: description and child conversations are previewed/indexed; use the exact URLs below for full scoped content.")
+	lines = append(lines, "---", "", fmt.Sprintf("# #%d %s", pr.Number, titlePreview), "", "> Pull Request overview: description and child conversations are previewed/indexed; use the exact URLs below for full scoped content.")
 
 	bodySelector := pullBaseURL(target) + "#issue-" + strconv.FormatInt(issueID, 10)
 	lines = append(lines, "", "## Description preview", "")

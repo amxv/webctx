@@ -828,6 +828,13 @@ func readGitHubHistory(ctx context.Context, client *GitHubClient, target *GitHub
 }
 
 func renderGitHubHistory(target *GitHubTarget, resolved resolvedGitHubPath, page int, commits []githubPullCommit, links GitHubLinkRelations) string {
+	return githubBoundedOverviewList(len(commits), 20, func(limit int) string {
+		return renderGitHubHistoryWithLimit(target, resolved, page, commits, links, limit)
+	})
+}
+
+func renderGitHubHistoryWithLimit(target *GitHubTarget, resolved resolvedGitHubPath, page int, commits []githubPullCommit, links GitHubLinkRelations, limit int) string {
+	limit = minInt(limit, len(commits))
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
@@ -835,6 +842,8 @@ func renderGitHubHistory(target *GitHubTarget, resolved resolvedGitHubPath, page
 		"path: " + yamlScalar(resolved.Path),
 		fmt.Sprintf("page: %d", page),
 		fmt.Sprintf("commits_returned: %d", len(commits)),
+		fmt.Sprintf("commits_indexed: %d", limit),
+		fmt.Sprintf("commits_local_omitted: %d", len(commits)-limit),
 		"---",
 		"",
 	}
@@ -846,8 +855,11 @@ func renderGitHubHistory(target *GitHubTarget, resolved resolvedGitHubPath, page
 	if len(commits) == 0 {
 		lines = append(lines, "_No commits on this page._")
 	}
-	for _, commit := range commits {
-		message := firstLine(commit.Commit.Message)
+	for _, commit := range commits[:limit] {
+		message, truncated := githubOverviewInlinePreview(firstLine(commit.Commit.Message), 140)
+		if truncated {
+			message += "…"
+		}
 		label := "`" + shortSHA(commit.SHA) + "`"
 		if commit.HTMLURL != "" {
 			label = "[" + label + "](" + commit.HTMLURL + ")"
@@ -856,7 +868,11 @@ func renderGitHubHistory(target *GitHubTarget, resolved resolvedGitHubPath, page
 		if commit.Author.Login != "" {
 			meta = append(meta, "@"+commit.Author.Login)
 		} else if commit.Commit.Author.Name != "" {
-			meta = append(meta, commit.Commit.Author.Name)
+			author, truncated := githubOverviewInlinePreview(commit.Commit.Author.Name, 80)
+			if truncated {
+				author += "…"
+			}
+			meta = append(meta, author)
 		}
 		if commit.Commit.Author.Date != "" {
 			meta = append(meta, commit.Commit.Author.Date)
@@ -869,6 +885,9 @@ func renderGitHubHistory(target *GitHubTarget, resolved resolvedGitHubPath, page
 			line += " — " + strings.Join(meta, " · ")
 		}
 		lines = append(lines, line)
+	}
+	if note := githubLocalOmissionNote("commits returned on this history page", len(commits)-limit); note != "" {
+		lines = append(lines, "", note)
 	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")

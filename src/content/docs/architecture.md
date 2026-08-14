@@ -83,6 +83,18 @@ This has three useful properties for agents:
 
 You do not need to learn separate webctx subcommands for these resources. Copy the GitHub URL and use `read-link`.
 
+### Overview, exact, and raw are different contracts
+
+Native GitHub routes fall into three practical shapes:
+
+- A **container/root** URL returns a bounded overview: authoritative metadata, compact previews/indexes, and exact URLs for deeper navigation.
+- A **copied selector** such as a source range, Issue/PR/Discussion/Gist comment, review thread, diff hunk, or focused check reads that exact semantic item. Provider traversal is allowed when it is necessary to locate the requested identity rather than to expand the whole root.
+- An explicit **raw/bulk representation** such as `.diff` or `.patch` keeps the bulk representation complete.
+
+The budget applies to context-amplifying overviews, not by chopping exact selected human text. Machine-generated subordinate content such as logs, annotations, or oversized summaries may instead use a bounded preview plus a stable provider URL for the deeper artifact.
+
+Provider completeness and local context budgeting are also separate facts. A view can say that GitHub has another page or enforces a provider ceiling while independently reporting how many returned rows webctx chose not to print inline.
+
 ## Direct markdown before crawling
 
 GitHub is not the only fast path.
@@ -126,6 +138,8 @@ webctx read-link https://github.com/orgs/<org>/packages/container/package/<name>
 That output is visibly marked **best-effort** because page extraction can contain UI noise or be incomplete.
 
 webctx does not use this escape hatch to hide GitHub rate limits, private/not-found resources, or unrelated native GitHub failures.
+
+The routing boundary matters here. If webctx recognizes a GitHub URL as a native resource, GitHub's auth/not-found/rate-limit result is authoritative. If the GitHub route is outside the native URL grammar (for example, an ordinary Wiki page), `read-link` can continue through the same direct-markdown/Firecrawl path used for other websites.
 
 ## Authentication improves the fast path
 

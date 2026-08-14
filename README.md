@@ -55,7 +55,11 @@ webctx read-link https://github.com/amxv/webctx/actions/runs/<run-id>/job/<job-i
 
 The same idea works for commits, comparisons, path history, blame, releases, Discussions, Gists, GitHub Search, profiles, Projects, deployments, and other supported GitHub views.
 
+Large GitHub roots are intentionally navigation-first: webctx keeps authoritative metadata plus bounded previews/indexes and prints the exact GitHub URLs needed to go deeper. Copied source/comment/thread/diff/check/Gist selectors read the selected item, while explicit `.diff`/`.patch` URLs remain bulk raw representations. Provider pagination/ceilings and webctx's own local omissions are reported as separate facts.
+
 For normal websites, webctx tries a clean markdown path first and falls back to Firecrawl when it needs rendered-page extraction. Exact public GitHub Package pages have one explicit best-effort exception: if GitHub's Package API rejects the read for auth or permission reasons, webctx can crawl the public page with Firecrawl and clearly labels the result as best-effort.
+
+Recognized native GitHub auth, private/not-found, and rate-limit failures stay authoritative rather than being hidden by a page crawl. GitHub routes outside the native grammar can still use the normal website fallback path.
 
 ## Search
 

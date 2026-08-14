@@ -104,7 +104,7 @@ webctx read-link https://github.com/<owner>/<repo>/pull/<number>
 webctx read-link https://github.com/<owner>/<repo>/discussions/<number>
 ```
 
-Issues and PRs preserve their useful conversation. Discussions need GitHub auth for the structured reader.
+Issue, PR, and Discussion roots are useful navigation surfaces rather than instructions to expand every child page. Large roots keep compact previews/indexes and return copied GitHub URLs for exact comments or threads. Discussions need GitHub auth for the structured reader.
 
 ## Keep agent context small
 
@@ -117,11 +117,19 @@ webctx read-link 'https://github.com/<owner>/<repo>/blob/main/file.go#L80-L120'
 # Better than the whole PR
 webctx read-link 'https://github.com/<owner>/<repo>/pull/42#discussion_r123456'
 
+# Better than every Discussion reply
+webctx read-link 'https://github.com/<owner>/<repo>/discussions/42#discussioncomment-123456'
+
+# Better than every Gist file/comment
+webctx read-link 'https://gist.github.com/<gist-id>#gistcomment-123456'
+
 # Better than every Actions log
 webctx read-link https://github.com/<owner>/<repo>/actions/runs/123/job/456
 ```
 
 The easiest way to save tokens is often to narrow the source **before** the model sees it.
+
+When an overview says GitHub has more provider pages or that some returned rows were locally omitted, follow the exact/page URL it prints. Do not invent a webctx `--page`, `--all`, or “full” switch: copied provider URLs are the navigation contract. Use an explicit `.diff`/`.patch` URL when bulk raw change text is actually what the task needs.
 
 ## Let the URL do the routing
 

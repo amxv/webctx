@@ -190,11 +190,23 @@ func decodeGitHubMinimized(raw, reasonRaw json.RawMessage) (bool, string) {
 }
 
 type githubIssueRelationships struct {
-	Parent    *githubIssue
-	SubIssues []githubIssue
-	BlockedBy []githubIssue
-	Blocking  []githubIssue
-	Fields    []githubIssueFieldValue
+	Parent                *githubIssue
+	SubIssues             []githubIssue
+	BlockedBy             []githubIssue
+	Blocking              []githubIssue
+	Fields                []githubIssueFieldValue
+	SubIssuesProviderMore bool
+	BlockedByProviderMore bool
+	BlockingProviderMore  bool
+	FieldsProviderMore    bool
+}
+
+type githubIssueAvailability struct {
+	TimelineProviderMore bool
+}
+
+func (r githubIssueRelationships) providerMore() bool {
+	return r.SubIssuesProviderMore || r.BlockedByProviderMore || r.BlockingProviderMore || r.FieldsProviderMore
 }
 
 type githubIssueSearchResponse struct {
@@ -232,7 +244,7 @@ func readGitHubIssue(ctx context.Context, client *GitHubClient, target *GitHubTa
 		return "", fmt.Errorf("GitHub #%d is a pull request, not an Issue. Canonical URL: %s", target.Number, canonical)
 	}
 
-	timeline, err := fetchGitHubIssueTimeline(ctx, client, target)
+	timeline, timelineMore, err := fetchGitHubIssueTimelinePage(ctx, client, target)
 	if err != nil {
 		return "", err
 	}
@@ -240,7 +252,7 @@ func readGitHubIssue(ctx context.Context, client *GitHubClient, target *GitHubTa
 	if err != nil {
 		return "", err
 	}
-	return renderGitHubIssue(target, issue, timeline, relationships), nil
+	return renderGitHubIssue(target, issue, timeline, relationships, githubIssueAvailability{TimelineProviderMore: timelineMore}), nil
 }
 
 func fetchGitHubIssue(ctx context.Context, client *GitHubClient, target *GitHubTarget) (githubIssue, error) {
@@ -338,21 +350,17 @@ func readGitHubIssueComment(ctx context.Context, client *GitHubClient, target *G
 	return renderGitHubIssueComment(target, comment), nil
 }
 
-func fetchGitHubIssueTimeline(ctx context.Context, client *GitHubClient, target *GitHubTarget) ([]githubTimelineEvent, error) {
+func fetchGitHubIssueTimelinePage(ctx context.Context, client *GitHubClient, target *GitHubTarget) ([]githubTimelineEvent, bool, error) {
 	endpoint := fmt.Sprintf("/repos/%s/%s/issues/%d/timeline?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), target.Number)
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	events := []githubTimelineEvent{}
-	for _, page := range pages {
-		var batch []githubTimelineEvent
-		if err := json.Unmarshal(page.Body, &batch); err != nil {
-			return nil, fmt.Errorf("decode GitHub Issue timeline: %w", err)
-		}
-		events = append(events, batch...)
+	var events []githubTimelineEvent
+	if err := json.Unmarshal(resp.Body, &events); err != nil {
+		return nil, false, fmt.Errorf("decode GitHub Issue timeline: %w", err)
 	}
-	return events, nil
+	return events, strings.TrimSpace(resp.Links()["next"]) != "", nil
 }
 
 func fetchGitHubIssueRelationships(ctx context.Context, client *GitHubClient, target *GitHubTarget) (githubIssueRelationships, error) {
@@ -373,19 +381,19 @@ func fetchGitHubIssueRelationships(ctx context.Context, client *GitHubClient, ta
 	}
 
 	var errFetch error
-	out.SubIssues, errFetch = fetchOptionalIssuePages(ctx, client, base+"/sub_issues?per_page=100")
+	out.SubIssues, out.SubIssuesProviderMore, errFetch = fetchOptionalIssuePage(ctx, client, base+"/sub_issues?per_page=100")
 	if errFetch != nil {
 		return out, errFetch
 	}
-	out.BlockedBy, errFetch = fetchOptionalIssuePages(ctx, client, base+"/dependencies/blocked_by?per_page=100")
+	out.BlockedBy, out.BlockedByProviderMore, errFetch = fetchOptionalIssuePage(ctx, client, base+"/dependencies/blocked_by?per_page=100")
 	if errFetch != nil {
 		return out, errFetch
 	}
-	out.Blocking, errFetch = fetchOptionalIssuePages(ctx, client, base+"/dependencies/blocking?per_page=100")
+	out.Blocking, out.BlockingProviderMore, errFetch = fetchOptionalIssuePage(ctx, client, base+"/dependencies/blocking?per_page=100")
 	if errFetch != nil {
 		return out, errFetch
 	}
-	out.Fields, errFetch = fetchOptionalIssueFieldPages(ctx, client, base+"/issue-field-values?per_page=100")
+	out.Fields, out.FieldsProviderMore, errFetch = fetchOptionalIssueFieldPage(ctx, client, base+"/issue-field-values?per_page=100")
 	if errFetch != nil {
 		return out, errFetch
 	}
@@ -400,50 +408,42 @@ func isOptionalGitHubRelationshipMiss(err error) bool {
 	return ghErr.Kind == GitHubErrorNotFound || ghErr.Kind == GitHubErrorGone
 }
 
-func fetchOptionalIssuePages(ctx context.Context, client *GitHubClient, endpoint string) ([]githubIssue, error) {
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+func fetchOptionalIssuePage(ctx context.Context, client *GitHubClient, endpoint string) ([]githubIssue, bool, error) {
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
 		if isOptionalGitHubRelationshipMiss(err) {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, err
+		return nil, false, err
 	}
-	out := []githubIssue{}
-	for _, page := range pages {
-		var batch []githubIssue
-		if err := json.Unmarshal(page.Body, &batch); err != nil {
-			return nil, fmt.Errorf("decode GitHub Issue relationship: %w", err)
-		}
-		out = append(out, batch...)
+	var out []githubIssue
+	if err := json.Unmarshal(resp.Body, &out); err != nil {
+		return nil, false, fmt.Errorf("decode GitHub Issue relationship: %w", err)
 	}
-	return out, nil
+	return out, strings.TrimSpace(resp.Links()["next"]) != "", nil
 }
 
-func fetchOptionalIssueFieldPages(ctx context.Context, client *GitHubClient, endpoint string) ([]githubIssueFieldValue, error) {
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+func fetchOptionalIssueFieldPage(ctx context.Context, client *GitHubClient, endpoint string) ([]githubIssueFieldValue, bool, error) {
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
 		if isOptionalGitHubRelationshipMiss(err) {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, err
+		return nil, false, err
 	}
-	out := []githubIssueFieldValue{}
-	for _, page := range pages {
-		var batch []githubIssueFieldValue
-		if err := json.Unmarshal(page.Body, &batch); err != nil {
-			return nil, fmt.Errorf("decode GitHub Issue field values: %w", err)
-		}
-		out = append(out, batch...)
+	var out []githubIssueFieldValue
+	if err := json.Unmarshal(resp.Body, &out); err != nil {
+		return nil, false, fmt.Errorf("decode GitHub Issue field values: %w", err)
 	}
-	return out, nil
+	return out, strings.TrimSpace(resp.Links()["next"]) != "", nil
 }
 
-func renderGitHubIssue(target *GitHubTarget, issue githubIssue, timeline []githubTimelineEvent, rel githubIssueRelationships) string {
+func renderGitHubIssue(target *GitHubTarget, issue githubIssue, timeline []githubTimelineEvent, rel githubIssueRelationships, availability githubIssueAvailability) string {
 	complete := renderGitHubIssueComplete(target, issue, timeline, rel)
-	if githubOverviewFits(complete) {
+	if !availability.TimelineProviderMore && !rel.providerMore() && githubOverviewFits(complete) {
 		return complete
 	}
-	return renderGitHubIssueOverview(target, issue, timeline, rel)
+	return renderGitHubIssueOverview(target, issue, timeline, rel, availability)
 }
 
 func renderGitHubIssueComplete(target *GitHubTarget, issue githubIssue, timeline []githubTimelineEvent, rel githubIssueRelationships) string {
@@ -555,24 +555,24 @@ func renderGitHubIssueComplete(target *GitHubTarget, issue githubIssue, timeline
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func renderGitHubIssueOverview(target *GitHubTarget, issue githubIssue, timeline []githubTimelineEvent, rel githubIssueRelationships) string {
+func renderGitHubIssueOverview(target *GitHubTarget, issue githubIssue, timeline []githubTimelineEvent, rel githubIssueRelationships, availability githubIssueAvailability) string {
 	visible := substantiveIssueTimeline(timeline)
 	maxIndexed := len(visible)
 	if maxIndexed > 10 {
 		maxIndexed = 10
 	}
 	for indexed := maxIndexed; indexed >= 0; indexed-- {
-		out := renderGitHubIssueOverviewWithLimit(target, issue, timeline, visible, rel, indexed)
+		out := renderGitHubIssueOverviewWithLimit(target, issue, timeline, visible, rel, availability, indexed)
 		if githubOverviewFits(out) {
 			return out
 		}
 	}
 	// Mandatory metadata/navigation win over the soft target if an extreme
 	// provider title/relationship value alone consumes the whole budget.
-	return renderGitHubIssueOverviewWithLimit(target, issue, timeline, visible, rel, 0)
+	return renderGitHubIssueOverviewWithLimit(target, issue, timeline, visible, rel, availability, 0)
 }
 
-func renderGitHubIssueOverviewWithLimit(target *GitHubTarget, issue githubIssue, timeline, visible []githubTimelineEvent, rel githubIssueRelationships, indexedLimit int) string {
+func renderGitHubIssueOverviewWithLimit(target *GitHubTarget, issue githubIssue, timeline, visible []githubTimelineEvent, rel githubIssueRelationships, availability githubIssueAvailability, indexedLimit int) string {
 	if indexedLimit < 0 {
 		indexedLimit = 0
 	}
@@ -600,11 +600,18 @@ func renderGitHubIssueOverviewWithLimit(target *GitHubTarget, issue githubIssue,
 	if issue.ID > 0 {
 		lines = append(lines, fmt.Sprintf("issue_id: %d", issue.ID))
 	}
+	titlePreview, titleTruncated := githubOverviewInlinePreview(issue.Title, 180)
+	if titleTruncated {
+		titlePreview += "…"
+	}
 	lines = append(lines,
 		"state: "+yamlScalar(issue.State),
-		"title: "+yamlScalar(issue.Title),
+		"title: "+yamlScalar(titlePreview),
 		"overview: true",
 	)
+	if titleTruncated {
+		lines = append(lines, "title_preview_truncated: true")
+	}
 	if issue.StateReason != "" {
 		lines = append(lines, "state_reason: "+yamlScalar(issue.StateReason))
 	}
@@ -627,12 +634,20 @@ func renderGitHubIssueOverviewWithLimit(target *GitHubTarget, issue githubIssue,
 		}
 	}
 	if labels := issueLabelNames(issue.Labels); len(labels) > 0 {
-		encoded, _ := json.Marshal(labels)
+		shown := labels[:minInt(5, len(labels))]
+		encoded, _ := json.Marshal(shown)
 		lines = append(lines, "labels: "+string(encoded))
+		if len(labels) > len(shown) {
+			lines = append(lines, fmt.Sprintf("labels_local_omitted: %d", len(labels)-len(shown)))
+		}
 	}
 	if assignees := githubUserLogins(issue.Assignees); len(assignees) > 0 {
-		encoded, _ := json.Marshal(assignees)
+		shown := assignees[:minInt(5, len(assignees))]
+		encoded, _ := json.Marshal(shown)
 		lines = append(lines, "assignees: "+string(encoded))
+		if len(assignees) > len(shown) {
+			lines = append(lines, fmt.Sprintf("assignees_local_omitted: %d", len(assignees)-len(shown)))
+		}
 	}
 	if issue.Milestone != nil && issue.Milestone.Title != "" {
 		lines = append(lines, "milestone: "+yamlScalar(issue.Milestone.Title))
@@ -648,13 +663,19 @@ func renderGitHubIssueOverviewWithLimit(target *GitHubTarget, issue githubIssue,
 		fmt.Sprintf("timeline_items_indexed: %d", indexedLimit),
 		fmt.Sprintf("timeline_items_omitted: %d", len(visible)-indexedLimit),
 	)
-	if issue.Comments > commentReturned {
+	if availability.TimelineProviderMore || issue.Comments > commentReturned {
 		lines = append(lines, "comments_provider_complete: false")
+	}
+	if availability.TimelineProviderMore {
+		lines = append(lines, "timeline_provider_more_available: true")
+	}
+	if rel.providerMore() {
+		lines = append(lines, "relationships_provider_more_available: true")
 	}
 	if issue.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(issue.HTMLURL))
 	}
-	lines = append(lines, "---", "", fmt.Sprintf("# #%d %s", issue.Number, issue.Title), "", "> Large Issue overview: subordinate conversation text is previewed/indexed so the default read stays near 5,000 characters.")
+	lines = append(lines, "---", "", fmt.Sprintf("# #%d %s", issue.Number, titlePreview), "", "> Large Issue overview: subordinate conversation text is previewed/indexed so the default read stays near 5,000 characters.")
 
 	bodySelector := issueBodySelectorURL(target, issue)
 	lines = append(lines, "", "## Body preview", "")
@@ -724,8 +745,11 @@ func renderGitHubIssueOverviewWithLimit(target *GitHubTarget, issue githubIssue,
 	if note := githubLocalOmissionNote("substantive timeline items", len(visible)-indexedLimit); note != "" {
 		lines = append(lines, "", note)
 	}
-	if issue.Comments > commentReturned {
-		lines = append(lines, "", fmt.Sprintf("> Provider-incomplete comment data: GitHub reports %d comments, while the fully fetched timeline returned %d comment events. This is separate from local overview omission.", issue.Comments, commentReturned))
+	if availability.TimelineProviderMore || issue.Comments > commentReturned {
+		lines = append(lines, "", fmt.Sprintf("> Provider-incomplete comment data: GitHub reports %d comments, while the bounded timeline page returned %d comment events. More timeline pages may exist upstream; this is separate from local overview omission.", issue.Comments, commentReturned))
+	}
+	if rel.providerMore() {
+		lines = append(lines, "", "> More Issue relationship entries exist upstream beyond the first provider pages fetched for this overview; local relationship omission is reported separately.")
 	}
 
 	base := fmt.Sprintf("https://github.com/%s/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo))
@@ -778,7 +802,15 @@ func renderIssueRelationshipsOverview(rel githubIssueRelationships) ([]string, i
 		if strings.TrimSpace(field.IssueFieldName) == "" {
 			continue
 		}
-		lines = append(lines, "- "+field.IssueFieldName+": "+renderIssueFieldValue(field))
+		fieldName, fieldNameTruncated := githubOverviewInlinePreview(field.IssueFieldName, 80)
+		if fieldNameTruncated {
+			fieldName += "…"
+		}
+		fieldValue, fieldValueTruncated := githubOverviewInlinePreview(renderIssueFieldValue(field), 140)
+		if fieldValueTruncated {
+			fieldValue += "…"
+		}
+		lines = append(lines, "- "+fieldName+": "+fieldValue)
 	}
 	omitted += len(rel.Fields) - fieldLimit
 	return lines, omitted
@@ -1012,7 +1044,11 @@ func renderIssueRelationships(rel githubIssueRelationships) []string {
 }
 
 func issueRelationshipLink(issue githubIssue) string {
-	label := fmt.Sprintf("#%d %s", issue.Number, issue.Title)
+	title, truncated := githubOverviewInlinePreview(issue.Title, 120)
+	if truncated {
+		title += "…"
+	}
+	label := fmt.Sprintf("#%d %s", issue.Number, title)
 	if issue.HTMLURL != "" {
 		return "[" + escapeMarkdownLinkText(label) + "](" + issue.HTMLURL + ")"
 	}
@@ -1256,14 +1292,32 @@ func filterPullRequestsFromIssues(issues []githubIssue) []githubIssue {
 }
 
 func renderGitHubIssueList(target *GitHubTarget, issues []githubIssue, links GitHubLinkRelations, total int, incomplete bool) string {
+	limit := minInt(30, len(issues))
+	for {
+		out := renderGitHubIssueListWithLimit(target, issues, links, total, incomplete, limit)
+		if githubOverviewFits(out) || limit <= 1 {
+			return out
+		}
+		limit--
+	}
+}
+
+func renderGitHubIssueListWithLimit(target *GitHubTarget, issues []githubIssue, links GitHubLinkRelations, total int, incomplete bool, limit int) string {
+	limit = minInt(limit, len(issues))
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
 		"view: issues",
 		fmt.Sprintf("results: %d", len(issues)),
+		fmt.Sprintf("results_indexed: %d", limit),
+		fmt.Sprintf("results_local_omitted: %d", len(issues)-limit),
 	}
 	if q := target.Query.Get("q"); q != "" {
-		lines = append(lines, "query: "+yamlScalar(q))
+		preview, truncated := githubOverviewInlinePreview(q, 300)
+		lines = append(lines, "query: "+yamlScalar(preview))
+		if truncated {
+			lines = append(lines, "query_preview_truncated: true")
+		}
 	}
 	if total >= 0 {
 		lines = append(lines, fmt.Sprintf("total_matches: %d", total))
@@ -1281,7 +1335,7 @@ func renderGitHubIssueList(target *GitHubTarget, issues []githubIssue, links Git
 	if len(issues) == 0 {
 		lines = append(lines, "_No Issues on this page._")
 	}
-	for _, issue := range issues {
+	for _, issue := range issues[:limit] {
 		urlText := issue.HTMLURL
 		if urlText == "" {
 			urlText = fmt.Sprintf("https://github.com/%s/%s/issues/%d", target.Owner, target.Repo, issue.Number)
@@ -1294,9 +1348,16 @@ func renderGitHubIssueList(target *GitHubTarget, issues []githubIssue, links Git
 			meta = append(meta, "updated "+issue.UpdatedAt)
 		}
 		if labels := issueLabelNames(issue.Labels); len(labels) > 0 {
-			meta = append(meta, "labels: "+strings.Join(labels, ", "))
+			meta = append(meta, "labels: "+githubOverviewLabelList(labels, 3))
 		}
-		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", issue.Number, escapeMarkdownLinkText(issue.Title), urlText, strings.Join(meta, " · ")))
+		title, truncated := githubOverviewInlinePreview(issue.Title, 140)
+		if truncated {
+			title += "…"
+		}
+		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", issue.Number, escapeMarkdownLinkText(title), urlText, strings.Join(meta, " · ")))
+	}
+	if note := githubLocalOmissionNote("Issues returned on this provider page", len(issues)-limit); note != "" {
+		lines = append(lines, "", note)
 	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")
@@ -1322,23 +1383,37 @@ func readGitHubLabelList(ctx context.Context, client *GitHubClient, target *GitH
 	if err := json.Unmarshal(resp.Body, &labels); err != nil {
 		return "", fmt.Errorf("decode GitHub labels: %w", err)
 	}
-	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: labels", fmt.Sprintf("results: %d", len(labels)), "---", "", "# Labels", ""}
-	for _, label := range labels {
-		labelURL := fmt.Sprintf("https://github.com/%s/%s/labels/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), url.PathEscape(label.Name))
-		line := "- [" + escapeMarkdownLinkText(label.Name) + "](" + labelURL + ")"
-		if label.Description != "" {
-			line += " — " + label.Description
+	out := githubBoundedOverviewList(len(labels), 20, func(limit int) string {
+		lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: labels", fmt.Sprintf("results: %d", len(labels)), fmt.Sprintf("results_indexed: %d", limit), fmt.Sprintf("results_local_omitted: %d", len(labels)-limit), "---", "", "# Labels", ""}
+		for _, label := range labels[:limit] {
+			labelURL := fmt.Sprintf("https://github.com/%s/%s/labels/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), url.PathEscape(label.Name))
+			name, truncated := githubOverviewInlinePreview(label.Name, 100)
+			if truncated {
+				name += "…"
+			}
+			line := "- [" + escapeMarkdownLinkText(name) + "](" + labelURL + ")"
+			if label.Description != "" {
+				description, descriptionTruncated := githubOverviewInlinePreview(label.Description, 140)
+				if descriptionTruncated {
+					description += "…"
+				}
+				line += " — " + description
+			}
+			lines = append(lines, line)
 		}
-		lines = append(lines, line)
-	}
-	if len(labels) == 0 {
-		lines = append(lines, "_No labels on this page._")
-	}
-	if nav := renderGitHubUIPageNavigation(target, resp.Links()); len(nav) > 0 {
-		lines = append(lines, "", "## Navigation", "")
-		lines = append(lines, nav...)
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n")), nil
+		if len(labels) == 0 {
+			lines = append(lines, "_No labels on this page._")
+		}
+		if note := githubLocalOmissionNote("labels returned on this provider page", len(labels)-limit); note != "" {
+			lines = append(lines, "", note)
+		}
+		if nav := renderGitHubUIPageNavigation(target, resp.Links()); len(nav) > 0 {
+			lines = append(lines, "", "## Navigation", "")
+			lines = append(lines, nav...)
+		}
+		return strings.TrimSpace(strings.Join(lines, "\n"))
+	})
+	return out, nil
 }
 
 func readGitHubLabel(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -1373,7 +1448,11 @@ func readGitHubLabel(ctx context.Context, client *GitHubClient, target *GitHubTa
 		lines = append(lines, "color: "+yamlScalar("#"+label.Color))
 	}
 	if label.Description != "" {
-		lines = append(lines, "description: "+yamlScalar(label.Description))
+		description, truncated := githubOverviewInlinePreview(label.Description, 500)
+		lines = append(lines, "description: "+yamlScalar(description))
+		if truncated {
+			lines = append(lines, "description_preview_truncated: true")
+		}
 	}
 	lines = append(lines, fmt.Sprintf("issues_on_page: %d", len(issues)), "---", "", "# Label: "+label.Name, "")
 	lines = append(lines, renderIssueLinksCompact(issues)...)
@@ -1399,23 +1478,33 @@ func readGitHubMilestones(ctx context.Context, client *GitHubClient, target *Git
 	if err := json.Unmarshal(resp.Body, &milestones); err != nil {
 		return "", fmt.Errorf("decode GitHub milestones: %w", err)
 	}
-	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: milestones", fmt.Sprintf("results: %d", len(milestones)), "---", "", "# Milestones", ""}
-	if len(milestones) == 0 {
-		lines = append(lines, "_No milestones on this page._")
-	}
-	for _, milestone := range milestones {
-		href := fmt.Sprintf("https://github.com/%s/%s/milestone/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), milestone.Number)
-		meta := fmt.Sprintf("%s · %d open / %d closed", milestone.State, milestone.OpenIssues, milestone.ClosedIssues)
-		if milestone.DueOn != "" {
-			meta += " · due " + milestone.DueOn
+	out := githubBoundedOverviewList(len(milestones), 20, func(limit int) string {
+		lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: milestones", fmt.Sprintf("results: %d", len(milestones)), fmt.Sprintf("results_indexed: %d", limit), fmt.Sprintf("results_local_omitted: %d", len(milestones)-limit), "---", "", "# Milestones", ""}
+		if len(milestones) == 0 {
+			lines = append(lines, "_No milestones on this page._")
 		}
-		lines = append(lines, fmt.Sprintf("- [%s](%s) — %s", escapeMarkdownLinkText(milestone.Title), href, meta))
-	}
-	if nav := renderGitHubUIPageNavigation(target, resp.Links()); len(nav) > 0 {
-		lines = append(lines, "", "## Navigation", "")
-		lines = append(lines, nav...)
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n")), nil
+		for _, milestone := range milestones[:limit] {
+			href := fmt.Sprintf("https://github.com/%s/%s/milestone/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), milestone.Number)
+			meta := fmt.Sprintf("%s · %d open / %d closed", milestone.State, milestone.OpenIssues, milestone.ClosedIssues)
+			if milestone.DueOn != "" {
+				meta += " · due " + milestone.DueOn
+			}
+			title, truncated := githubOverviewInlinePreview(milestone.Title, 140)
+			if truncated {
+				title += "…"
+			}
+			lines = append(lines, fmt.Sprintf("- [%s](%s) — %s", escapeMarkdownLinkText(title), href, meta))
+		}
+		if note := githubLocalOmissionNote("milestones returned on this provider page", len(milestones)-limit); note != "" {
+			lines = append(lines, "", note)
+		}
+		if nav := renderGitHubUIPageNavigation(target, resp.Links()); len(nav) > 0 {
+			lines = append(lines, "", "## Navigation", "")
+			lines = append(lines, nav...)
+		}
+		return strings.TrimSpace(strings.Join(lines, "\n"))
+	})
+	return out, nil
 }
 
 func readGitHubMilestone(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -1445,11 +1534,15 @@ func readGitHubMilestone(ctx context.Context, client *GitHubClient, target *GitH
 		return "", fmt.Errorf("decode GitHub milestone Issues: %w", err)
 	}
 	issues = filterPullRequestsFromIssues(issues)
+	titlePreview, titleTruncated := githubOverviewInlinePreview(milestone.Title, 180)
+	if titleTruncated {
+		titlePreview += "…"
+	}
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
 		fmt.Sprintf("milestone: %d", milestone.Number),
-		"title: " + yamlScalar(milestone.Title),
+		"title: " + yamlScalar(titlePreview),
 		"state: " + yamlScalar(milestone.State),
 		fmt.Sprintf("open_issues: %d", milestone.OpenIssues),
 		fmt.Sprintf("closed_issues: %d", milestone.ClosedIssues),
@@ -1457,9 +1550,14 @@ func readGitHubMilestone(ctx context.Context, client *GitHubClient, target *GitH
 	if milestone.DueOn != "" {
 		lines = append(lines, "due: "+yamlScalar(milestone.DueOn))
 	}
-	lines = append(lines, "---", "", "# Milestone: "+milestone.Title, "")
+	lines = append(lines, "---", "", "# Milestone: "+titlePreview, "")
 	if strings.TrimSpace(milestone.Description) != "" {
-		lines = append(lines, stripInvisibleHTMLComments(milestone.Description), "")
+		preview, truncated := githubOverviewPreview(stripInvisibleHTMLComments(milestone.Description), 1000)
+		lines = append(lines, preview, "")
+		if truncated {
+			href := fmt.Sprintf("https://github.com/%s/%s/milestone/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), milestone.Number)
+			lines = append(lines, "> Milestone description preview locally truncated. Full milestone: "+href, "")
+		}
 	}
 	lines = append(lines, "## Issues", "")
 	lines = append(lines, renderIssueLinksCompact(issues)...)
@@ -1470,13 +1568,21 @@ func renderIssueLinksCompact(issues []githubIssue) []string {
 	if len(issues) == 0 {
 		return []string{"_No Issues on this page._"}
 	}
-	lines := make([]string, 0, len(issues))
-	for _, issue := range issues {
+	limit := minInt(20, len(issues))
+	lines := make([]string, 0, limit+2)
+	for _, issue := range issues[:limit] {
 		href := issue.HTMLURL
 		if href == "" {
 			href = "#"
 		}
-		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", issue.Number, escapeMarkdownLinkText(issue.Title), href, issue.State))
+		title, truncated := githubOverviewInlinePreview(issue.Title, 140)
+		if truncated {
+			title += "…"
+		}
+		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", issue.Number, escapeMarkdownLinkText(title), href, issue.State))
+	}
+	if note := githubLocalOmissionNote("Issues returned on this provider page", len(issues)-limit); note != "" {
+		lines = append(lines, "", note)
 	}
 	return lines
 }

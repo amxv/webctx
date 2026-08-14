@@ -439,13 +439,18 @@ func renderGitHubActionsOverviewWithLimits(target *GitHubTarget, workflows []git
 }
 
 func renderGitHubWorkflows(target *GitHubTarget, workflows []githubWorkflow, total int, links GitHubLinkRelations) string {
-	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: workflows", fmt.Sprintf("workflows_returned: %d", len(workflows)), fmt.Sprintf("workflows_reported: %d", total), "---", "", "# Workflows", ""}
-	lines = append(lines, renderWorkflowList(target, workflows)...)
-	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
-		lines = append(lines, "", "## Navigation", "")
-		lines = append(lines, nav...)
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
+	return githubBoundedOverviewList(len(workflows), 20, func(limit int) string {
+		lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: workflows", fmt.Sprintf("workflows_returned: %d", len(workflows)), fmt.Sprintf("workflows_reported: %d", total), fmt.Sprintf("workflows_indexed: %d", limit), fmt.Sprintf("workflows_local_omitted: %d", len(workflows)-limit), "---", "", "# Workflows", ""}
+		lines = append(lines, renderWorkflowList(target, workflows[:limit])...)
+		if note := githubLocalOmissionNote("workflows returned on this provider page", len(workflows)-limit); note != "" {
+			lines = append(lines, "", note)
+		}
+		if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
+			lines = append(lines, "", "## Navigation", "")
+			lines = append(lines, nav...)
+		}
+		return strings.TrimSpace(strings.Join(lines, "\n"))
+	})
 }
 
 func renderWorkflowList(target *GitHubTarget, workflows []githubWorkflow) []string {
@@ -469,7 +474,11 @@ func renderWorkflowList(target *GitHubTarget, workflows []githubWorkflow) []stri
 			meta = append(meta, workflow.State)
 		}
 		if workflow.Path != "" {
-			meta = append(meta, "`"+workflow.Path+"`")
+			path, truncated := githubOverviewInlinePreview(workflow.Path, 140)
+			if truncated {
+				path += "…"
+			}
+			meta = append(meta, "`"+path+"`")
 		}
 		if len(meta) > 0 {
 			line += " — " + strings.Join(meta, " · ")
@@ -495,11 +504,16 @@ func renderGitHubWorkflow(target *GitHubTarget, workflow githubWorkflow, runs []
 
 func renderGitHubWorkflowWithLimit(target *GitHubTarget, workflow githubWorkflow, runs []githubActionsRun, total int, links GitHubLinkRelations, runLimit int) string {
 	runLimit = minInt(runLimit, len(runs))
-	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), fmt.Sprintf("workflow_id: %d", workflow.ID), "name: " + yamlScalar(workflow.Name), "state: " + yamlScalar(workflow.State), "path: " + yamlScalar(workflow.Path), fmt.Sprintf("runs_returned: %d", len(runs)), fmt.Sprintf("runs_reported: %d", total), fmt.Sprintf("runs_indexed: %d", runLimit), fmt.Sprintf("runs_local_omitted: %d", len(runs)-runLimit)}
+	name := actionsListLabel(workflow.Name)
+	path, pathTruncated := githubOverviewInlinePreview(workflow.Path, 180)
+	if pathTruncated {
+		path += "…"
+	}
+	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), fmt.Sprintf("workflow_id: %d", workflow.ID), "name: " + yamlScalar(name), "state: " + yamlScalar(workflow.State), "path: " + yamlScalar(path), fmt.Sprintf("runs_returned: %d", len(runs)), fmt.Sprintf("runs_reported: %d", total), fmt.Sprintf("runs_indexed: %d", runLimit), fmt.Sprintf("runs_local_omitted: %d", len(runs)-runLimit)}
 	if workflow.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(workflow.HTMLURL))
 	}
-	lines = append(lines, "---", "", "# Workflow: "+actionsListLabel(workflow.Name), "", "## Runs", "")
+	lines = append(lines, "---", "", "# Workflow: "+name, "", "## Runs", "")
 	lines = append(lines, renderActionsRunList(target, runs[:runLimit])...)
 	if note := githubLocalOmissionNote("runs from this provider page", len(runs)-runLimit); note != "" {
 		lines = append(lines, "", note)
@@ -540,7 +554,11 @@ func renderActionsRunList(target *GitHubTarget, runs []githubActionsRun) []strin
 			meta = append(meta, run.Event)
 		}
 		if run.HeadBranch != "" {
-			meta = append(meta, run.HeadBranch)
+			branch, truncated := githubOverviewInlinePreview(run.HeadBranch, 100)
+			if truncated {
+				branch += "…"
+			}
+			meta = append(meta, branch)
 		}
 		line := fmt.Sprintf("- [%s](%s)", escapeMarkdownLinkText(name), href)
 		if len(meta) > 0 {
@@ -552,8 +570,7 @@ func renderActionsRunList(target *GitHubTarget, runs []githubActionsRun) []strin
 }
 
 func actionsListLabel(value string) string {
-	value = strings.TrimSpace(value)
-	preview, truncated := githubOverviewPreview(value, 180)
+	preview, truncated := githubOverviewInlinePreview(value, 180)
 	if truncated {
 		return preview + "…"
 	}

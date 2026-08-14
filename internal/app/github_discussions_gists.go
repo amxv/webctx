@@ -516,12 +516,20 @@ func discussionCommentSameIdentity(a, b githubDiscussionComment) bool {
 
 func renderGitHubDiscussionWithLimits(target *GitHubTarget, detail githubDiscussionDetail, comments []githubDiscussionComment, answerReturned bool, commentLimit, replyLimit, bodyRunes, commentRunes, answerRunes int) string {
 	commentLimit = minInt(commentLimit, len(comments))
+	titlePreview, titleTruncated := githubOverviewInlinePreview(detail.Title, 180)
+	if titleTruncated {
+		titlePreview += "…"
+	}
+	categoryPreview, categoryTruncated := githubOverviewInlinePreview(detail.Category, 120)
+	if categoryTruncated {
+		categoryPreview += "…"
+	}
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
 		fmt.Sprintf("discussion: %d", detail.Number),
-		"title: " + yamlScalar(detail.Title),
-		"category: " + yamlScalar(detail.Category),
+		"title: " + yamlScalar(titlePreview),
+		"category: " + yamlScalar(categoryPreview),
 		fmt.Sprintf("locked: %t", detail.Locked),
 		fmt.Sprintf("upvotes: %d", detail.UpvoteCount),
 		"overview: true",
@@ -529,6 +537,12 @@ func renderGitHubDiscussionWithLimits(target *GitHubTarget, detail githubDiscuss
 		fmt.Sprintf("comments_returned: %d", len(detail.Comments)),
 		fmt.Sprintf("comments_indexed: %d", commentLimit),
 		fmt.Sprintf("comments_local_omitted: %d", len(detail.Comments)-commentLimit),
+	}
+	if titleTruncated {
+		lines = append(lines, "title_preview_truncated: true")
+	}
+	if categoryTruncated {
+		lines = append(lines, "category_preview_truncated: true")
 	}
 	if detail.CommentsProviderMore {
 		lines = append(lines, "comments_provider_more_available: true")
@@ -556,7 +570,7 @@ func renderGitHubDiscussionWithLimits(target *GitHubTarget, detail githubDiscuss
 	if detail.URL != "" {
 		lines = append(lines, "url: "+yamlScalar(detail.URL))
 	}
-	lines = append(lines, "---", "", "# "+detail.Title, "")
+	lines = append(lines, "---", "", "# "+titlePreview, "")
 	body := strings.TrimSpace(stripInvisibleHTMLComments(detail.Body))
 	if body == "" {
 		body = "_No Discussion body._"

@@ -61,7 +61,15 @@ When a clean markdown representation is available, webctx prefers it. Otherwise 
 
 A GitHub URL is more than a page address. Its path, query, and fragment often describe the exact context you meant to copy. webctx preserves that intent instead of flattening everything into a generic page scrape.
 
-For example, a repository URL means “give me an overview,” while a source line anchor means “give me these lines.” An Issue URL means “give me the conversation,” and an Actions job URL means “give me this job's structured steps plus a bounded log preview.”
+For example, a repository URL means “give me an overview,” while a source line anchor means “give me these lines.” An Issue or PR root is a navigable overview when the conversation is large; a copied comment/thread anchor means “give me this exact item.” An Actions job URL means “give me this job's structured steps plus a bounded log preview.”
+
+That distinction is intentional:
+
+- **Overview URLs** keep metadata, the most useful rows/previews, exact child URLs, and truthful omission/provider-limit facts near a compact context budget.
+- **Exact URLs** such as copied source/comment/thread/file/check selectors narrow to the selected semantic item. Human-authored selected text is kept complete when the provider makes that identity available.
+- **Raw URLs** such as commit/PR/compare `.diff` and `.patch` representations stay explicit bulk reads rather than being silently summarized.
+
+When a provider page contains more data than a compact view should expand, webctx separates **more data upstream** from **rows omitted locally**. Follow the copied GitHub URL for the next page or exact child; there is no separate webctx pagination language to learn.
 
 ## Understand a repository
 
@@ -103,7 +111,7 @@ webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#install'
 webctx read-link https://github.com/amxv/webctx/issues/6
 ```
 
-Small Issues stay in the useful full-conversation form: body, comments, relationships, and substantive state changes without GitHub navigation chrome. Large Issues automatically switch to a compact overview with a body preview, relationship facts, a bounded chronological timeline index, and explicit notes about anything omitted from the overview.
+Small Issues stay in the useful full-conversation form when the bounded provider data is complete and the result remains compact. Larger or provider-paginated Issues switch to an overview with a body preview, relationship facts, a bounded chronological timeline index, and separate notes for provider continuation versus local omission.
 
 To read the full Issue description without expanding the conversation, keep GitHub's Issue-body anchor:
 
@@ -156,7 +164,7 @@ webctx read-link https://github.com/amxv/webctx/pull/15/commits
 webctx read-link https://github.com/amxv/webctx/pull/15/checks
 ```
 
-That separation is intentional. A review conversation, a diff, and CI status are different kinds of context and usually should not be dumped into one response. Small Files views can still show complete patches; large ones switch to a compact file index with exact `#diff-*` selectors so you can open only the file or hunk you need.
+That separation is intentional. A review conversation, a diff, a commit index, and CI status are different kinds of context and usually should not be dumped into one response. Small Files views can still show complete patches; large ones switch to a compact file index with exact `#diff-*` selectors so you can open only the file or hunk you need. PR commit lists keep a compact commit index and call out GitHub's own provider ceiling separately from anything webctx omits locally.
 
 Checks start with status/conclusion rollups and put failures or active work ahead of routine successes. Every indexed check run includes a focused `?check_run_id=<id>` URL. Focused checks keep source annotation coordinates while previewing oversized machine-generated summaries/details and link the provider's deeper Details URL when available.
 
@@ -296,6 +304,8 @@ Some provider results are naturally bounded, truncated, still computing, expired
 
 For an agent, that distinction matters: clean context is only useful when it is also honest about what it could not see.
 
+Recognized native GitHub reads also keep provider failures authoritative. If GitHub says a resource needs authentication, is private/not found, or is rate-limited, webctx does not silently replace that structured failure with a page scrape. Unsupported GitHub routes that webctx does not claim as native can still use the normal direct-markdown/Firecrawl path. Exact public Package pages are the one documented best-effort exception described above.
+
 ## Large GitHub repository views
 
 Some GitHub pages can represent thousands of child objects. `webctx` keeps those pages navigable instead of dumping the whole provider response into one read.
@@ -304,5 +314,7 @@ Some GitHub pages can represent thousands of child objects. `webctx` keeps those
 - **Repository trees** index a bounded set of entries and preview the README. If GitHub returns its 1,000-entry Contents API ceiling, that provider limit is reported separately from anything `webctx` omits locally.
 - **Contributor statistics** prioritize the highest commit totals and bound the displayed contributor rows instead of printing every contributor. GitHub's fixed weekly statistics stay compact, and a temporary `202` remains a provider-computing state rather than an empty result.
 - **Deployments** stay identity-first. Environment detail shows the latest returned status for each bounded deployment and notes when older status history exists upstream rather than expanding the entire history inline.
+- **Code-frequency statistics** retain aggregate additions/deletions across the provider result while indexing only the recent weekly buckets when a repository has a long history.
+- **Lists and indexes** such as Issues, PRs, branches, tags, releases, search results, workflows, profile tabs, Packages, and Projects bound long human-authored row text as well as row counts. Direct GitHub links remain the drill-down mechanism.
 
 Use the direct GitHub URLs printed in these views when you need to move from the compact overview to the provider's full page.

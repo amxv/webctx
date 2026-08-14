@@ -106,28 +106,43 @@ func readGitHubActivity(ctx context.Context, client *GitHubClient, target *GitHu
 	if err := json.Unmarshal(resp.Body, &items); err != nil {
 		return "", fmt.Errorf("decode GitHub repository activity: %w", err)
 	}
-	lines := listFrontmatter(target, "activity", len(items))
-	lines = append(lines, "# Repository activity", "")
-	if len(items) == 0 {
-		lines = append(lines, "_No activity returned by GitHub on this page._")
-	}
-	for _, item := range items {
-		line := "- " + item.ActivityType
-		if item.Actor.Login != "" {
-			line += " by @" + item.Actor.Login
+	out := githubBoundedOverviewList(len(items), 30, func(limit int) string {
+		lines := listFrontmatter(target, "activity", len(items), limit)
+		lines = append(lines, "# Repository activity", "")
+		if len(items) == 0 {
+			lines = append(lines, "_No activity returned by GitHub on this page._")
 		}
-		if item.Ref != "" {
-			line += " — `" + item.Ref + "`"
+		for _, item := range items[:limit] {
+			activityType, _ := githubOverviewInlinePreview(item.ActivityType, 60)
+			line := "- " + activityType
+			if item.Actor.Login != "" {
+				actor, truncated := githubOverviewInlinePreview(item.Actor.Login, 80)
+				if truncated {
+					actor += "…"
+				}
+				line += " by @" + actor
+			}
+			if item.Ref != "" {
+				ref, truncated := githubOverviewInlinePreview(item.Ref, 120)
+				if truncated {
+					ref += "…"
+				}
+				line += " — `" + ref + "`"
+			}
+			if item.Before != "" || item.After != "" {
+				line += " — `" + shortSHA(item.Before) + "` → `" + shortSHA(item.After) + "`"
+			}
+			if item.Timestamp != "" {
+				line += " — " + item.Timestamp
+			}
+			lines = append(lines, line)
 		}
-		if item.Before != "" || item.After != "" {
-			line += " — `" + shortSHA(item.Before) + "` → `" + shortSHA(item.After) + "`"
+		if note := githubLocalOmissionNote("activity items returned on this provider page", len(items)-limit); note != "" {
+			lines = append(lines, "", note)
 		}
-		if item.Timestamp != "" {
-			line += " — " + item.Timestamp
-		}
-		lines = append(lines, line)
-	}
-	return appendListNavigation(lines, target, resp.Links()), nil
+		return appendListNavigation(lines, target, resp.Links())
+	})
+	return out, nil
 }
 
 func readGitHubContributorStats(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -225,16 +240,50 @@ func readGitHubCodeFrequencyStats(ctx context.Context, client *GitHubClient, tar
 	if err := json.Unmarshal(resp.Body, &weeks); err != nil {
 		return "", fmt.Errorf("decode GitHub code-frequency statistics: %w", err)
 	}
-	lines := statisticsFrontmatter(target, "code_frequency", len(weeks))
-	lines = append(lines, "# Code frequency", "", statisticsFreshnessNote(), "")
-	for _, week := range weeks {
+	return renderGitHubCodeFrequencyStats(target, weeks), nil
+}
+
+func renderGitHubCodeFrequencyStats(target *GitHubTarget, rawWeeks [][]int64) string {
+	weeks := make([][]int64, 0, len(rawWeeks))
+	var additionsTotal, deletionsTotal int64
+	for _, week := range rawWeeks {
 		if len(week) < 3 {
 			continue
 		}
+		weeks = append(weeks, week)
+		additionsTotal += week[1]
+		deletionsTotal += week[2]
+	}
+	sort.SliceStable(weeks, func(i, j int) bool { return weeks[i][0] < weeks[j][0] })
+	limit := minInt(52, len(weeks))
+	start := len(weeks) - limit
+	lines := []string{
+		"---",
+		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
+		"view: code_frequency",
+		fmt.Sprintf("weeks_returned: %d", len(weeks)),
+		fmt.Sprintf("weeks_indexed: %d", limit),
+		fmt.Sprintf("weeks_local_omitted: %d", start),
+		fmt.Sprintf("additions_total: %d", additionsTotal),
+		fmt.Sprintf("deletions_total: %d", deletionsTotal),
+		"---",
+		"",
+		"# Code frequency",
+		"",
+		statisticsFreshnessNote(),
+		"",
+	}
+	if len(weeks) == 0 {
+		lines = append(lines, "_No code-frequency weeks returned by GitHub._")
+	}
+	if start > 0 {
+		lines = append(lines, fmt.Sprintf("> Showing the most recent %d weekly buckets; %d older weekly buckets returned by GitHub are locally omitted from this overview. Aggregate totals above include every returned bucket.", limit, start), "")
+	}
+	for _, week := range weeks[start:] {
 		stamp := time.Unix(week[0], 0).UTC().Format("2006-01-02")
 		lines = append(lines, fmt.Sprintf("- %s — +%d %d", stamp, week[1], week[2]))
 	}
-	return strings.TrimSpace(strings.Join(lines, "\n")), nil
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func readGitHubStatistics(ctx context.Context, client *GitHubClient, target *GitHubTarget, kind string) (GitHubResponse, error) {
@@ -276,10 +325,16 @@ func readGitHubDeployments(ctx context.Context, client *GitHubClient, target *Gi
 	if err != nil {
 		return "", err
 	}
-	lines := listFrontmatter(target, "deployments", len(deployments))
-	lines = append(lines, "# Deployments", "")
-	lines = append(lines, renderDeploymentRows(target, deployments)...)
-	return appendListNavigation(lines, target, resp.Links()), nil
+	out := githubBoundedOverviewList(len(deployments), 30, func(limit int) string {
+		lines := listFrontmatter(target, "deployments", len(deployments), limit)
+		lines = append(lines, "# Deployments", "")
+		lines = append(lines, renderDeploymentRows(target, deployments[:limit])...)
+		if note := githubLocalOmissionNote("deployments returned on this provider page", len(deployments)-limit); note != "" {
+			lines = append(lines, "", note)
+		}
+		return appendListNavigation(lines, target, resp.Links())
+	})
+	return out, nil
 }
 
 func readGitHubDeploymentEnvironment(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -432,7 +487,11 @@ func renderDeploymentRows(target *GitHubTarget, deployments []githubDeployment) 
 		line := "- " + renderDeploymentHeading(deployment)
 		if deployment.Environment != "" {
 			href := fmt.Sprintf("https://github.com/%s/%s/deployments/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(deployment.Environment))
-			line += " — [" + deployment.Environment + "](" + href + ")"
+			environment, truncated := githubOverviewInlinePreview(deployment.Environment, 100)
+			if truncated {
+				environment += "…"
+			}
+			line += " — [" + escapeMarkdownLinkText(environment) + "](" + href + ")"
 		}
 		lines = append(lines, line)
 	}
@@ -442,7 +501,11 @@ func renderDeploymentRows(target *GitHubTarget, deployments []githubDeployment) 
 func renderDeploymentHeading(deployment githubDeployment) string {
 	line := fmt.Sprintf("Deployment %d", deployment.ID)
 	if deployment.Ref != "" {
-		line += " — `" + deployment.Ref + "`"
+		ref, truncated := githubOverviewInlinePreview(deployment.Ref, 120)
+		if truncated {
+			ref += "…"
+		}
+		line += " — `" + ref + "`"
 	}
 	if deployment.SHA != "" {
 		line += " @ `" + shortSHA(deployment.SHA) + "`"

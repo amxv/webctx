@@ -59,3 +59,5 @@ Use the environment-variable name as the Keychain account name. The same pattern
 A fine-grained token can be narrower than GitHub's public read surface. For selected public GitHub GETs, webctx can retry without Authorization if GitHub rejects the token, so adding a narrow token does not unnecessarily break a public read.
 
 Permission errors still remain permission errors when GitHub does not allow the resource anonymously.
+
+For recognized native GitHub resources, adding `FIRECRAWL_API_KEY` does not turn an auth, private/not-found, or rate-limit response into a scraped substitute. Those provider states remain visible so an agent can react correctly. Exact public Package pages are the documented exception: an auth/permission failure may use a clearly labeled best-effort Firecrawl read when that key is configured.

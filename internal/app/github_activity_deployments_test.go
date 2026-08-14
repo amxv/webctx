@@ -158,6 +158,37 @@ func TestCommitActivityAndCodeFrequencyRenderWeeks(t *testing.T) {
 	}
 }
 
+func TestCodeFrequencyLongHistoryUsesRecentWeeklyIndexAndFullAggregates(t *testing.T) {
+	weeks := make([][]int64, 600)
+	for i := range weeks {
+		weeks[i] = []int64{1700000000 + int64(i*604800), int64(i), -int64(i)}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(weeks)
+	}))
+	defer server.Close()
+
+	out, err := readGitHubCodeFrequencyStats(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/graphs/code-frequency"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("code-frequency overview exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{
+		"weeks_returned: 600", "weeks_indexed: 52", "weeks_local_omitted: 548",
+		"additions_total: 179700", "deletions_total: -179700", "most recent 52 weekly buckets", "+599 -599",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("long code-frequency overview missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "+0 0") || strings.Contains(out, "+547 -547") {
+		t.Fatalf("old code-frequency buckets leaked into recent index:\n%s", out)
+	}
+}
+
 func TestDeploymentListIsBoundedAndDoesNotFetchStatuses(t *testing.T) {
 	var statusCalls int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

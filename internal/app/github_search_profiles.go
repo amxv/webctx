@@ -141,13 +141,28 @@ func renderGitHubSearch(target *GitHubTarget, searchType string, envelope github
 	if page == "" {
 		page = "1"
 	}
+	var rawItems []json.RawMessage
+	if len(envelope.Items) > 0 {
+		if err := json.Unmarshal(envelope.Items, &rawItems); err != nil {
+			return "", fmt.Errorf("decode GitHub Search result count: %w", err)
+		}
+	}
+	returned := len(rawItems)
+	indexed := minInt(15, returned)
+	queryPreview, queryTruncated := githubOverviewInlinePreview(target.Query.Get("q"), 300)
 	lines := []string{
 		"---",
 		"view: " + yamlScalar("search:"+searchType),
-		"query: " + yamlScalar(target.Query.Get("q")),
+		"query: " + yamlScalar(queryPreview),
 		"page: " + page,
 		fmt.Sprintf("total_count: %d", envelope.TotalCount),
 		fmt.Sprintf("incomplete_results: %t", envelope.IncompleteResults),
+		fmt.Sprintf("returned: %d", returned),
+		fmt.Sprintf("indexed: %d", indexed),
+		fmt.Sprintf("local_omitted: %d", returned-indexed),
+	}
+	if queryTruncated {
+		lines = append(lines, "query_preview_truncated: true")
 	}
 	if target.Owner != "" && target.Repo != "" {
 		lines = append(lines, "repository_scope: "+yamlScalar(target.Owner+"/"+target.Repo))
@@ -162,15 +177,13 @@ func renderGitHubSearch(target *GitHubTarget, searchType string, envelope github
 	if envelope.TotalCount > 1000 {
 		lines = append(lines, "> GitHub Search exposes at most 1000 results for a query; this bounded page does not imply access beyond that provider ceiling.", "")
 	}
-	returned := 0
 	switch searchType {
 	case "repositories":
 		var items []githubRepository
 		if err := json.Unmarshal(envelope.Items, &items); err != nil {
 			return "", fmt.Errorf("decode GitHub repository search items: %w", err)
 		}
-		returned = len(items)
-		for _, item := range items {
+		for _, item := range items[:minInt(indexed, len(items))] {
 			href := item.HTMLURL
 			if href == "" {
 				href = "https://github.com/" + item.FullName
@@ -179,9 +192,17 @@ func renderGitHubSearch(target *GitHubTarget, searchType string, envelope github
 			if item.Language != "" {
 				meta = append(meta, item.Language)
 			}
-			line := "- [" + escapeMarkdownLinkText(item.FullName) + "](" + href + ") — " + strings.Join(meta, " · ")
+			name, nameTruncated := githubOverviewInlinePreview(item.FullName, 120)
+			if nameTruncated {
+				name += "…"
+			}
+			line := "- [" + escapeMarkdownLinkText(name) + "](" + href + ") — " + strings.Join(meta, " · ")
 			if item.Description != "" {
-				line += " — " + item.Description
+				description, truncated := githubOverviewInlinePreview(item.Description, 140)
+				if truncated {
+					description += "…"
+				}
+				line += " — " + description
 			}
 			lines = append(lines, line)
 		}
@@ -190,34 +211,50 @@ func renderGitHubSearch(target *GitHubTarget, searchType string, envelope github
 		if err := json.Unmarshal(envelope.Items, &items); err != nil {
 			return "", fmt.Errorf("decode GitHub Issue search items: %w", err)
 		}
-		returned = len(items)
-		for _, item := range items {
+		for _, item := range items[:minInt(indexed, len(items))] {
 			meta := []string{item.State}
 			if item.User.Login != "" {
 				meta = append(meta, "@"+item.User.Login)
 			}
-			lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", item.Number, escapeMarkdownLinkText(item.Title), item.HTMLURL, strings.Join(meta, " · ")))
+			title, truncated := githubOverviewInlinePreview(item.Title, 140)
+			if truncated {
+				title += "…"
+			}
+			lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", item.Number, escapeMarkdownLinkText(title), item.HTMLURL, strings.Join(meta, " · ")))
 		}
 	case "code":
 		var items []githubCodeSearchItem
 		if err := json.Unmarshal(envelope.Items, &items); err != nil {
 			return "", fmt.Errorf("decode GitHub code search items: %w", err)
 		}
-		returned = len(items)
-		for _, item := range items {
-			lines = append(lines, fmt.Sprintf("- [%s](%s) — %s · `%s`", escapeMarkdownLinkText(item.Path), item.HTMLURL, item.Repository.FullName, shortSHA(item.SHA)))
+		for _, item := range items[:minInt(indexed, len(items))] {
+			path, truncated := githubOverviewInlinePreview(item.Path, 140)
+			if truncated {
+				path += "…"
+			}
+			repo, repoTruncated := githubOverviewInlinePreview(item.Repository.FullName, 120)
+			if repoTruncated {
+				repo += "…"
+			}
+			lines = append(lines, fmt.Sprintf("- [%s](%s) — %s · `%s`", escapeMarkdownLinkText(path), item.HTMLURL, repo, shortSHA(item.SHA)))
 		}
 	case "commits":
 		var items []githubCommitSearchItem
 		if err := json.Unmarshal(envelope.Items, &items); err != nil {
 			return "", fmt.Errorf("decode GitHub commit search items: %w", err)
 		}
-		returned = len(items)
-		for _, item := range items {
-			message := strings.Split(strings.TrimSpace(item.Commit.Message), "\n")[0]
+		for _, item := range items[:minInt(indexed, len(items))] {
+			message, truncated := githubOverviewInlinePreview(firstLine(item.Commit.Message), 140)
+			if truncated {
+				message += "…"
+			}
 			line := fmt.Sprintf("- [`%s`](%s) %s", shortSHA(item.SHA), item.HTMLURL, message)
 			if item.Repository.FullName != "" {
-				line += " — " + item.Repository.FullName
+				repo, repoTruncated := githubOverviewInlinePreview(item.Repository.FullName, 120)
+				if repoTruncated {
+					repo += "…"
+				}
+				line += " — " + repo
 			}
 			if item.Commit.Author.Date != "" {
 				line += " · " + item.Commit.Author.Date
@@ -229,14 +266,16 @@ func renderGitHubSearch(target *GitHubTarget, searchType string, envelope github
 		if err := json.Unmarshal(envelope.Items, &items); err != nil {
 			return "", fmt.Errorf("decode GitHub user search items: %w", err)
 		}
-		returned = len(items)
-		for _, item := range items {
+		for _, item := range items[:minInt(indexed, len(items))] {
 			line := renderGitHubUserIdentity(item)
 			if item.Type != "" {
 				line += " — " + item.Type
 			}
 			lines = append(lines, line)
 		}
+	}
+	if note := githubLocalOmissionNote("GitHub Search results returned on this provider page", returned-indexed); note != "" {
+		lines = append(lines, "", note)
 	}
 	if returned == 0 {
 		lines = append(lines, "_No results returned on this page._")
@@ -409,40 +448,60 @@ func readGitHubProfileTab(ctx context.Context, client *GitHubClient, target *Git
 	if err != nil {
 		return "", err
 	}
-	lines := []string{"---", "login: " + yamlScalar(profile.Login), "type: " + yamlScalar(profile.Type), "view: " + yamlScalar(tab)}
 	if page == "" {
 		page = "1"
 	}
-	lines = append(lines, "page: "+page, "---", "", "# "+profile.Login+" — "+tab, "")
+	rows := []string{}
+	returned := 0
+	indexed := 0
 	switch kind {
 	case "repositories":
 		var items []githubRepository
 		if err := json.Unmarshal(resp.Body, &items); err != nil {
 			return "", fmt.Errorf("decode GitHub profile repositories: %w", err)
 		}
-		for _, item := range items {
-			lines = append(lines, fmt.Sprintf("- [%s](%s) — %d stars", item.FullName, item.HTMLURL, item.StargazersCount))
+		returned = len(items)
+		indexed = minInt(20, returned)
+		for _, item := range items[:indexed] {
+			name, truncated := githubOverviewInlinePreview(item.FullName, 120)
+			if truncated {
+				name += "…"
+			}
+			rows = append(rows, fmt.Sprintf("- [%s](%s) — %d stars", escapeMarkdownLinkText(name), item.HTMLURL, item.StargazersCount))
 		}
 	case "gists":
 		var items []githubProfileGist
 		if err := json.Unmarshal(resp.Body, &items); err != nil {
 			return "", fmt.Errorf("decode GitHub profile Gists: %w", err)
 		}
-		for _, item := range items {
+		returned = len(items)
+		indexed = minInt(20, returned)
+		for _, item := range items[:indexed] {
 			line := "- [" + item.ID + "](" + item.HTMLURL + ")"
 			if item.Description != "" {
-				line += " — " + item.Description
+				description, truncated := githubOverviewInlinePreview(item.Description, 140)
+				if truncated {
+					description += "…"
+				}
+				line += " — " + description
 			}
-			lines = append(lines, line)
+			rows = append(rows, line)
 		}
 	case "users", "people":
 		var items []githubUser
 		if err := json.Unmarshal(resp.Body, &items); err != nil {
 			return "", fmt.Errorf("decode GitHub profile users: %w", err)
 		}
-		for _, item := range items {
-			lines = append(lines, renderGitHubUserIdentity(item))
+		returned = len(items)
+		indexed = minInt(20, returned)
+		for _, item := range items[:indexed] {
+			rows = append(rows, renderGitHubUserIdentity(item))
 		}
+	}
+	lines := []string{"---", "login: " + yamlScalar(profile.Login), "type: " + yamlScalar(profile.Type), "view: " + yamlScalar(tab), "page: " + page, fmt.Sprintf("returned: %d", returned), fmt.Sprintf("indexed: %d", indexed), fmt.Sprintf("local_omitted: %d", returned-indexed), "---", "", "# " + profile.Login + " — " + tab, ""}
+	lines = append(lines, rows...)
+	if note := githubLocalOmissionNote("profile-tab results returned on this provider page", returned-indexed); note != "" {
+		lines = append(lines, "", note)
 	}
 	if nav := renderGitHubUIPageNavigation(target, resp.Links()); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")

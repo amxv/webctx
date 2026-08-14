@@ -56,8 +56,9 @@ func TestParseGitHubIssueTargets(t *testing.T) {
 	}
 }
 
-func TestReadGitHubIssueCompleteConversationAndRelationships(t *testing.T) {
+func TestReadGitHubIssueStopsTimelinePaginationWhenProviderHasMore(t *testing.T) {
 	var timelinePages int32
+	var subIssuePages int32
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -92,6 +93,11 @@ func TestReadGitHubIssueCompleteConversationAndRelationships(t *testing.T) {
 		case "/repos/o/r/issues/42/parent":
 			_, _ = io.WriteString(w, `{"number":10,"title":"Parent","html_url":"https://github.com/o/r/issues/10"}`)
 		case "/repos/o/r/issues/42/sub_issues":
+			atomic.AddInt32(&subIssuePages, 1)
+			if r.URL.Query().Get("page") != "" {
+				t.Fatalf("Issue root followed relationship pagination: %s", r.URL.RawQuery)
+			}
+			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/issues/42/sub_issues?per_page=100&page=2>; rel="next"`, server.URL))
 			_, _ = io.WriteString(w, `[{"number":43,"title":"Child","html_url":"https://github.com/o/r/issues/43"}]`)
 		case "/repos/o/r/issues/42/dependencies/blocked_by":
 			_, _ = io.WriteString(w, `[{"number":41,"title":"Blocker","html_url":"https://github.com/o/r/issues/41"}]`)
@@ -116,9 +122,10 @@ func TestReadGitHubIssueCompleteConversationAndRelationships(t *testing.T) {
 	for _, want := range []string{
 		`state: "closed"`, `state_reason: "completed"`, `locked: true`, `lock_reason: "too heated"`,
 		`labels: ["bug","priority/high"]`, `assignees: ["@bob"]`, `milestone: "v2"`, `type: "Bug"`,
-		"Visible body", "Still visible", "Comment by @build-bot", "Bot content", "kept", "pinned", "Pinned answer",
-		"Parent: [#10 Parent]", "Sub-issues: [#43 Child]", "Blocked by: [#41 Blocker]", "Blocking: [#50 Downstream]",
-		"Priority: High", "Points: 8", "cross-referenced [#55 Related]", "renamed the Issue from `Old` to `A real issue`",
+		"overview: true", "timeline_provider_more_available: true", "relationships_provider_more_available: true", "comments_provider_complete: false",
+		"Visible body", "Still visible", "Comment `1` by @build-bot", "Bot content", "kept", "pinned", "Pinned answer",
+		"Parent: [#10 Parent]", "Sub-issue: [#43 Child]", "Blocked by: [#41 Blocker]", "Blocking: [#50 Downstream]",
+		"Priority: High", "Points: 8", "More timeline pages may exist upstream", "More Issue relationship entries exist upstream",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
@@ -130,11 +137,14 @@ func TestReadGitHubIssueCompleteConversationAndRelationships(t *testing.T) {
 	if strings.Count(out, "Pinned answer") != 1 {
 		t.Fatalf("pinned comment duplicated instead of being annotated in timeline:\n%s", out)
 	}
-	if strings.Contains(out, "overview: true") {
-		t.Fatalf("small Issue should retain the readable complete-conversation form:\n%s", out)
+	if strings.Contains(out, "cross-referenced [#55 Related]") || strings.Contains(out, "renamed the Issue") {
+		t.Fatalf("Issue root followed later timeline pages despite bounded overview contract:\n%s", out)
 	}
-	if got := atomic.LoadInt32(&timelinePages); got != 2 {
-		t.Fatalf("expected Link pagination to fetch 2 timeline pages, got %d", got)
+	if got := atomic.LoadInt32(&timelinePages); got != 1 {
+		t.Fatalf("expected one bounded timeline page, got %d", got)
+	}
+	if got := atomic.LoadInt32(&subIssuePages); got != 1 {
+		t.Fatalf("expected one bounded relationship page, got %d", got)
 	}
 	if strings.Contains(out, "GH_TOKEN") {
 		t.Fatalf("successful anonymous Issue read nagged for auth:\n%s", out)

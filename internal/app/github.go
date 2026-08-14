@@ -1920,6 +1920,53 @@ func githubOverviewPreview(markdown string, maxRunes int) (string, bool) {
 	return truncateMarkdownSafe(strings.TrimSpace(markdown), maxRunes)
 }
 
+// githubOverviewInlinePreview is for compact overview/index rows whose
+// provider text can contain arbitrary whitespace or human-authored prose.
+// Exact selectors keep the original text; only the landing/index copy is
+// normalized and bounded here.
+func githubOverviewInlinePreview(text string, maxRunes int) (string, bool) {
+	cleaned := strings.Join(strings.Fields(stripInvisibleHTMLComments(text)), " ")
+	if cleaned == "" {
+		return "", false
+	}
+	preview, truncated := githubOverviewPreview(cleaned, maxRunes)
+	return strings.Join(strings.Fields(preview), " "), truncated
+}
+
+func githubOverviewLabelList(values []string, limit int) string {
+	if limit < 0 {
+		limit = 0
+	}
+	shownValues := values[:minInt(limit, len(values))]
+	shownParts := make([]string, 0, len(shownValues))
+	for _, value := range shownValues {
+		preview, truncated := githubOverviewInlinePreview(value, 60)
+		if truncated {
+			preview += "…"
+		}
+		shownParts = append(shownParts, preview)
+	}
+	shown := strings.Join(shownParts, ", ")
+	if len(values) <= limit {
+		return shown
+	}
+	if shown == "" {
+		return fmt.Sprintf("+%d more", len(values)-limit)
+	}
+	return fmt.Sprintf("%s, +%d more", shown, len(values)-limit)
+}
+
+func githubBoundedOverviewList(length, initialLimit int, render func(limit int) string) string {
+	limit := minInt(initialLimit, length)
+	for {
+		out := render(limit)
+		if githubOverviewFits(out) || limit <= 1 {
+			return out
+		}
+		limit--
+	}
+}
+
 // githubOverviewFits reports whether a candidate overview stays within the
 // shared soft target. Mandatory metadata/navigation may still make a renderer
 // modestly exceed the target, but optional child indexes should use this gate.

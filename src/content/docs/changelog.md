@@ -12,6 +12,8 @@ This changelog tracks code and product changes in webctx. It intentionally skips
 
 - Added native GitHub reads for repositories, issues, pull requests, commits, Actions, releases, Discussions, Gists, packages, projects, search, profiles, activity, and deployments.
 - Added focused GitHub subresource views, bounded pagination, release assets, job logs and artifacts, history, compare, and blame support.
+- Made large GitHub roots navigation-first across Issues, PRs, commits, releases, trees, Discussions, Gists, statistics, deployments, lists, Search, Packages, Projects, and workflow/history views, with exact copied selectors and explicit raw `.diff`/`.patch` drill-downs.
+- Separated GitHub/provider incompleteness from local context omission, and bounded long human-authored index metadata so large provider pages cannot amplify a default read.
 - Reconciled anonymous and authenticated GitHub behavior while preserving crawler fallback for public package pages.
 - Preserved insertion order when search results receive tied scores.
 

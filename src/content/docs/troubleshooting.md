@@ -73,6 +73,21 @@ Anonymous GitHub capacity is much smaller than authenticated capacity. Add `GH_T
 
 webctx does not hide GitHub rate limits by scraping the page instead; a rate-limited structured read should stay visibly rate-limited.
 
+## A GitHub root says more data is available
+
+That is not necessarily an error. Large GitHub roots are deliberately context-bounded.
+
+- **Provider-more / provider ceiling** means GitHub itself has another page or exposes only a bounded provider result.
+- **Local omission** means webctx received rows but kept only a compact index in this overview.
+
+Use the GitHub URLs printed in the result to open the next page or exact child. For copied comments, threads, source ranges, diff hunks, focused checks, and Gist selectors, pass that exact URL back to `read-link`. For bulk change text, use the explicit `.diff` or `.patch` URL. There is no separate webctx “fetch everything” flag.
+
+## An unsupported GitHub page is being crawled
+
+webctx only claims GitHub URL shapes for which it has a faithful native contract. A route outside that grammar can continue through the normal direct-markdown/Firecrawl path, just like another website.
+
+Once a URL is recognized as a native GitHub resource, however, auth, not-found/private, permission, and rate-limit failures stay authoritative instead of silently falling back to a generic GitHub page scrape. Exact public Package pages are the single best-effort exception described above.
+
 ## An Actions job has no log
 
 The job can still be valid even when its log is no longer downloadable. GitHub controls log availability and retention.
