@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseGitHubPullFocusedTargets(t *testing.T) {
@@ -93,7 +94,7 @@ func TestSelectGitHubPatchHunksMapsLeftAndRightLines(t *testing.T) {
 	}
 }
 
-func TestReadGitHubPullFilesPaginatesAndRepresentsPatchOmissions(t *testing.T) {
+func TestReadGitHubPullFilesOverviewStopsAfterFirstPageAndRepresentsProviderMore(t *testing.T) {
 	var pages int32
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,11 +105,7 @@ func TestReadGitHubPullFilesPaginatesAndRepresentsPatchOmissions(t *testing.T) {
 		case "/repos/o/r/pulls/42/files":
 			atomic.AddInt32(&pages, 1)
 			if r.URL.Query().Get("page") == "2" {
-				_, _ = io.WriteString(w, `[
-                    {"filename":"image.png","status":"modified","changes":1,"blob_url":"https://github.com/o/r/blob/x/image.png","raw_url":"https://raw.example/image.png"},
-                    {"filename":"old.txt","previous_filename":"older.txt","status":"renamed","additions":0,"deletions":0,"changes":0,"patch":"@@ -1 +1 @@\n same"}
-                ]`)
-				return
+				t.Fatal("bounded Files overview followed provider pagination")
 			}
 			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/pulls/42/files?per_page=100&page=2>; rel="next"`, server.URL))
 			_, _ = io.WriteString(w, `[
@@ -124,16 +121,46 @@ func TestReadGitHubPullFilesPaginatesAndRepresentsPatchOmissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"files_returned: 4", "## a.go", "```diff", "## image.png", "Patch unavailable from GitHub", "renamed from `older.txt`", "complete: true"} {
+	for _, want := range []string{"overview: true", "files_returned: 2", "files_indexed: 2", "provider_more_available: true", "### `a.go`", "```diff", "Selector: https://github.com/o/r/pull/42/files#diff-", "complete: false"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("files output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "conversation text must not appear") {
+	if strings.Contains(out, "conversation text must not appear") || strings.Contains(out, "image.png") || strings.Contains(out, "old.txt") {
 		t.Fatalf("files view leaked PR conversation/title body:\n%s", out)
 	}
-	if atomic.LoadInt32(&pages) != 2 {
-		t.Fatalf("expected two file pages")
+	if atomic.LoadInt32(&pages) != 1 {
+		t.Fatalf("Files overview should fetch one provider page")
+	}
+}
+
+func TestReadGitHubPullFilesSmallCompleteSetKeepsFullPatches(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/o/r/pulls/42":
+			_, _ = io.WriteString(w, `{"number":42,"changed_files":2}`)
+		case "/repos/o/r/pulls/42/files":
+			_, _ = io.WriteString(w, `[
+{"filename":"a.go","status":"modified","additions":2,"deletions":1,"changes":3,"patch":"@@ -1 +1 @@\n-old\n+new"},
+{"filename":"image.png","status":"modified","changes":1,"blob_url":"https://github.com/o/r/blob/x/image.png","raw_url":"https://raw.example/image.png"}
+]`)
+		default:
+			t.Fatalf("unexpected request %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	out, err := readGitHubPullFiles(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/pull/42/files"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"files_returned: 2", "files_rendered: 2", "complete: true", "## a.go", "```diff", "-old", "+new", "## image.png", "Patch unavailable from GitHub"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("small complete Files view missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "overview: true") {
+		t.Fatalf("small complete Files view should retain full patch presentation:\n%s", out)
 	}
 }
 
@@ -216,6 +243,51 @@ func TestPullFilesSurfacesThreeThousandFileProviderCeiling(t *testing.T) {
 	}
 }
 
+func TestLargePullFilesOverviewBoundsHundredsAndProviderCeilingSeparately(t *testing.T) {
+	t.Run("provider has more after first page", func(t *testing.T) {
+		files := make([]githubPullFile, 0, 100)
+		for i := 0; i < 100; i++ {
+			patch := fmt.Sprintf("@@ -1 +1 @@\n-old %03d\n+new %03d\n%s\nTAIL PATCH %03d MUST NOT APPEAR", i, i, strings.Repeat("+generated detail\n", 30), i)
+			files = append(files, githubPullFile{
+				Filename: fmt.Sprintf("pkg/file-%03d.go", i), Status: "modified", Additions: 31, Deletions: 1, Changes: 32,
+				BlobURL: fmt.Sprintf("https://github.com/o/r/blob/head/pkg/file-%03d.go", i), RawURL: fmt.Sprintf("https://raw.example/pkg/file-%03d.go", i), Patch: &patch,
+			})
+		}
+		out := renderGitHubPullFiles(&GitHubTarget{Owner: "o", Repo: "r", Number: 42}, githubPullRequest{Number: 42, ChangedFiles: 150}, files, githubPullFilesAvailability{
+			ProviderReturned: 100, ProviderMore: true, ProviderComplete: false,
+		}, githubDiffSelector{}, false)
+		if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+			t.Fatalf("100-file overview exceeded shared target: %d runes\n%s", got, out)
+		}
+		for _, want := range []string{"overview: true", "changed_files: 150", "files_returned: 100", "provider_more_available: true", "files_local_omitted:", "locally omitted from this overview", "Selector: https://github.com/o/r/pull/42/files#diff-", "Blob: https://github.com/o/r/blob/head/pkg/file-000.go", "Raw: https://raw.example/pkg/file-000.go"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("100-file overview missing %q:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "TAIL PATCH 000 MUST NOT APPEAR") {
+			t.Fatalf("large Files overview leaked full patch:\n%s", out)
+		}
+	})
+
+	t.Run("three thousand provider ceiling remains distinct from local omission", func(t *testing.T) {
+		files := make([]githubPullFile, 3000)
+		for i := range files {
+			files[i] = githubPullFile{Filename: fmt.Sprintf("generated/file-%04d.txt", i), Status: "modified", Changes: 1}
+		}
+		out := renderGitHubPullFiles(&GitHubTarget{Owner: "o", Repo: "r", Number: 42}, githubPullRequest{Number: 42, ChangedFiles: 3001}, files, githubPullFilesAvailability{
+			ProviderReturned: 3000, ProviderComplete: false, ProviderCapReached: true,
+		}, githubDiffSelector{}, false)
+		if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+			t.Fatalf("3,000-file overview exceeded shared target: %d runes\n%s", got, out)
+		}
+		for _, want := range []string{"files_returned: 3000", "provider_result_ceiling: 3000", "3,000-file maximum", "files_local_omitted:", "locally omitted from this overview"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("provider ceiling/local omission truth missing %q:\n%s", want, out)
+			}
+		}
+	})
+}
+
 func TestReadGitHubPullCommitsIsCommitOnlyAndPaginated(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -274,10 +346,68 @@ func TestReadGitHubPullChecksSeparatesRunsAndStatuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"## Check runs", "### build", "conclusion success", "### lint", "conclusion failure", "Focused check: https://github.com/o/r/pull/42/checks?check_run_id=2", "commit_statuses: 2", "## Commit statuses", "Combined status state: `pending`", "**deploy** — pending", "**legacy-ci** — success", "does not infer a branch-protection/merge decision"} {
+	for _, want := range []string{"## Rollup", "Check run conclusions: failure 1, success 1", "## Check run index", "### build", "conclusion success", "### lint", "conclusion failure", "Focused check: https://github.com/o/r/pull/42/checks?check_run_id=1", "Focused check: https://github.com/o/r/pull/42/checks?check_run_id=2", "commit_statuses_returned: 2", "## Commit statuses", "Combined status state: `pending`", "**deploy** — pending", "**legacy-ci** — success", "does not infer a branch-protection/merge decision"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("checks output missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Index(out, "### lint") > strings.Index(out, "### build") {
+		t.Fatalf("failed check must be prioritized ahead of routine success:\n%s", out)
+	}
+	if strings.Contains(out, "All good") || strings.Contains(out, "**Build**") {
+		t.Fatalf("checks container embedded per-run output summary/title:\n%s", out)
+	}
+}
+
+func TestLargePullChecksOverviewPrioritizesActionableRunsAndBoundsMachineText(t *testing.T) {
+	runs := make([]githubCheckRun, 0, 130)
+	for i := 0; i < 128; i++ {
+		run := githubCheckRun{ID: int64(i + 1), Name: fmt.Sprintf("success-%03d", i), Status: "completed", Conclusion: "success", DetailsURL: fmt.Sprintf("https://ci.example/success/%d", i)}
+		run.Output.Summary = "MACHINE SUMMARY MUST NOT APPEAR " + strings.Repeat("generated success detail ", 80)
+		runs = append(runs, run)
+	}
+	failure := githubCheckRun{ID: 9001, Name: "zzz-hard-failure", Status: "completed", Conclusion: "failure", DetailsURL: "https://ci.example/failure"}
+	failure.Output.AnnotationsCount = 3
+	failure.Output.Summary = "FAILURE SUMMARY MUST NOT APPEAR " + strings.Repeat("generated failure detail ", 100)
+	active := githubCheckRun{ID: 9002, Name: "yyy-active", Status: "in_progress", DetailsURL: "https://ci.example/active"}
+	active.Output.Summary = "ACTIVE SUMMARY MUST NOT APPEAR"
+	runs = append(runs, active, failure)
+	status := githubCombinedStatus{State: "pending", TotalCount: 3, Statuses: []githubCommitStatus{
+		{ID: 1, State: "success", Context: "legacy-success", Description: "done"},
+		{ID: 2, State: "pending", Context: "legacy-pending", Description: "waiting"},
+		{ID: 3, State: "failure", Context: "legacy-failure", Description: "failed"},
+	}}
+	out := renderGitHubPullChecks(&GitHubTarget{Owner: "o", Repo: "r", Number: 42}, githubPullRequest{Number: 42, Head: githubPullRef{SHA: "headsha"}}, runs, len(runs), status)
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("large Checks overview exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{
+		"check_runs_returned: 130", `check_run_status_counts: {"completed":129,"in_progress":1}`, `check_run_conclusion_counts: {"failure":1,"none":1,"success":128}`,
+		"check_runs_local_omitted:", "locally omitted from this overview", "zzz-hard-failure", "yyy-active", "success-000",
+		"Focused check: https://github.com/o/r/pull/42/checks?check_run_id=9001", "Focused check: https://github.com/o/r/pull/42/checks?check_run_id=9002",
+		"**legacy-failure** — failure", "**legacy-pending** — pending", "**legacy-success** — success",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("large Checks overview missing %q:\n%s", want, out)
+		}
+	}
+	failureAt := strings.Index(out, "### zzz-hard-failure")
+	activeAt := strings.Index(out, "### yyy-active")
+	successAt := strings.Index(out, "### success-000")
+	if failureAt < 0 || activeAt < 0 || successAt < 0 || !(failureAt < activeAt && activeAt < successAt) {
+		t.Fatalf("check priority is not hard-failure -> active -> routine success:\n%s", out)
+	}
+	if strings.Contains(out, "MACHINE SUMMARY MUST NOT APPEAR") || strings.Contains(out, "FAILURE SUMMARY MUST NOT APPEAR") || strings.Contains(out, "ACTIVE SUMMARY MUST NOT APPEAR") {
+		t.Fatalf("Checks container embedded machine-generated output summaries:\n%s", out)
+	}
+	indexed := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "check_runs_indexed: ") {
+			_, _ = fmt.Sscanf(line, "check_runs_indexed: %d", &indexed)
+		}
+	}
+	if indexed <= 0 || strings.Count(out, "Focused check: https://github.com/o/r/pull/42/checks?check_run_id=") != indexed {
+		t.Fatalf("every indexed check must expose a focused URL (indexed=%d):\n%s", indexed, out)
 	}
 }
 
@@ -315,6 +445,38 @@ func TestReadGitHubSelectedCheckFetchesOnlySelectedRunAndAllAnnotations(t *testi
 	}
 	if atomic.LoadInt32(&annotationsPages) != 2 {
 		t.Fatalf("expected annotation pagination")
+	}
+}
+
+func TestOversizedFocusedCheckBoundsSummaryRawDetailsAndAnnotationCollection(t *testing.T) {
+	run := githubCheckRun{ID: 9, Name: "selected", HeadSHA: "headsha", Status: "completed", Conclusion: "failure", DetailsURL: "https://ci.example/check/9"}
+	run.Output.Title = "Selected machine check"
+	run.Output.AnnotationsCount = 50
+	run.Output.Summary = "SUMMARY START\n\n" + strings.Repeat("generated summary detail. ", 300) + "\nSUMMARY TAIL MUST NOT APPEAR"
+	annotations := make([]githubCheckAnnotation, 0, 40)
+	for i := 0; i < 40; i++ {
+		annotations = append(annotations, githubCheckAnnotation{
+			Path: fmt.Sprintf("pkg/file-%02d.go", i), StartLine: i + 10, EndLine: i + 10, AnnotationLevel: "failure", Title: fmt.Sprintf("Failure %02d", i),
+			Message:    fmt.Sprintf("MESSAGE %02d START %s MESSAGE %02d TAIL MUST NOT APPEAR", i, strings.Repeat("generated message detail. ", 80), i),
+			RawDetails: fmt.Sprintf("RAW %02d START %s RAW %02d TAIL MUST NOT APPEAR", i, strings.Repeat("generated raw detail. ", 80), i),
+		})
+	}
+	out := renderGitHubSelectedCheck(&GitHubTarget{Owner: "o", Repo: "r", Number: 42}, githubPullRequest{Number: 42, Head: githubPullRef{SHA: "headsha"}}, run, annotations)
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("focused check exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{
+		"check_run_id: 9", "annotations_reported: 50", "annotations_returned: 40", "annotations_local_omitted:", "SUMMARY START", "Check summary preview locally truncated",
+		"`pkg/file-00.go:10`", "MESSAGE 00 START", "Raw details preview locally truncated", "locally omitted from this overview", "provider-incomplete state", "Check details: https://ci.example/check/9",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("focused check bounded output missing %q:\n%s", want, out)
+		}
+	}
+	for _, forbidden := range []string{"SUMMARY TAIL MUST NOT APPEAR", "MESSAGE 00 TAIL MUST NOT APPEAR", "RAW 00 TAIL MUST NOT APPEAR", "MESSAGE 39 START"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("focused check leaked oversized machine text %q:\n%s", forbidden, out)
+		}
 	}
 }
 

@@ -156,7 +156,9 @@ webctx read-link https://github.com/amxv/webctx/pull/15/commits
 webctx read-link https://github.com/amxv/webctx/pull/15/checks
 ```
 
-That separation is intentional. A review conversation, a diff, and CI status are different kinds of context and usually should not be dumped into one response.
+That separation is intentional. A review conversation, a diff, and CI status are different kinds of context and usually should not be dumped into one response. Small Files views can still show complete patches; large ones switch to a compact file index with exact `#diff-*` selectors so you can open only the file or hunk you need.
+
+Checks start with status/conclusion rollups and put failures or active work ahead of routine successes. Every indexed check run includes a focused `?check_run_id=<id>` URL. Focused checks keep source annotation coordinates while previewing oversized machine-generated summaries/details and link the provider's deeper Details URL when available.
 
 If GitHub auth is available, review threads can include extra state such as whether a thread is resolved or outdated.
 
