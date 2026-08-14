@@ -246,6 +246,21 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 	}
 	if strings.EqualFold(parsed.Hostname(), "gist.github.com") {
 		parts := splitGitHubPath(parsed.Path)
+		if len(parts) == 1 {
+			gistID := parts[0]
+			if !githubBareGistIDRE.MatchString(gistID) {
+				return nil
+			}
+			return &GitHubTarget{
+				Host:         "gist.github.com",
+				Kind:         GitHubTargetGist,
+				Name:         gistID,
+				OriginalURL:  raw,
+				CanonicalURL: parsed.String(),
+				Query:        cloneURLValues(parsed.Query()),
+				Fragment:     parsed.Fragment,
+			}
+		}
 		if len(parts) < 2 || len(parts) > 3 {
 			return nil
 		}
@@ -2011,6 +2026,7 @@ func asGitHubError(err error, target **GitHubError) bool {
 
 var (
 	githubLineSelectorRE = regexp.MustCompile(`^L([0-9]+)(?:-L([0-9]+))?$`)
+	githubBareGistIDRE   = regexp.MustCompile(`^[0-9A-Fa-f]{20,64}$`)
 	htmlTagRE            = regexp.MustCompile(`<[^>]+>`)
 	markdownImageRE      = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
 	markdownLinkRE       = regexp.MustCompile(`\[([^\]]+)\]\([^)]*\)`)

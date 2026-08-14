@@ -237,6 +237,9 @@ webctx read-link https://github.com/vercel/next.js/discussions/<number>
 # Gist file range
 webctx read-link 'https://gist.github.com/<owner>/<gist-id>#file-readme-md-L10-L20'
 
+# Exact Gist comment
+webctx read-link 'https://gist.github.com/<gist-id>#gistcomment-<id>'
+
 # GitHub Search page
 webctx read-link 'https://github.com/search?q=agent+runtime&type=repositories&s=stars&o=desc'
 
@@ -248,6 +251,12 @@ webctx read-link https://github.com/orgs/github/projects/12106
 ```
 
 You do not need to memorize a separate webctx command for each of these. Copy the GitHub URL and use `read-link`.
+
+### Discussions and Gists stay navigable
+
+Discussion roots preview the main post and keep a compact conversation index instead of expanding every reply page. Each indexed comment or reply keeps GitHub's copied `#discussioncomment-<id>` URL; pass that exact URL back to `read-link` when you need the complete selected comment. Accepted answers remain identified in the overview.
+
+Gist roots similarly index files, comments, and revisions without fetching every full file into one response. Use a copied `#file-*` anchor for the complete selected file or line range, or `#gistcomment-<id>` for one exact Gist comment. Both owner-qualified Gist links and GitHub's ownerless hash-ID links are supported.
 
 ## GitHub Packages: best-effort when the API is unavailable
 
