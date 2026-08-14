@@ -1,443 +1,227 @@
 ---
-title: Read-link command
-description: Convert URLs into clean text with native GitHub repository/source/Issue/Pull Request reads, direct markdown detection, and Firecrawl fallback scraping.
-order: 5
-category: Commands
-summary: The behavior of `webctx read-link`.
+title: Read a URL
+description: Paste a useful URL and get focused text without manually cleaning browser pages.
+order: 11
+category: Guides
+summary: Keep the meaning of GitHub URLs, read normal pages cleanly, and give agents only the context they asked for.
 ---
 
-## Basic usage
+## One command
 
 ```bash
-webctx read-link https://github.com/amxv/webctx/blob/main/README.md
+webctx read-link <url>
 ```
 
-`read-link` returns terminal-friendly markdown/text. Normal pages keep the familiar title, original URL, and extracted content shape; native GitHub repository/source/Issue/Pull Request/commit/compare/history/list views use compact structured metadata instead of scraped GitHub chrome. Raw diff/patch views remain raw.
+`read-link` is useful because the URL often already tells webctx what you want.
 
-## Native GitHub repository reads
+A repository URL means “give me an overview.” A source line anchor means “give me these lines.” An Issue URL means “give me the Issue conversation.” A PR review-thread anchor means “give me this thread.” An Actions job URL means “give me this job and its log.”
 
-Repository roots such as:
+webctx keeps that intent instead of returning the whole browser page.
+
+## Understand a repository
+
+Start broad:
 
 ```bash
 webctx read-link https://github.com/amxv/webctx
 ```
 
-return a compact frontmatter-style block with high-signal repository metadata, followed by a README preview targeted at roughly 5,000 Unicode characters. The preview is cut at a safe Markdown boundary where possible, and invisible HTML comments from the human repository view are removed.
+A repository root gives you compact metadata, a README preview, and useful URLs for going deeper.
 
-If the README is longer, webctx includes GitHub's canonical README blob URL for the full source. The root output also includes a short set of useful source/tree/Issue/Pull Request URL forms supported by the native reader.
+Read one directory:
 
-## Blob reads and selectors
+```bash
+webctx read-link https://github.com/amxv/webctx/tree/main/internal/app
+```
 
-Public blob URLs keep the direct raw-content fast path:
+Read a file:
 
 ```bash
 webctx read-link https://github.com/amxv/webctx/blob/main/README.md
 ```
 
-A direct blob is an explicit source request, so it returns the full text file by default rather than applying the repository-root preview cap. Source HTML comments are preserved.
-
-GitHub line fragments narrow source output:
+Read only the lines you care about:
 
 ```bash
-webctx read-link 'https://github.com/amxv/webctx/blob/main/internal/app/app.go#L20'
-webctx read-link 'https://github.com/amxv/webctx/blob/main/internal/app/app.go#L20-L40'
+webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#L1-L20'
 ```
 
-For Markdown files, a heading fragment returns that heading through the next heading of equal or higher level:
+For Markdown files, a heading link can narrow to that section too:
 
 ```bash
 webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#install'
 ```
 
-Unknown, reversed, or out-of-range selectors fail explicitly instead of silently returning a different section or the whole file. Binary files are identified without dumping arbitrary bytes. GitHub's 100 MB Contents/Git-blob provider boundary is surfaced instead of presenting an incomplete source as complete.
-
-## Tree reads
-
-Tree URLs return one directory level rather than repository navigation chrome:
+## Follow an Issue
 
 ```bash
-webctx read-link https://github.com/amxv/webctx/tree/main/internal
+webctx read-link https://github.com/amxv/webctx/issues/6
 ```
 
-When the selected directory contains a README, webctx adds a bounded human-view preview and a full blob URL if that preview is truncated. A 1,000-entry Contents API result is marked as potentially incomplete because that is GitHub's documented directory ceiling.
+You get the useful Issue body, conversation, and state changes without GitHub navigation chrome.
 
-Blob and tree refs are not split at the first slash. Slash-containing branches/tags are resolved against GitHub when ref/path identity is needed, and genuinely overlapping valid splits fail as ambiguous rather than being guessed.
-
-## Optional GitHub authentication
-
-Public repository/source reads work anonymously. To read private source that your account can access, configure `GH_TOKEN` or `GITHUB_TOKEN`; when both contain values, `GH_TOKEN` wins.
-
-Native GitHub API requests send GitHub's pinned REST version header and preserve provider status/rate-limit information. Recognized native failures remain GitHub-specific, so a private/not-found/rate-limited resource is not silently replaced by a scraped login or error page.
-
-## Issue reads, comments, and lists
-
-Repository Issue URLs are native reads:
+If you copied a link to one comment, keep the anchor:
 
 ```bash
-webctx read-link https://github.com/cli/cli/issues/14134
+webctx read-link 'https://github.com/<owner>/<repo>/issues/<number>#issuecomment-<id>'
 ```
 
-An Issue detail returns compact state/title/author/time metadata, the human-visible body, substantive timeline changes, and the complete selected conversation by following GitHub's returned pagination links. Bot and non-maintainer comments are preserved. Invisible HTML automation markers are removed from Issue/comment bodies without changing direct source-file behavior.
+webctx uses it to select the comment instead of expanding the whole Issue first.
 
-When GitHub exposes them, the read also includes current parent/sub-issue relationships, blocked-by/blocking dependencies, Issue type, milestone, labels, assignees, pin state, and Issue field values. A resource that is actually a Pull Request is not flattened into an Issue conversation; the canonical Pull Request URL is reported instead.
+## Review a Pull Request
 
-An exact Issue comment fragment narrows the provider read before rendering:
+Read the conversation:
 
 ```bash
-webctx read-link 'https://github.com/cli/cli/issues/14134#issuecomment-5261879950'
+webctx read-link https://github.com/amxv/webctx/pull/15
 ```
 
-Repository Issue list/search URLs stay bounded to the selected page and preserve useful filters/query/page state:
+Read one inline review thread:
 
 ```bash
-webctx read-link 'https://github.com/amxv/webctx/issues?state=all&page=1'
-webctx read-link 'https://github.com/amxv/webctx/issues?q=is%3Aissue'
-```
-
-Pull Requests returned by GitHub's Issues REST/Search APIs are excluded from Issue-list views. GitHub's search `incomplete_results` signal and the actual `search` rate-limit resource are surfaced rather than presented as complete/core-quota results.
-
-Stable repository label and milestone pages are native too:
-
-```bash
-webctx read-link https://github.com/amxv/webctx/labels
-webctx read-link https://github.com/amxv/webctx/labels/enhancement
-webctx read-link https://github.com/amxv/webctx/milestones
-```
-
-These list/detail views stay page-bounded and link to the Issues they describe rather than recursively expanding conversations.
-
-## Pull Request conversations and exact anchors
-
-A Pull Request conversation URL is native:
-
-```bash
-webctx read-link https://github.com/cli/cli/pull/13250
-```
-
-The conversation read combines compact PR identity/state/base/head/change-count metadata with the human-visible body, normal Issue-style comments, meaningful timeline transitions, submitted reviews, and inline review comments grouped into threads. Timeline `reviewed` events are not re-rendered when the same review comes from GitHub's complete reviews endpoint, so review bodies appear once. Bot and non-member content is preserved.
-
-Inline threads are reconstructed from REST `in_reply_to_id`, path, and line/range coordinates, so anonymous public reads retain the substantive thread even without GraphQL. When `GH_TOKEN` or `GITHUB_TOKEN` is configured, webctx additionally asks GitHub GraphQL for provider-truthful resolved/outdated thread state. If that optional enrichment fails, the successful REST conversation remains available and the output says only that enrichment was unavailable.
-
-Copied GitHub conversation anchors narrow the read before rendering unrelated PR content:
-
-```bash
-webctx read-link 'https://github.com/cli/cli/pull/13250#issuecomment-4447874096'
 webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
-webctx read-link 'https://github.com/cli/cli/pull/13250#pullrequestreview-4148860648'
 ```
 
-The first uses the shared normal-comment identity from Issues. A `discussion_r` anchor returns that inline thread with reply context. A `pullrequestreview` anchor returns the selected formal review and its review comments.
-
-The conversation output points to the PR's `/files`, `/commits`, and `/checks` views as useful next URLs. Those focused tabs are separate native resource views rather than being expanded into the conversation.
-
-## Pull Request files, commits, and checks
-
-The Files Changed view returns changed files and provider patches, not PR conversation text:
+Read the diff, commit list, or checks separately:
 
 ```bash
-webctx read-link https://github.com/cli/cli/pull/13250/files
+webctx read-link https://github.com/amxv/webctx/pull/15/files
+webctx read-link https://github.com/amxv/webctx/pull/15/commits
+webctx read-link https://github.com/amxv/webctx/pull/15/checks
 ```
 
-GitHub's current file fragment convention is supported directly. A file hash is SHA-256 of the path, and optional `L`/`R` line suffixes select the provider patch hunk for old/new-side lines:
+That separation is intentional. A review conversation, a diff, and CI status are different kinds of context and usually should not be dumped into one response.
+
+If GitHub auth is available, review threads can include extra state such as whether a thread is resolved or outdated.
+
+## Debug CI without dumping every log
+
+Start with a run:
 
 ```bash
-webctx read-link 'https://github.com/cli/cli/pull/13250/files#diff-553490f999984ba28c4af0d7ffa919d10b5419f04a73f00141ee0b5a51c142e6'
-webctx read-link 'https://github.com/cli/cli/pull/13250/files#diff-553490f999984ba28c4af0d7ffa919d10b5419f04a73f00141ee0b5a51c142e6R24'
+webctx read-link https://github.com/<owner>/<repo>/actions/runs/<run-id>
 ```
 
-Unknown/stale hashes or lines fail explicitly instead of selecting a different file/hunk. Renames retain the previous filename. When GitHub omits a patch—for example binary, oversized, or otherwise provider-omitted content—webctx says the patch is unavailable rather than inventing diff text. GitHub's documented 3,000-file Pull Request maximum is surfaced as an incomplete provider boundary if reached.
-
-The commits view is compact and does not expand file patches:
+The run gives you job and artifact state plus exact job URLs. Then open only the job you need:
 
 ```bash
-webctx read-link https://github.com/cli/cli/pull/13250/commits
+webctx read-link https://github.com/<owner>/<repo>/actions/runs/<run-id>/job/<job-id>
 ```
 
-The checks view uses the PR head commit and keeps GitHub Check Runs separate from legacy commit statuses:
+When GitHub permits the log download, the job URL returns that job's steps and substantive log. It does not pull logs from unrelated jobs.
+
+## Trace how code changed
+
+One commit:
 
 ```bash
-webctx read-link https://github.com/cli/cli/pull/13250/checks
+webctx read-link https://github.com/<owner>/<repo>/commit/<sha>
 ```
 
-Both check-run pages and combined-status pages follow GitHub's returned pagination links. webctx displays the provider's combined status state but does not turn Check Runs/statuses into a made-up branch-protection or mergeability verdict.
-
-When GitHub's current checks URL carries a `check_run_id`, only that Check Run and all of its paginated annotations are returned:
+Compare two refs:
 
 ```bash
-webctx read-link 'https://github.com/cli/cli/pull/13250/checks?check_run_id=75849937564'
+webctx read-link 'https://github.com/<owner>/<repo>/compare/main...feature'
 ```
 
-The selected check is verified against the PR head SHA before annotations are rendered.
-
-Direct PR diff/patch forms retain raw media semantics:
+History for one path:
 
 ```bash
-webctx read-link https://github.com/cli/cli/pull/13250.diff
-webctx read-link https://github.com/cli/cli/pull/13250.patch
+webctx read-link https://github.com/<owner>/<repo>/commits/main/path/to/file.go
 ```
 
-These are not wrapped as a conversation or reformatted into per-file Markdown sections.
-
-## Commits, comparisons, history, and blame
-
-A commit URL returns the selected commit rather than repository chrome:
+Blame for one path:
 
 ```bash
-webctx read-link https://github.com/amxv/webctx/commit/c6d90181d7caffe6d41458eed696eb5fb48b177f
+webctx read-link https://github.com/<owner>/<repo>/blame/main/path/to/file.go
 ```
 
-The compact metadata includes commit identity, author/committer timestamps, verification state, and change totals. The commit message is preserved, changed files/patches follow GitHub's returned pagination, and substantive commit comments are included with human-view invisible HTML comments removed. GitHub documents a 3,000-file maximum for a commit's JSON file listing; webctx marks that provider ceiling as incomplete instead of presenting it as a complete diff.
+Blame uses GitHub's structured blame data and needs `GH_TOKEN` or `GITHUB_TOKEN`.
 
-Direct commit diff/patch forms preserve GitHub's raw media:
+## Explore the rest of a GitHub project
 
-```bash
-webctx read-link https://github.com/amxv/webctx/commit/c6d90181d7caffe6d41458eed696eb5fb48b177f.diff
-webctx read-link https://github.com/amxv/webctx/commit/c6d90181d7caffe6d41458eed696eb5fb48b177f.patch
-```
-
-Comparison URLs keep the base/head relationship visible:
+`read-link` also understands useful views such as:
 
 ```bash
-webctx read-link 'https://github.com/cli/cli/compare/trunk...feature/foo'
-```
-
-The native projection includes status, ahead/behind counts, every comparison commit returned through GitHub pagination, and the changed-file patches available on the first provider page. GitHub's compare API exposes files only on that first page and up to 300 files, so reaching that boundary is surfaced as potentially incomplete. Comparison `.diff`/`.patch` forms preserve raw media in the same way as commits and Pull Requests.
-
-Path history stays bounded to the selected GitHub page instead of expanding the repository's entire history:
-
-```bash
-webctx read-link 'https://github.com/cli/cli/commits/andyfeller/test/README.md'
-webctx read-link 'https://github.com/cli/cli/commits/andyfeller/test/README.md?page=2'
-```
-
-The ref/path split is provider-resolved against commit history, so slash-containing refs work without assuming the first post-route segment is the whole branch. Ambiguous valid splits fail explicitly. Returned `Link` pagination becomes concise previous/next GitHub URLs.
-
-Blame uses GitHub's structured GraphQL ranges and therefore requires authentication:
-
-```bash
-webctx read-link https://github.com/cli/cli/blame/andyfeller/test/README.md
-```
-
-With `GH_TOKEN` or `GITHUB_TOKEN`, webctx resolves the slash-containing ref/path and returns compact line ranges with commit, author, date, and message identity. Without a token it returns a concise auth-required result before making provider requests; it never disguises missing GraphQL auth by scraping the blame page.
-
-## GitHub Actions runs, jobs, logs, and artifacts
-
-Repository Actions and workflow URLs are bounded navigation reads:
-
-```bash
-webctx read-link https://github.com/amxv/webctx/actions
-webctx read-link https://github.com/amxv/webctx/actions/workflows/release.yml
-```
-
-The repository view returns a compact workflow list plus one selected page of workflow runs. Workflow detail returns workflow identity/state and one selected page of its runs. Stable REST-style filters such as branch, event, status, actor, creation range, head SHA, and page are preserved when present; an unproven GitHub UI `query=` filter is rejected rather than silently ignored.
-
-A selected workflow run is a structured overview, not a log dump:
-
-```bash
-webctx read-link https://github.com/amxv/webctx/actions/runs/<run-id>
-```
-
-It includes run identity/status/conclusion/event/ref/SHA/timestamps plus all paginated jobs for the latest attempt and all paginated artifacts. Each job uses GitHub's exact `html_url` when available, so an agent can request only the job it needs. Artifact metadata includes size, expiry state/time, and GitHub's archive download URL; an expired artifact is labeled expired rather than offered as though it were still downloadable.
-
-Only a canonical job URL fetches a job log:
-
-```bash
-webctx read-link https://github.com/amxv/webctx/actions/runs/<run-id>/job/<job-id>
-```
-
-The reader first verifies that the job belongs to the selected run, renders the structured job steps, then fetches only that job's log. GitHub log delivery may redirect to storage; webctx relies on redirect-safe HTTP behavior so the configured GitHub Authorization header is not forwarded to a different storage host. Plaintext logs are preserved, ZIP-delivered log archives are unpacked deterministically, and malformed/non-text/oversized archives fail truthfully rather than appearing as successful logs.
-
-If GitHub reports a job log as gone/not found—for example expired, deleted, or not yet generated—the job metadata still renders with an explicit unavailable-log note. Run pages never prefetch logs. webctx does not advertise or accept Actions step fragments because a stable current GitHub step-fragment contract has not been proven.
-
-Check Run annotations remain available through the native PR/check targeting described above; Actions run/job output does not duplicate them as a second inconsistent model.
-
-## Branches, tags, releases, and repository navigation
-
-Repository branch and tag lists are compact, bounded navigation reads:
-
-```bash
-webctx read-link https://github.com/amxv/webctx/branches
-webctx read-link https://github.com/amxv/webctx/tags
-```
-
-Branches include the current commit SHA and protected state when GitHub reports it. Tags include their commit SHA. Both link into the existing native `/tree/<ref>` source reader, so slash-containing refs remain source-navigation URLs rather than a competing synthetic branch-detail route.
-
-Release lists stay bounded and never expand every release body:
-
-```bash
-webctx read-link https://github.com/amxv/webctx/releases
-```
-
-An exact release or latest release is authoritative and preserves the full selected release notes rather than the repository-root 5k preview budget:
-
-```bash
+# Releases
 webctx read-link https://github.com/amxv/webctx/releases/latest
-webctx read-link https://github.com/amxv/webctx/releases/tag/v0.1.1
-```
 
-Release metadata includes tag/target/author/times/draft/prerelease state. Assets are fetched through all GitHub pagination and rendered with size, media type, download count, and browser download URL. Invisible HTML comments are removed from the human-view release body just as they are from Issues and Pull Requests.
-
-Stable repository social/navigation lists are also bounded:
-
-```bash
-webctx read-link https://github.com/amxv/webctx/forks
-webctx read-link https://github.com/amxv/webctx/stargazers
-webctx read-link https://github.com/amxv/webctx/watchers
-```
-
-`/stargazers` means users who starred the repository and uses GitHub's stargazer media type when available so star timestamps are preserved. `/watchers` deliberately maps to GitHub's subscribers endpoint: these are actual repository watchers/subscribers, **not** `watchers_count`. GitHub's REST `watchers`/`watchers_count` fields are historical aliases for star count, so webctx never labels those aliases as subscriber/watch counts. Fork rows likewise use `stargazers_count` when showing stars.
-
-These list views preserve only provider-backed filters/pagination they can represent faithfully and reject unknown UI query parameters rather than silently changing the selected list.
-
-## Discussions and Gists
-
-Repository Discussions use GitHub's GraphQL Discussions data, which requires authentication:
-
-```bash
-webctx read-link https://github.com/vercel/next.js/discussions
-webctx read-link https://github.com/vercel/next.js/discussions/35773
-```
-
-Without `GH_TOKEN` or `GITHUB_TOKEN`, webctx fails before the provider request with a concise auth hint rather than scraping Discussion UI. The list is intentionally bounded to the first 30 GraphQL Discussions; an exact Discussion follows every top-level comment page and every reply page, marks the provider-selected accepted answer without duplicating its text, and strips invisible HTML automation comments from the human-view body/comments.
-
-Public Gists are native REST resources on `gist.github.com`:
-
-```bash
-webctx read-link https://gist.github.com/<owner>/<gist-id>
-webctx read-link https://gist.github.com/<owner>/<gist-id>/<revision>
-```
-
-A full Gist returns compact metadata, all files, paginated Gist comments, and revision history exposed by GitHub. Source files remain source, so `<!-- HTML comments -->` inside Markdown/text files are preserved; only human comment bodies are sanitized.
-
-Copied Gist file/line anchors narrow before rendering unrelated files/comments:
-
-```bash
-webctx read-link 'https://gist.github.com/<owner>/<gist-id>#file-readme-md'
-webctx read-link 'https://gist.github.com/<owner>/<gist-id>#file-readme-md-L10-L20'
-```
-
-When the Gist API marks a file `truncated`, webctx attempts a direct raw read without forwarding the configured GitHub Authorization header to the raw host. If a complete UTF-8 raw read is unavailable, the partial API `content` is **not** presented as complete; output states that GitHub marked it truncated and gives the provider `raw_url` instead.
-
-## GitHub search and public profiles
-
-Copied GitHub Search URLs stay bounded to the selected page rather than expanding the whole result universe:
-
-```bash
-webctx read-link 'https://github.com/search?q=webctx&type=repositories'
-webctx read-link 'https://github.com/search?q=rate+limit&type=issues&s=updated&o=desc&p=2'
-webctx read-link 'https://github.com/amxv/webctx/search?q=GitHubTarget&type=code'
-```
-
-Supported search views map to GitHub's repository, Issue, Pull Request, code, commit, or user Search APIs. Issue and Pull Request views add the provider `is:issue` / `is:pr` qualifier so GitHub's shared Issue Search endpoint does not mix the two resource families. Repository-scoped search adds the selected `repo:<owner>/<repo>` qualifier while preserving the copied query text. `s`, `o`, and `p` are mapped to provider sort/order/page, and next/previous links return to the same copied GitHub UI query with only `p` changed.
-
-Search output is deliberately compact: repository rows show identity/stars/language/description; Issue/PR rows show number/title/state/author; code rows show path/repository/SHA; commit rows show SHA/message/repository/date; user rows show login/provider type. GitHub's `incomplete_results` flag is surfaced, as is the provider's 1,000-result Search ceiling. Search rate-limit errors use GitHub's actual `search` rate-limit resource/reset rather than pretending the ordinary core quota is the same pool.
-
-One-segment public profile URLs are provider-resolved before rendering:
-
-```bash
-webctx read-link https://github.com/torvalds
-webctx read-link 'https://github.com/torvalds?tab=repositories&page=2'
-webctx read-link 'https://github.com/torvalds?tab=followers'
-webctx read-link https://github.com/openai
-webctx read-link https://github.com/orgs/openai/people
-```
-
-webctx first asks GitHub for `/users/<name>` and reads its provider `type`. A `User` can then expose bounded repositories, Gists, stars, followers, and following tabs. An `Organization` is enriched from `/orgs/<name>` and can expose bounded organization repositories and public members. Invalid User/Organization tab combinations fail after type resolution and before fetching an unrelated list. Reserved GitHub global pages such as `/settings`, `/login`, and `/marketplace` are not claimed as fake profiles merely because they contain one path segment.
-
-Profile/list pagination stays bounded to the copied page. A provider 404/privacy/rate-limit failure remains a native GitHub error rather than falling through to scraped account/login UI.
-
-## Repository activity, statistics, and deployments
-
-Repository activity URLs use GitHub's structured activity API and preserve provider-backed filters such as ref, activity type, actor, time window, before/after, and page:
-
-```bash
+# Repository activity
 webctx read-link https://github.com/cli/cli/activity
-webctx read-link 'https://github.com/cli/cli/activity?activity_type=push&page=2'
-```
 
-The result is one bounded activity page with actor/ref/before-after/timestamp identity plus provider-returned previous/next navigation. webctx performs a fresh request and stores no response cache.
-
-Stable repository graph pages with first-party statistics mappings are native too:
-
-```bash
-webctx read-link https://github.com/cli/cli/graphs/contributors
-webctx read-link https://github.com/cli/cli/graphs/commit-activity
-webctx read-link https://github.com/cli/cli/graphs/code-frequency
-```
-
-GitHub computes and caches these statistics upstream. A fresh webctx request can therefore still receive cached statistics, and GitHub may return HTTP 202 while generating them. In that case webctx returns an explicit `provider_status: computing` result and tells the caller to retry later; it does not render an empty graph as though the repository had no activity.
-
-Deployment pages use GitHub's deployment/environment/status APIs:
-
-```bash
-webctx read-link https://github.com/<owner>/<repo>/deployments
+# Deployment environment
 webctx read-link https://github.com/<owner>/<repo>/deployments/production
+
+# Discussion
+webctx read-link https://github.com/vercel/next.js/discussions/<number>
+
+# Gist file range
+webctx read-link 'https://gist.github.com/<owner>/<gist-id>#file-readme-md-L10-L20'
+
+# GitHub Search page
+webctx read-link 'https://github.com/search?q=agent+runtime&type=repositories&s=stars&o=desc'
+
+# User or organization profile
+webctx read-link https://github.com/torvalds
+
+# Project
+webctx read-link https://github.com/orgs/github/projects/12106
 ```
 
-The repository deployment list is bounded and can preserve stable sha/ref/task/environment/page filters without fanning out every deployment's status history. A selected environment page reads environment metadata, one bounded page of deployments for that environment, and every status page GitHub returns for those selected deployments. Status rows preserve state/description/actor/time/log URL when available.
+You do not need to memorize a separate webctx command for each of these. Copy the GitHub URL and use `read-link`.
 
-GitHub controls provider-side deployment-status retention. webctx therefore states that the selected environment output contains the status pages GitHub returned now; it never claims older deployment status history is retained indefinitely merely because the current call was fresh.
+## GitHub Packages: best-effort when the API is unavailable
 
-Forks, stargazers, and watchers remain the dedicated social-list readers rather than being duplicated by the activity/metrics implementation. In particular, `/watchers` still means subscribers, not the historical star-count aliases in repository metadata.
-
-## Packages, Projects v2, and long-tail route boundaries
-
-Exact GitHub Package URLs are native only when the copied URL contains enough stable provider identity to map to the REST Packages API:
+Exact Package URLs first try GitHub's structured Package data:
 
 ```bash
 webctx read-link https://github.com/orgs/<org>/packages/container/package/<name>
-webctx read-link https://github.com/users/<user>/packages/npm/package/<name>
 ```
 
-The exact package page returns package type/visibility/repository/timestamps plus one bounded page of versions. Container version tags are preserved when GitHub exposes them, and previous/next version-page links retain the copied package URL. GitHub Packages authentication is endpoint-specific: a no-token 401 is reported as authentication required, while a configured token that GitHub does not accept for that package endpoint returns a permission error. Package indexes that do not encode a package type/name remain on generic fallback rather than triggering speculative package-type API scans.
+GitHub Packages have unusual credential rules. A public Package page can be visible in the browser while the Package API rejects an ordinary fine-grained repository token.
 
-GitHub Projects v2 exact URLs use GitHub's current REST Projects v2 API:
+If that happens for an auth or permission error and `FIRECRAWL_API_KEY` is available, webctx can crawl the public Package page instead. The output is clearly marked **best-effort** because page scraping can be incomplete or contain GitHub UI noise.
+
+webctx does **not** use that escape hatch for GitHub rate limits, private/not-found resources, security/admin pages, or unrelated GitHub resource families.
+
+## Normal websites work too
 
 ```bash
-webctx read-link https://github.com/orgs/<org>/projects/<number>
-webctx read-link https://github.com/users/<user>/projects/<number>
+webctx read-link https://example.com/article
 ```
 
-The selected Project returns compact identity/state/description and the first 50 Project items, preserving linked Issue/PR identity when available. If more items exist, output says so explicitly instead of silently implying the whole board fit in context. Public organization Projects can be read anonymously when GitHub permits it. If a configured fine-grained token is rejected by a public Project endpoint solely because its Project permission is narrower, webctx retries that same GitHub GET anonymously; protected Projects still retain the authenticated provider error.
+For non-GitHub pages, webctx looks for a clean markdown version when possible and falls back to Firecrawl when rendered-page extraction is needed.
 
-The route audit deliberately leaves these families outside native clean reading unless a future stable first-party mapping is added:
+The result stays simple:
 
-- repository wiki content and settings/admin/billing/forms;
-- GitHub security surfaces such as code/secret/dependency scanning;
-- archive/binary download payloads;
-- package indexes lacking type/name identity;
-- long-tail UI routes whose current URL cannot be mapped faithfully to supported first-party structured/raw data.
+```markdown
+# Page title
 
-Those URLs keep the established generic behavior; they are not claimed merely because they share `github.com`.
+**URL:** https://example.com/article
 
-GitHub routes that do not yet have a native reader continue through the normal fallback chain. Security pages are intentionally outside native GitHub handling.
-
-## Direct markdown path
-
-For direct markdown-style URLs, webctx checks whether a `.md` document is available. If the given URL does not end in `.md`, it tries the same URL with `.md` appended.
-
-The HEAD response must look like markdown or plain text and have enough content length to be useful. Then webctx fetches the markdown directly and derives the title from the first `#` heading when possible.
-
-## Firecrawl fallback
-
-When no native/direct-markdown path handles the URL, webctx uses Firecrawl:
-
-```text
-endpoint: https://api.firecrawl.dev/v2/scrape
-formats: markdown
-onlyMainContent: true
-skipTlsVerification: true
-blockAds: true
-removeBase64Images: true
-maxAge: 600000
+<useful page content>
 ```
 
-The request excludes common non-content tags such as scripts, styles, navigation, footers, headers, asides, SVGs, images, and ad selectors.
+## Add GitHub auth when it helps
 
-## PDF handling
+Many public GitHub reads work without a token. Add one when you need more capacity or a GitHub view that requires authentication:
 
-If the URL ends in `.pdf`, webctx asks Firecrawl to use the PDF parser.
+```bash
+GH_TOKEN=...
+```
 
-## Rate limiting
+Useful authenticated cases include:
 
-Firecrawl scrape requests pass through a process-local queue with a token bucket limiter. It starts with 10 tokens and refills one token every six seconds. The queue keeps scrape calls serialized so agent workflows do not burst into Firecrawl.
+- blame
+- Discussions
+- some Actions job logs
+- richer PR review-thread state
+- private resources your token can access
+
+Fine-grained tokens can have narrower permissions than GitHub's public surface. For selected public reads, webctx can retry without Authorization if the token is rejected.
+
+## Trust the warnings
+
+Some provider results are naturally bounded, truncated, still computing, expired, or permission-limited. webctx calls those states out instead of pretending the result is complete.
+
+For an agent, that distinction matters: clean context is only useful when it is also honest about what it could not see.

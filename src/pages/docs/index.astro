@@ -13,7 +13,7 @@ const grouped = docCategories.map((category) => ({
 
 <BaseLayout
   title={`${siteConfig.name} Docs`}
-  description="Read webctx guides for installation, provider credentials, search, read-link, map-site, ranking, architecture, release, troubleshooting, and docs maintenance."
+  description="Learn webctx by task: get started, search the web, read useful URLs, map sites, and feed focused context to agents."
   siteConfig={siteConfig}
   primaryNav={primaryNav}
 >
@@ -21,14 +21,14 @@ const grouped = docCategories.map((category) => ({
     <div class="docs-index-hero__head">
       <div>
         <p class="section-label">Documentation</p>
-        <h1>Run web search, markdown extraction, and site mapping from the terminal.</h1>
+        <h1>Find the page. Read the useful part. Hand it to an agent.</h1>
       </div>
       <DocsPageActions />
     </div>
     <p>
-      These guides explain webctx from user and maintainer perspectives: install paths,
-      credential loading, command behavior, provider-specific requests, ranking and deduping,
-      Firecrawl fallbacks, npm distribution, release checks, and common failure modes.
+      Start with a working example and go only as deep as the task requires. The guides focus on
+      what you can accomplish with webctx, especially how copied GitHub URLs become focused
+      repository, source, review, CI, and history context automatically.
     </p>
   </section>
   <section class="shell docs-index">

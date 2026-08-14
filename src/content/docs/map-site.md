@@ -1,9 +1,9 @@
 ---
-title: Map-site command
-description: Use Firecrawl's map endpoint to return a sitemap-style list of URLs for a website.
-order: 6
-category: Commands
-summary: The behavior of `webctx map-site`.
+title: Map a site
+description: Discover the useful URLs on a site before deciding which pages to read.
+order: 12
+category: Guides
+summary: Turn a docs or product site into a navigable URL inventory.
 ---
 
 ## Basic usage
@@ -12,35 +12,26 @@ summary: The behavior of `webctx map-site`.
 webctx map-site https://docs.firecrawl.dev
 ```
 
-`map-site` returns a count followed by URLs and any available titles or descriptions.
+The result is a list of discovered URLs with titles or descriptions when available.
 
-## Firecrawl map request
+## Why map first?
 
-`map-site` sends a request to:
+A docs site can contain hundreds or thousands of pages. An agent usually does not need all of them.
 
-```text
-https://api.firecrawl.dev/v2/map
+Use `map-site` to see the shape of the site, then read only the pages that matter:
+
+```bash
+webctx map-site https://some-docs.example
+webctx read-link https://some-docs.example/getting-started
+webctx read-link https://some-docs.example/api/reference
 ```
 
-Request settings:
+This keeps research broad at the discovery step and focused at the reading step.
 
-```json
-{
-  "sitemap": "include",
-  "includeSubdomains": true,
-  "ignoreQueryParameters": true,
-  "limit": 5000
-}
-```
+## Credential
 
-That makes it useful for discovering docs pages, support pages, blog collections, changelogs, and other site-level context before asking an agent to read specific pages.
-
-## Credentials
-
-`map-site` requires:
+`map-site` uses:
 
 ```text
 FIRECRAWL_API_KEY
 ```
-
-If the key is missing, webctx prints an error that explains the three supported credential locations: environment variables, `.env.local`, and macOS Keychain.

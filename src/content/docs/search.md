@@ -1,91 +1,55 @@
 ---
-title: Search command
-description: Use Brave, Tavily, and Exa together, filter noisy domains, run Exa keyword mode, and understand result formatting.
-order: 4
-category: Commands
-summary: The behavior of `webctx search`.
+title: Search the web
+description: Search Brave, Tavily, and Exa together and get one clean list of useful pages.
+order: 10
+category: Guides
+summary: Find candidate pages without manually comparing three search engines.
 ---
 
-## Basic usage
+## Search normally
 
 ```bash
 webctx search "golang http client retries"
 ```
 
-The normal search path queries Brave, Tavily, and Exa concurrently. Each provider has a 40-second context timeout. Results are deduplicated, scored, ranked, and returned as markdown links with short summaries.
+webctx asks Brave, Tavily, and Exa, removes duplicate URLs, and returns one markdown list with short summaries.
 
-## Output shape
+When several providers independently surface the same page, that agreement helps the page rise in the final list.
 
-Search output starts with a count, then a list of markdown links:
-
-```markdown
-Total Results: 12
-
-- [Result title](https://go.dev/doc/effective_go)
-    - Result overview text
-```
-
-The final output is capped at 35 ranked results.
-
-## Default excluded domains
-
-webctx excludes common video and social domains by default:
-
-```text
-youtube.com
-vimeo.com
-dailymotion.com
-twitch.tv
-tiktok.com
-instagram.com
-facebook.com
-```
-
-This keeps agent-facing search results focused on pages that are more likely to contain readable documentation, articles, issues, or reference content.
-
-## Custom exclusions
-
-Add more domains with `--exclude`:
+## Remove noisy sites
 
 ```bash
 webctx search "react useEffect cleanup" --exclude medium.com,dev.to
 ```
 
-Domain matching normalizes `www.` and compares hostnames.
+webctx already excludes common video and social sites such as YouTube, TikTok, Instagram, and Facebook. `--exclude` adds your own domains for one search.
 
-## Keyword mode
-
-Use `--keyword` when you want Exa include-text filtering:
+## Look for a specific phrase
 
 ```bash
 webctx search "drizzle orm" --keyword "migration guide"
 ```
 
-In keyword mode, webctx queries Exa only. The keyword phrase is truncated to five words before it is sent as `includeText`.
+`--keyword` uses Exa's include-text search when you care more about a phrase appearing on the page than broad provider agreement.
 
-## Provider request details
+## Use the results with `read-link`
 
-Brave request behavior:
+A good research loop is:
 
-```text
-endpoint: https://api.search.brave.com/res/v1/web/search
-limit: 20
-result_filter: web
-text_decorations: false
+```bash
+webctx search "OpenAI Apps SDK MCP annotations"
+webctx read-link https://developers.openai.com/apps-sdk/reference
 ```
 
-Tavily request behavior:
+Search is for discovery. `read-link` is for turning the promising result into context an agent can actually use.
 
-```text
-endpoint: https://api.tavily.com/search
-max_results: 20
+## Output
+
+```markdown
+Total Results: 12
+
+- [Result title](https://example.com/page)
+    - Short summary of the page
 ```
 
-Exa request behavior:
-
-```text
-endpoint: https://api.exa.ai/search
-numResults: 25
-type: auto
-contents.livecrawl: preferred
-```
+The final list is intentionally bounded so search does not flood an agent's context.

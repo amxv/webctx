@@ -7,7 +7,7 @@ export async function GET() {
   const lines = [
     `# ${siteConfig.name} Docs`,
     "",
-    "Raw markdown index for webctx installation, provider credentials, search, read-link, map-site, ranking, architecture, release, troubleshooting, and docs maintenance.",
+    "Raw markdown index for getting started, searching the web, reading useful URLs, mapping sites, agent workflows, credentials, and troubleshooting.",
     ""
   ];
 

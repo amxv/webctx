@@ -1,33 +1,16 @@
 # webctx
 
-`webctx` is a pure Go CLI for agent-friendly web search and page extraction.
+Web context for agents, from the terminal.
 
-It gives you three commands:
-
-- `search`: combines Brave, Tavily, and Exa results, then deduplicates and re-ranks them
-- `read-link`: turns a page into clean markdown
-- `map-site`: returns a sitemap-style list of URLs for a site
-
-
-## Documentation Site
-
-This repository includes an Astro documentation site for webctx. It covers installation, provider credentials, search, read-link, map-site, ranking, architecture, npm distribution, release checks, troubleshooting, and docs maintenance.
-
-Run the docs site locally with:
+`webctx` gives you three small commands:
 
 ```bash
-npm install
-npm run docs:dev
+webctx search "agent web research"
+webctx read-link <url>
+webctx map-site <url>
 ```
 
-Validate the docs site with:
-
-```bash
-npm run docs:check
-npm run docs:build
-```
-
-The Astro docs content lives in `src/content/docs`, with site-wide navigation and metadata in `src/data/docs.ts`.
+The output is plain text or markdown, so it is easy to hand to ChatGPT, Codex, Claude Code, a shell script, or another tool.
 
 ## Install
 
@@ -36,83 +19,97 @@ npm i -g webctx
 webctx --help
 ```
 
-You can also download a prebuilt binary from GitHub Releases if you do not want the npm install path.
-
-## Commands
-
-```bash
-webctx --version
-webctx search <query> [--exclude domain1,domain2] [--keyword phrase]
-webctx read-link <url>
-webctx map-site <url>
-```
-
-## Quick examples
-
-```bash
-webctx search "next.js server components"
-webctx search "react hooks" --exclude youtube.com,vimeo.com
-webctx search "drizzle orm" --keyword "migration guide"
-webctx read-link https://github.com/openai/openai-cookbook/blob/main/README.md
-webctx map-site https://example.com
-```
-
-## API keys
-
-`webctx` can read API keys in three ways:
-
-1. regular environment variables
-2. a `.env.local` file next to the binary
-3. macOS Keychain
-
-If you want the simplest local setup, create a `.env.local` file in the same directory as the binary:
-
-```bash
-cp .env.local.example .env.local
-```
-
-On macOS, you can also store credentials in Keychain under service `webctx`, with account names matching the env var names:
-
-```bash
-security add-generic-password -U -s webctx -a BRAVE_API_KEY -w "your-brave-key"
-security add-generic-password -U -s webctx -a TAVILY_API_KEY -w "your-tavily-key"
-security add-generic-password -U -s webctx -a EXA_API_KEY -w "your-exa-key"
-security add-generic-password -U -s webctx -a FIRECRAWL_API_KEY -w "your-firecrawl-key"
-security add-generic-password -U -s webctx -a GH_TOKEN -w "your-github-token"
-```
-
-Required keys by command:
-
-- `search`
-  Uses `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY`
-- `read-link`
-  Reads public GitHub repositories, blobs, trees, Issues, Pull Requests, commits, comparisons, path history, Actions runs/jobs, branches, tags, releases, forks, stars, watchers, Gists, Search results, public profiles, labels, and milestones without a token. Optional `GH_TOKEN` (preferred) or `GITHUB_TOKEN` enables authenticated/private GitHub reads, PR thread-state enrichment, structured blame ranges, and Discussions. Uses `FIRECRAWL_API_KEY` for pages that are not handled natively or as direct `.md` content.
-- `map-site`
-  Uses `FIRECRAWL_API_KEY`
+Prebuilt binaries are also available from GitHub Releases.
 
 ## Why `read-link` is useful
 
-`read-link` is designed to avoid expensive scraping when it does not need to and to keep copied GitHub URLs scoped to what they mean.
+Paste the URL you already have. webctx tries to understand what that URL means and returns the useful part instead of browser chrome.
 
-- A GitHub repository root returns compact repository metadata, a README preview of roughly 5,000 characters, a full README blob link when needed, and a few useful source/tree/Issue/PR URL examples.
-- GitHub blob URLs use the raw-content fast path for public files. `#L20` and `#L20-L40` select source lines, while Markdown heading fragments such as `#installation` select that section. Direct blobs return the full source by default and preserve source comments.
-- GitHub tree URLs return a one-level directory listing plus a bounded directory README when present. Slash-containing refs are resolved against GitHub rather than assuming the first path segment is the branch.
-- GitHub Issue URLs return compact metadata, the human-visible body, substantive timeline activity, comments, and current relationships. `#issuecomment-<id>` reads one exact comment. Issue/search/label/milestone lists stay bounded instead of expanding every conversation.
-- GitHub Pull Request conversation URLs combine the PR body, normal comments, meaningful timeline events, formal reviews, and inline review threads without duplicate review events. `#issuecomment-<id>`, `#discussion_r<id>`, and `#pullrequestreview-<id>` select exact conversation context. Public PRs work anonymously; a token optionally enriches inline threads with GitHub resolved/outdated state.
-- Pull Request `/files`, `/commits`, and `/checks` URLs are separate native views. Files preserve patches and current GitHub `#diff-<sha256(path)>L/R...` selectors, commits stay compact, and checks keep Check Runs distinct from commit statuses. `?check_run_id=<id>` narrows to one check plus its annotations. Direct `.diff` and `.patch` URLs preserve their raw media.
-- Commit URLs return identity/message/verification/stats, paginated changed-file patches, and commit comments. Commit `.diff`/`.patch` forms stay raw; the JSON file view surfaces GitHub's 3,000-file ceiling rather than implying completeness past it.
-- Compare URLs preserve base/head/status/ahead-behind state and all paginated commits. GitHub exposes changed files only on the first compare page and up to 300 files, so webctx states that ceiling when reached. Repository `/commits/<ref>/<path>` URLs stay page-bounded and resolve slash-containing refs against provider history data.
-- Blame URLs are native but require `GH_TOKEN` or `GITHUB_TOKEN`: GitHub's structured blame ranges come from GraphQL. Without auth, webctx returns a concise token hint instead of scraping blame UI.
-- GitHub Actions repository/workflow pages stay bounded; a selected run returns run state plus all jobs/artifacts, with exact job URLs. Only `/actions/runs/<run>/job/<job>` fetches that job's log, keeping unrelated logs out of context. Plain or ZIP-delivered logs are decoded as text, while expired/unavailable logs and artifacts stay explicit.
-- `/branches`, `/tags`, `/releases`, `/forks`, `/stargazers`, and `/watchers` are compact bounded repository-navigation views. Exact release/latest URLs preserve full release notes and paginated asset metadata. Stars and watchers stay distinct: GitHub's historical `watchers_count` aliases stars, while `/watchers` is backed by the subscribers API for actual watchers/subscribers.
-- Repository Discussions use GitHub GraphQL and therefore require `GH_TOKEN`/`GITHUB_TOKEN`; detail reads preserve all paginated comments/replies. Public Gists use REST, preserve source comments, support copied file/line anchors, include comments/revisions, and replace or explicitly mark API-truncated files using their raw URLs.
-- GitHub `/search` URLs stay page-bounded and preserve the copied query/type/sort/order/page semantics for repository, Issue, Pull Request, code, commit, and user searches. Search quota errors remain distinct from ordinary REST quota errors. One-segment public profiles resolve GitHub's provider `type` before choosing User versus Organization tabs—webctx never guesses from the account name.
-- Repository `/activity` and supported graph pages return compact provider activity/statistics instead of scraped charts. GitHub statistics can be cached upstream or return HTTP 202 while computing; webctx reports that state rather than pretending a fresh request means freshly computed metrics. Deployment lists stay bounded, while `/deployments/<environment>` includes that page's deployment/status history and explicitly avoids implying indefinite provider retention.
-- Exact GitHub Package pages whose URL supplies owner scope, package type, and package name return compact package metadata plus a bounded versions page when the configured GitHub credential has the package permission/token type required by GitHub. Exact Projects v2 URLs under `/orgs/.../projects/<n>` or `/users/.../projects/<n>` use GitHub's current REST Projects v2 API and return the first 50 items with an explicit more-items marker. Public Project reads can stay anonymous; a fine-grained token that is narrower than the public endpoint is retried anonymously rather than making the public URL fail. Package indexes without enough identity, wiki/settings/security/admin pages, and archive/binary payload routes remain generic/excluded rather than receiving fake native output.
-- Optional `GH_TOKEN`, then `GITHUB_TOKEN`, is used for authenticated GitHub API reads. Ordinary public reads do not require or prompt for a token.
-- For direct markdown-style URLs, it checks the `.md` path.
-- GitHub route families that do not yet have a native reader, and normal web pages, continue through the existing direct-markdown and Firecrawl fallbacks.
+```bash
+# Repository overview + README preview
+webctx read-link https://github.com/amxv/webctx
 
-Native GitHub failures such as not-found/private, authentication, and rate-limit errors stay GitHub-specific instead of silently turning into scraped login/error pages.
+# Exact source lines
+webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#L1-L20'
 
-Maintainer notes, release steps, project layout, and source-build details are in `CONTRIBUTORS.md`.
+# One directory
+webctx read-link https://github.com/amxv/webctx/tree/main/internal/app
+
+# Issue conversation
+webctx read-link https://github.com/amxv/webctx/issues/6
+
+# Pull request conversation
+webctx read-link https://github.com/amxv/webctx/pull/15
+
+# A single inline review thread
+webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
+
+# Files changed, commits, or checks
+webctx read-link https://github.com/amxv/webctx/pull/15/files
+webctx read-link https://github.com/amxv/webctx/pull/15/commits
+webctx read-link https://github.com/amxv/webctx/pull/15/checks
+
+# Exact Actions job + log when GitHub allows it
+webctx read-link https://github.com/amxv/webctx/actions/runs/<run-id>/job/<job-id>
+```
+
+The same idea works for commits, comparisons, path history, blame, releases, Discussions, Gists, GitHub Search, profiles, Projects, deployments, and other supported GitHub views.
+
+For normal websites, webctx tries a clean markdown path first and falls back to Firecrawl when it needs rendered-page extraction. Exact public GitHub Package pages have one explicit best-effort exception: if GitHub's Package API rejects the read for auth or permission reasons, webctx can crawl the public page with Firecrawl and clearly labels the result as best-effort.
+
+## Search
+
+Normal search asks Brave, Tavily, and Exa, removes duplicate URLs, and returns one useful list.
+
+```bash
+webctx search "next.js server components"
+webctx search "react hooks" --exclude youtube.com,medium.com
+webctx search "drizzle orm" --keyword "migration guide"
+```
+
+## Map a site
+
+Use `map-site` when you want to discover the useful pages before reading them.
+
+```bash
+webctx map-site https://docs.firecrawl.dev
+```
+
+A common agent workflow is:
+
+```bash
+webctx map-site https://some-docs.example
+webctx read-link https://some-docs.example/getting-started
+webctx read-link https://some-docs.example/api/reference
+```
+
+## Credentials
+
+The simplest local setup is a `.env.local` file:
+
+```bash
+BRAVE_API_KEY=...
+TAVILY_API_KEY=...
+EXA_API_KEY=...
+FIRECRAWL_API_KEY=...
+GH_TOKEN=...
+```
+
+- `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY` power normal `search`.
+- `FIRECRAWL_API_KEY` powers `map-site` and page-crawl fallbacks.
+- `GH_TOKEN` or `GITHUB_TOKEN` is optional. It increases GitHub capacity and unlocks reads such as blame, Discussions, some Actions job logs, private resources the token can access, and richer PR review state.
+
+Environment variables, `.env.local`, and macOS Keychain are supported. `GH_TOKEN` takes precedence over `GITHUB_TOKEN`.
+
+## Documentation
+
+Start with the guides in `src/content/docs`:
+
+- **Quickstart** — get useful output immediately
+- **Read a URL** — GitHub-aware reading and normal web pages
+- **Use webctx with agents** — practical research, repo, PR, and CI workflows
+- **Search the web** — federated search and filtering
+- **Map a site** — discover pages before reading them
+- **Credentials** — keys and optional GitHub auth
+
+Maintainer notes, repository layout, development commands, and release steps live in [`CONTRIBUTORS.md`](CONTRIBUTORS.md).

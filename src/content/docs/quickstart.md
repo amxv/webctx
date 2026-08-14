@@ -1,98 +1,88 @@
 ---
 title: Quickstart
-description: Install webctx, configure provider keys, and run the first search, read-link, and map-site commands.
+description: Install webctx, add the keys you need, and get useful web context in a few commands.
 order: 1
 category: Start
-summary: The shortest path from install to useful web context.
+summary: Install it, paste a URL, and start giving agents cleaner web context.
 ---
 
-## What webctx does
-
-`webctx` is a pure Go command-line tool for getting web context into agent workflows without opening a browser manually.
-
-It has three user-facing commands:
-
-```bash
-webctx search "go http client retry patterns"
-webctx read-link https://github.com/amxv/webctx/blob/main/README.md
-webctx map-site https://docs.firecrawl.dev
-```
-
-The output is plain text or markdown, so it can be pasted directly into ChatGPT, Codex, Claude Code, terminal agents, scripts, notes, or issue comments.
-
-## Install from npm
-
-The npm package installs a platform-specific native binary when a matching GitHub Release asset exists:
+## Install
 
 ```bash
 npm i -g webctx
 webctx --help
-webctx --version
 ```
 
-If a release asset is not available for the current platform, the postinstall script falls back to a local Go build when Go is installed and the package includes source files.
+## Try the three commands
 
-## Build from source
+Search the web:
 
 ```bash
-git clone https://github.com/amxv/webctx.git
-cd webctx
-make build
-./dist/webctx --help
+webctx search "agent web research"
 ```
 
-For local installation from the repository:
+Turn a URL into useful text:
 
 ```bash
-make install-local
-webctx --help
+webctx read-link https://github.com/amxv/webctx
 ```
 
-## Add credentials
-
-Search uses Brave, Tavily, and Exa. Public GitHub repository/source/Issue/PR/commit/compare/history/Actions-run/branch/tag/release/social-list/Gist/Search/profile/activity/statistics/deployment/Project-v2 reads work without a token when GitHub exposes them anonymously. Optional `GH_TOKEN` or `GITHUB_TOKEN` adds authenticated capacity and unlocks provider surfaces such as exact Actions job logs, GraphQL blame ranges, Discussions, richer PR review-thread state, and private/native reads where the token has permission. GitHub Packages use endpoint-specific authentication and may need a different token permission/type. Firecrawl handles site mapping and `read-link` pages that reach the generic fallback.
-
-Create a `.env.local` file where webctx can find it:
-
-```bash
-BRAVE_API_KEY=brave_demo_key
-TAVILY_API_KEY=tavily_demo_key
-EXA_API_KEY=exa_demo_key
-FIRECRAWL_API_KEY=firecrawl_demo_key
-GH_TOKEN=
-GITHUB_TOKEN=
-```
-
-webctx checks environment variables first, then `.env.local`, then macOS Keychain.
-
-## First commands
-
-Run a normal federated search:
-
-```bash
-webctx search "next.js server components"
-```
-
-Exclude noisy domains:
-
-```bash
-webctx search "react hooks" --exclude youtube.com,vimeo.com
-```
-
-Force an Exa include-text search for a short keyword phrase:
-
-```bash
-webctx search "drizzle orm" --keyword "migration guide"
-```
-
-Read a page into markdown:
-
-```bash
-webctx read-link https://github.com/amxv/webctx/blob/main/CONTRIBUTORS.md
-```
-
-Map a site:
+Discover the pages on a site:
 
 ```bash
 webctx map-site https://docs.firecrawl.dev
 ```
+
+All three return plain text or markdown that can go straight into an agent, a file, a pipe, or your clipboard.
+
+## The part worth trying first
+
+`read-link` understands many GitHub URLs instead of scraping the whole GitHub page.
+
+```bash
+# Just these source lines
+webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#L1-L20'
+
+# Just this Issue and its conversation
+webctx read-link https://github.com/amxv/webctx/issues/6
+
+# A PR as a review conversation
+webctx read-link https://github.com/amxv/webctx/pull/15
+
+# A single inline review thread
+webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
+```
+
+The URL already carries your intent. webctx tries to preserve that intent and return only the useful context.
+
+## Add credentials
+
+Create `.env.local` in the directory where you normally run webctx:
+
+```bash
+BRAVE_API_KEY=...
+TAVILY_API_KEY=...
+EXA_API_KEY=...
+FIRECRAWL_API_KEY=...
+GH_TOKEN=...
+```
+
+You do not need every key for every command:
+
+| What you want to do | Key |
+| --- | --- |
+| Normal `search` | `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
+| Map sites or crawl normal pages | `FIRECRAWL_API_KEY` |
+| More GitHub capacity / auth-only GitHub views | `GH_TOKEN` or `GITHUB_TOKEN` |
+
+Many public GitHub reads work without a GitHub token. Add one when you want higher limits, blame, Discussions, some Actions logs, private resources your token can access, or richer review-thread state.
+
+## A simple agent loop
+
+```bash
+webctx search "next.js caching changes"
+webctx read-link https://nextjs.org/docs/app/building-your-application/caching
+webctx read-link https://github.com/vercel/next.js/issues/<issue-number>
+```
+
+Search finds candidates. `read-link` turns the useful candidates into focused context. Your agent gets evidence instead of browser UI.

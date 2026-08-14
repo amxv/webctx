@@ -1,84 +1,61 @@
 ---
 title: Credentials
-description: Configure search, Firecrawl, and optional GitHub credentials through environment variables, .env.local files, or macOS Keychain.
+description: Add only the provider keys needed for the webctx commands you use.
 order: 3
-category: Credentials
-summary: The key-loading model for all webctx commands.
+category: Start
+summary: Search keys, Firecrawl, and optional GitHub authentication without extra setup ceremony.
 ---
 
-## Required keys by command
+## Which keys do I need?
 
-`webctx search` uses:
+| Use | Keys |
+| --- | --- |
+| `webctx search` | `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
+| `webctx map-site` | `FIRECRAWL_API_KEY` |
+| Normal web-page fallback in `read-link` | `FIRECRAWL_API_KEY` |
+| More GitHub capacity and auth-only GitHub reads | `GH_TOKEN` or `GITHUB_TOKEN` |
 
-```text
-BRAVE_API_KEY
-TAVILY_API_KEY
-EXA_API_KEY
-```
+A GitHub token is optional. Many public repository, source, Issue, PR, commit, release, Search, profile, Gist, activity, deployment, and Project reads work without one when GitHub exposes them publicly.
 
-`webctx read-link` can use these optional GitHub tokens for authenticated/private GitHub reads and GraphQL-only enrichment:
+A token is useful for:
 
-```text
-GH_TOKEN
-GITHUB_TOKEN
-```
+- higher GitHub API limits
+- blame ranges
+- Discussions
+- some Actions job logs
+- richer PR review-thread state
+- private resources the token can access
 
-Public GitHub repository, blob, tree, Issue, Pull Request, commit, comparison, path-history, Actions run metadata, branch/tag/release/social-list, public Gist, Search/profile, activity/statistics/deployment, Project v2, label, and milestone reads can work without a token when GitHub exposes the selected public resource anonymously. A GitHub token additionally provides authenticated capacity, private/native reads where supported, PR review-thread resolved/outdated enrichment, structured blame ranges, repository Discussions, and authenticated Actions job logs. Blame and Discussions specifically require a token for webctx's structured provider path. GitHub Packages authentication varies by package endpoint/token type; a fine-grained repository token is not automatically sufficient. When both token variables contain values, `GH_TOKEN` takes precedence. For selected endpoints GitHub documents as public, webctx may retry a token-rejected GET anonymously so a narrowly scoped fine-grained token does not make a public resource unreadable. `FIRECRAWL_API_KEY` is used only when a URL is not handled by a native/direct-markdown path and needs the Firecrawl fallback.
+GitHub Packages have their own permission rules. A normal fine-grained repository token is not automatically enough for every Package endpoint.
 
-`webctx map-site` uses:
+## `.env.local`
 
-```text
-FIRECRAWL_API_KEY
-```
-
-## Loading order
-
-At startup, webctx loads credentials in this order:
-
-1. existing environment variables
-2. `.env.local` files near the executable
-3. `.env.local` in the current working directory
-4. macOS Keychain entries for missing keys
-
-Existing environment variables win. A `.env.local` file never overwrites a key that is already set in the process environment.
-
-## .env.local files
-
-A local credentials file can look like this:
+For most local setups, use:
 
 ```bash
-BRAVE_API_KEY=brave_demo_key
-TAVILY_API_KEY=tavily_demo_key
-EXA_API_KEY=exa_demo_key
-FIRECRAWL_API_KEY=firecrawl_demo_key
-GH_TOKEN=
-GITHUB_TOKEN=
+BRAVE_API_KEY=...
+TAVILY_API_KEY=...
+EXA_API_KEY=...
+FIRECRAWL_API_KEY=...
+GH_TOKEN=...
 ```
 
-webctx checks these candidate paths:
+webctx can load credentials from the environment, `.env.local`, or macOS Keychain. Existing environment variables win.
 
-```text
-same directory as the webctx executable
-parent directory of the executable directory
-current working directory
-```
-
-Blank lines and comments are ignored. Lines may start with `export`, and quoted values are accepted.
+If both GitHub variables are set, `GH_TOKEN` wins over `GITHUB_TOKEN`.
 
 ## macOS Keychain
 
-On macOS, webctx looks up missing credentials under service `webctx`. The account name must match the environment variable name:
+You can keep a key out of files entirely:
 
 ```bash
-security add-generic-password -U -s webctx -a BRAVE_API_KEY -w brave_demo_key
-security add-generic-password -U -s webctx -a TAVILY_API_KEY -w tavily_demo_key
-security add-generic-password -U -s webctx -a EXA_API_KEY -w exa_demo_key
-security add-generic-password -U -s webctx -a FIRECRAWL_API_KEY -w firecrawl_demo_key
-security add-generic-password -U -s webctx -a GH_TOKEN -w github_demo_token
+security add-generic-password -U -s webctx -a GH_TOKEN -w "your-token"
 ```
 
-Keychain lookup is skipped on non-macOS systems.
+Use the environment-variable name as the Keychain account name. The same pattern works for the search and Firecrawl keys.
 
-## Missing key errors
+## Fine-grained GitHub tokens
 
-When a key is missing, webctx explains which one is needed and where to put it. For example, a `map-site` command without Firecrawl credentials reports that `FIRECRAWL_API_KEY` is missing and points to environment variables, `.env.local`, or macOS Keychain.
+A fine-grained token can be narrower than GitHub's public read surface. For selected public GitHub GETs, webctx can retry without Authorization if GitHub rejects the token, so adding a narrow token does not unnecessarily break a public read.
+
+Permission errors still remain permission errors when GitHub does not allow the resource anonymously.

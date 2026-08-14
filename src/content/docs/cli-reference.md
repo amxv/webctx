@@ -1,81 +1,65 @@
 ---
 title: CLI reference
-description: A compact reference for webctx commands, flags, environment variables, output formats, and maintainer targets.
-order: 11
+description: The small command and flag reference for everyday webctx use.
+order: 20
 category: Reference
-summary: The command map for users and maintainers.
+summary: Commands, flags, keys, and output in one page.
 ---
 
-## User commands
+## Commands
 
 ```bash
 webctx --help
 webctx --version
-webctx search "next.js server components"
-webctx search "react hooks" --exclude youtube.com,vimeo.com
-webctx search "drizzle orm" --keyword "migration guide"
-webctx read-link https://github.com/amxv/webctx/blob/main/README.md
-webctx map-site https://docs.firecrawl.dev
+webctx search <query> [--exclude domains] [--keyword phrase]
+webctx read-link <url>
+webctx map-site <url>
 ```
 
 ## Search flags
 
-```text
---exclude domain1,domain2
+### `--exclude`
+
+Add comma-separated domains to the normal exclusion list:
+
+```bash
+webctx search "react hooks" --exclude youtube.com,medium.com
 ```
 
-Adds domains to the default exclusion list.
+### `--keyword`
 
-```text
---keyword phrase
+Use Exa include-text search for a short phrase:
+
+```bash
+webctx search "drizzle orm" --keyword "migration guide"
 ```
-
-Switches search into Exa-only include-text mode. The phrase is truncated to five words.
 
 ## Environment variables
 
 ```text
-BRAVE_API_KEY       used by search
-TAVILY_API_KEY      used by search
-EXA_API_KEY         used by search and keyword mode
-FIRECRAWL_API_KEY   used by read-link fallback and map-site
-GH_TOKEN            optional GitHub auth for private/native reads, PR enrichment, and blame; preferred over GITHUB_TOKEN
-GITHUB_TOKEN        optional GitHub auth fallback for the same capabilities
+BRAVE_API_KEY
+TAVILY_API_KEY
+EXA_API_KEY
+FIRECRAWL_API_KEY
+GH_TOKEN
+GITHUB_TOKEN
 ```
 
-## Output formats
+`GH_TOKEN` is preferred when both GitHub variables are set.
 
-`search` returns markdown links with indented summaries.
+## Output
 
-`read-link` returns terminal-friendly markdown/text. Native GitHub repository/source/Issue/PR/commit/compare/history/Actions/ref/release/social-list/Discussion/Gist/Search/profile/activity/statistics/deployment/Package/Project reads use compact metadata plus selected content; raw diff/patch, Gist source, and explicit job-log content preserve their provider semantics. Ordinary pages keep the title/URL/content shape.
+- `search` → markdown links with short summaries
+- `read-link` → focused markdown/text for the selected URL
+- `map-site` → discovered URLs with titles/descriptions when available
 
-`map-site` returns a URL list with optional titles and descriptions.
+Raw source, diffs, patches, and explicit job logs stay close to the original provider text. Structured GitHub pages use compact metadata plus the content that matters.
 
-## Maintainer commands
+## More detail
 
-```bash
-make help
-make fmt
-make test
-make vet
-make lint
-make check
-make build
-make build-all
-make install-local
-make clean
-make release-tag VERSION=0.1.2
-```
+- [Search the web](/docs/search)
+- [Read a URL](/docs/read-link)
+- [Map a site](/docs/map-site)
+- [Credentials](/docs/credentials)
 
-## npm scripts
-
-```bash
-npm test
-npm run lint
-npm run docs:dev
-npm run docs:check
-npm run docs:build
-npm run docs:preview
-```
-
-The docs scripts are for the Astro site. The existing `test` and `lint` scripts continue to validate the npm shim and postinstall script.
+If you are developing or releasing webctx itself, see `CONTRIBUTORS.md` in the repository.

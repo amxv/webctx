@@ -6,7 +6,7 @@ import "../styles/global.css";
 
 const docs = (await getCollection("docs"))
   .sort((a, b) => a.data.order - b.data.order)
-  .filter((entry) => ["quickstart", "search", "read-link", "map-site", "ranking", "agent-workflows"].includes(entry.id));
+  .filter((entry) => ["quickstart", "read-link", "agent-workflows", "search", "map-site", "credentials"].includes(entry.id));
 
 const commands = [
   {
@@ -20,8 +20,8 @@ const commands = [
     index: "02",
     command: "read-link",
     line: "webctx read-link <url>",
-    title: "Turn a page into useful text.",
-    body: "GitHub repositories, source, Issues, PRs, history, Actions, refs, releases, Discussions, Gists, Search, profiles, activity, deployments, Packages, and Projects get native low-noise reads. Direct markdown stays cheap; unsupported pages fall back to Firecrawl."
+    title: "Paste the URL you already have.",
+    body: "A repository becomes an overview. A line anchor becomes those lines. A PR thread becomes that thread. An Actions job becomes that job and log. Normal pages still come back as clean text."
   },
   {
     index: "03",
@@ -33,10 +33,10 @@ const commands = [
 ];
 
 const workflow = [
-  ["Search", "Fan one question out across providers."],
-  ["Rank", "Reward independent agreement and remove duplicates."],
-  ["Read", "Convert the useful pages into markdown."],
-  ["Reuse", "Pipe, diff, store, quote, or hand the output to an agent."]
+  ["Find", "Search broadly or map the site first."],
+  ["Open", "Pass the useful URL to read-link."],
+  ["Narrow", "Keep line, comment, review, diff, or job URLs when you have them."],
+  ["Reuse", "Pipe, save, quote, or hand the markdown to an agent."]
 ];
 ---
 
@@ -62,8 +62,8 @@ const workflow = [
         </h1>
 
         <p class="wc-hero__lede">
-          Search across Brave, Tavily, and Exa. Read any useful page as clean markdown.
-          Map an entire site before deciding where to look. Three verbs, one small binary.
+          Search across Brave, Tavily, and Exa. Paste a useful URL and get the part an agent
+          actually needs. Map an entire site before deciding where to look. Three verbs, one small binary.
         </p>
 
         <div class="wc-hero__actions">
@@ -160,9 +160,9 @@ const workflow = [
           </div>
 
           <div class="wc-console__foot">
-            <span><i></i> normalized URLs</span>
-            <span><i></i> duplicate bonus</span>
-            <span><i></i> deterministic ties</span>
+            <span><i></i> clean URLs</span>
+            <span><i></i> merged results</span>
+            <span><i></i> plain markdown</span>
           </div>
         </div>
 
@@ -275,17 +275,19 @@ const workflow = [
 
     <section class="wc-gradient shell wc-section" aria-labelledby="gradient-title">
       <header class="wc-section-head wc-reveal">
-        <p class="wc-kicker">03 / Read-link cost gradient</p>
-        <p class="wc-section-note">Do the cheapest correct thing first. Render the web only when plain text is not already available.</p>
+        <p class="wc-kicker">03 / The URL already knows a lot</p>
+        <p class="wc-section-note">Keep the meaning of the link instead of flattening every page into the same scrape.</p>
       </header>
 
       <div class="wc-gradient__layout">
         <div class="wc-gradient__copy wc-reveal">
-          <h2 id="gradient-title">Don’t scrape what you can <em>just fetch.</em></h2>
+          <h2 id="gradient-title">Keep the meaning of the <em>URL.</em></h2>
           <p>
-            Most agent reading is documentation, repository context, source, and code-review discussion. webctx interprets supported GitHub URLs directly, checks markdown paths next, and pays the latency and cost of browser-grade extraction only when it has to.
+            A GitHub line link means source lines. An Issue link means a conversation. A review-thread
+            link means one thread. A job link means one CI job. webctx recognizes those shapes first,
+            then uses markdown or page extraction only when the URL does not already describe a cleaner resource.
           </p>
-          <a href="/docs/read-link">See the read-link pipeline <span aria-hidden="true">→</span></a>
+          <a href="/docs/read-link">See what read-link understands <span aria-hidden="true">→</span></a>
         </div>
 
         <div class="wc-path wc-reveal" style="--reveal-delay: 100ms">
@@ -293,27 +295,27 @@ const workflow = [
           <article class="wc-path-step wc-path-step--fast">
             <span class="wc-path-step__number">01</span>
             <div>
-              <p>GitHub repo, source, Issue, or PR view?</p>
-              <strong>Read the selected resource natively</strong>
-              <small>Source · conversations · diffs · history · Actions logs</small>
+              <p>Does the URL identify something specific?</p>
+              <strong>Return that resource directly</strong>
+              <small>Source · conversations · diffs · history · CI jobs</small>
             </div>
             <span class="wc-path-step__badge">preferred</span>
           </article>
           <article class="wc-path-step wc-path-step--fast">
             <span class="wc-path-step__number">02</span>
             <div>
-              <p>Markdown-style page?</p>
-              <strong>Try the .md path</strong>
-              <small>Fast · clean · free</small>
+              <p>Is clean text already available?</p>
+              <strong>Use the markdown page</strong>
+              <small>Fast · focused · low noise</small>
             </div>
             <span class="wc-path-step__badge">preferred</span>
           </article>
           <article class="wc-path-step wc-path-step--fallback">
             <span class="wc-path-step__number">03</span>
             <div>
-              <p>Normal web page?</p>
-              <strong>Fall back to Firecrawl</strong>
-              <small>Rendered · extracted · robust</small>
+              <p>Does the page need rendering?</p>
+              <strong>Crawl it as a fallback</strong>
+              <small>Rendered page → useful text</small>
             </div>
             <span class="wc-path-step__badge">fallback</span>
           </article>
@@ -347,9 +349,10 @@ const workflow = [
     <section class="wc-docs shell wc-section" aria-labelledby="docs-title">
       <div class="wc-docs__intro wc-reveal">
         <p class="wc-kicker">05 / Documentation</p>
-        <h2 id="docs-title">Learn the surface.<br /><em>Inspect the machinery.</em></h2>
+        <h2 id="docs-title">Pick a task.<br /><em>Copy an example.</em></h2>
         <p>
-          Start with a working command, then go as deep as you need: credentials, ranking math, extraction paths, site mapping, and agent workflow recipes.
+          The guides are organized around outcomes: get started, read a URL, research with an agent,
+          search the web, map a site, or add the credentials a workflow needs.
         </p>
         <a class="wc-button wc-button--secondary" href="/docs">
           <span>Browse every guide</span><span aria-hidden="true">→</span>

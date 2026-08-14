@@ -2,7 +2,7 @@ export const siteConfig = {
   name: "webctx",
   strapline: "Agent-friendly web context from the terminal",
   description:
-    "Documentation for webctx, a pure Go CLI that combines Brave, Tavily, and Exa search results, extracts clean markdown from links, and maps site URLs for agent workflows.",
+    "Use webctx to search the web, turn useful URLs into clean agent-ready text, and map sites before deciding what to read.",
   repoUrl: "https://github.com/amxv/webctx",
   accentColor: "#4f66e8",
   accentColorDark: "#c8f43d",
@@ -10,12 +10,12 @@ export const siteConfig = {
     {
       title: "webctx",
       text:
-        "A Go CLI for search, clean markdown extraction, and site mapping in agent workflows."
+        "Search, read, and map the web from a small terminal tool built for agent workflows."
     },
     {
-      title: "What this site covers",
+      title: "Start here",
       text:
-        "Command usage, provider credentials, ranking behavior, architecture notes, and release workflow details."
+        "Paste the URL you already have. webctx keeps useful URL intent—source lines, Issues, PR threads, Actions jobs, and more—while removing browser noise."
     },
     {
       title: "Repository",
@@ -26,13 +26,7 @@ export const siteConfig = {
   ]
 } as const;
 
-export const docCategories = [
-  "Start",
-  "Commands",
-  "Credentials",
-  "Internals",
-  "Reference"
-] as const;
+export const docCategories = ["Start", "Guides", "Reference"] as const;
 
 export const primaryNav = [
   { href: "/docs", label: "Docs" },
