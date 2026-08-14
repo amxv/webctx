@@ -113,6 +113,20 @@ type githubJobLog struct {
 	TooLarge    bool
 }
 
+type githubActionsRunAvailability struct {
+	JobsReported          int
+	ArtifactsReported     int
+	ArtifactsProviderMore bool
+}
+
+type githubJobLogPreview struct {
+	Text       string
+	Strategy   string
+	Truncated  bool
+	LinesTotal int
+	LinesShown int
+}
+
 func readGitHubActionsOverview(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
 	if target.Fragment != "" {
 		return "", fmt.Errorf("GitHub Actions fragment %q is not a supported native selector", target.Fragment)
@@ -217,15 +231,20 @@ func readGitHubActionsRun(ctx context.Context, client *GitHubClient, target *Git
 	if err != nil {
 		return "", err
 	}
-	jobs, err := fetchGitHubActionsRunJobs(ctx, client, target, target.RunID)
+	jobs, jobsReported, err := fetchGitHubActionsRunJobs(ctx, client, target, target.RunID)
 	if err != nil {
 		return "", err
 	}
-	artifacts, err := fetchGitHubActionsRunArtifacts(ctx, client, target, target.RunID)
+	artifacts, artifactsReported, artifactsMore, err := fetchGitHubActionsRunArtifactsPage(ctx, client, target, target.RunID)
 	if err != nil {
 		return "", err
 	}
-	return renderGitHubActionsRun(target, run, jobs, artifacts), nil
+	availability := githubActionsRunAvailability{
+		JobsReported:          jobsReported,
+		ArtifactsReported:     artifactsReported,
+		ArtifactsProviderMore: artifactsMore,
+	}
+	return renderGitHubActionsRun(target, run, jobs, artifacts, availability), nil
 }
 
 func fetchGitHubActionsRun(ctx context.Context, client *GitHubClient, target *GitHubTarget, runID int64) (githubActionsRun, error) {
@@ -241,38 +260,38 @@ func fetchGitHubActionsRun(ctx context.Context, client *GitHubClient, target *Gi
 	return run, nil
 }
 
-func fetchGitHubActionsRunJobs(ctx context.Context, client *GitHubClient, target *GitHubTarget, runID int64) ([]githubActionsJob, error) {
+func fetchGitHubActionsRunJobs(ctx context.Context, client *GitHubClient, target *GitHubTarget, runID int64) ([]githubActionsJob, int, error) {
 	endpoint := fmt.Sprintf("/repos/%s/%s/actions/runs/%d/jobs?filter=latest&per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), runID)
 	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	jobs := []githubActionsJob{}
+	total := 0
 	for _, page := range pages {
 		var batch githubActionsJobsPage
 		if err := json.Unmarshal(page.Body, &batch); err != nil {
-			return nil, fmt.Errorf("decode GitHub Actions jobs: %w", err)
+			return nil, 0, fmt.Errorf("decode GitHub Actions jobs: %w", err)
+		}
+		if batch.TotalCount > total {
+			total = batch.TotalCount
 		}
 		jobs = append(jobs, batch.Jobs...)
 	}
-	return jobs, nil
+	return jobs, total, nil
 }
 
-func fetchGitHubActionsRunArtifacts(ctx context.Context, client *GitHubClient, target *GitHubTarget, runID int64) ([]githubActionsArtifact, error) {
+func fetchGitHubActionsRunArtifactsPage(ctx context.Context, client *GitHubClient, target *GitHubTarget, runID int64) ([]githubActionsArtifact, int, bool, error) {
 	endpoint := fmt.Sprintf("/repos/%s/%s/actions/runs/%d/artifacts?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), runID)
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
 	}
-	artifacts := []githubActionsArtifact{}
-	for _, page := range pages {
-		var batch githubActionsArtifactsPage
-		if err := json.Unmarshal(page.Body, &batch); err != nil {
-			return nil, fmt.Errorf("decode GitHub Actions artifacts: %w", err)
-		}
-		artifacts = append(artifacts, batch.Artifacts...)
+	var batch githubActionsArtifactsPage
+	if err := json.Unmarshal(resp.Body, &batch); err != nil {
+		return nil, 0, false, fmt.Errorf("decode GitHub Actions artifacts: %w", err)
 	}
-	return artifacts, nil
+	return batch.Artifacts, batch.TotalCount, strings.TrimSpace(resp.Links()["next"]) != "", nil
 }
 
 func readGitHubActionsJob(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -366,10 +385,52 @@ func decodeGitHubJobLog(body []byte) (string, error) {
 }
 
 func renderGitHubActionsOverview(target *GitHubTarget, workflows []githubWorkflow, workflowTotal int, runs []githubActionsRun, runTotal int, links GitHubLinkRelations) string {
-	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: actions", fmt.Sprintf("workflows_returned: %d", len(workflows)), fmt.Sprintf("workflows_reported: %d", workflowTotal), fmt.Sprintf("runs_returned: %d", len(runs)), fmt.Sprintf("runs_reported: %d", runTotal), "---", "", "# Actions", "", "## Workflows", ""}
-	lines = append(lines, renderWorkflowList(target, workflows)...)
-	lines = append(lines, "", "## Recent runs", "")
-	lines = append(lines, renderActionsRunList(target, runs)...)
+	workflowLimit := minInt(6, len(workflows))
+	runLimit := minInt(14, len(runs))
+	for {
+		out := renderGitHubActionsOverviewWithLimits(target, workflows, workflowTotal, runs, runTotal, links, workflowLimit, runLimit)
+		if githubOverviewFits(out) {
+			return out
+		}
+		switch {
+		case runLimit > 1:
+			runLimit--
+		case workflowLimit > 1:
+			workflowLimit--
+		default:
+			return out
+		}
+	}
+}
+
+func renderGitHubActionsOverviewWithLimits(target *GitHubTarget, workflows []githubWorkflow, workflowTotal int, runs []githubActionsRun, runTotal int, links GitHubLinkRelations, workflowLimit, runLimit int) string {
+	workflowLimit = minInt(workflowLimit, len(workflows))
+	runLimit = minInt(runLimit, len(runs))
+	lines := []string{
+		"---",
+		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
+		"view: actions",
+		fmt.Sprintf("workflows_returned: %d", len(workflows)),
+		fmt.Sprintf("workflows_reported: %d", workflowTotal),
+		fmt.Sprintf("workflows_indexed: %d", workflowLimit),
+		fmt.Sprintf("workflows_local_omitted: %d", len(workflows)-workflowLimit),
+		fmt.Sprintf("runs_returned: %d", len(runs)),
+		fmt.Sprintf("runs_reported: %d", runTotal),
+		fmt.Sprintf("runs_indexed: %d", runLimit),
+		fmt.Sprintf("runs_local_omitted: %d", len(runs)-runLimit),
+		"---", "", "# Actions", "",
+		"All workflows: " + actionsWorkflowsURL(target),
+		"", "## Workflow index", "",
+	}
+	lines = append(lines, renderWorkflowList(target, workflows[:workflowLimit])...)
+	if note := githubLocalOmissionNote("workflows from this provider page", len(workflows)-workflowLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	lines = append(lines, "", "## Recent run index", "")
+	lines = append(lines, renderActionsRunList(target, runs[:runLimit])...)
+	if note := githubLocalOmissionNote("recent runs from this provider page", len(runs)-runLimit); note != "" {
+		lines = append(lines, "", note)
+	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Run navigation", "")
 		lines = append(lines, nav...)
@@ -401,6 +462,7 @@ func renderWorkflowList(target *GitHubTarget, workflows []githubWorkflow) []stri
 		if name == "" {
 			name = workflow.Path
 		}
+		name = actionsListLabel(name)
 		line := "- [" + escapeMarkdownLinkText(name) + "](" + href + ")"
 		meta := []string{}
 		if workflow.State != "" {
@@ -418,12 +480,30 @@ func renderWorkflowList(target *GitHubTarget, workflows []githubWorkflow) []stri
 }
 
 func renderGitHubWorkflow(target *GitHubTarget, workflow githubWorkflow, runs []githubActionsRun, total int, links GitHubLinkRelations) string {
-	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), fmt.Sprintf("workflow_id: %d", workflow.ID), "name: " + yamlScalar(workflow.Name), "state: " + yamlScalar(workflow.State), "path: " + yamlScalar(workflow.Path), fmt.Sprintf("runs_returned: %d", len(runs)), fmt.Sprintf("runs_reported: %d", total)}
+	runLimit := len(runs)
+	for {
+		out := renderGitHubWorkflowWithLimit(target, workflow, runs, total, links, runLimit)
+		if githubOverviewFits(out) {
+			return out
+		}
+		if runLimit <= 1 {
+			return out
+		}
+		runLimit--
+	}
+}
+
+func renderGitHubWorkflowWithLimit(target *GitHubTarget, workflow githubWorkflow, runs []githubActionsRun, total int, links GitHubLinkRelations, runLimit int) string {
+	runLimit = minInt(runLimit, len(runs))
+	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), fmt.Sprintf("workflow_id: %d", workflow.ID), "name: " + yamlScalar(workflow.Name), "state: " + yamlScalar(workflow.State), "path: " + yamlScalar(workflow.Path), fmt.Sprintf("runs_returned: %d", len(runs)), fmt.Sprintf("runs_reported: %d", total), fmt.Sprintf("runs_indexed: %d", runLimit), fmt.Sprintf("runs_local_omitted: %d", len(runs)-runLimit)}
 	if workflow.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(workflow.HTMLURL))
 	}
-	lines = append(lines, "---", "", "# Workflow: "+workflow.Name, "", "## Runs", "")
-	lines = append(lines, renderActionsRunList(target, runs)...)
+	lines = append(lines, "---", "", "# Workflow: "+actionsListLabel(workflow.Name), "", "## Runs", "")
+	lines = append(lines, renderActionsRunList(target, runs[:runLimit])...)
+	if note := githubLocalOmissionNote("runs from this provider page", len(runs)-runLimit); note != "" {
+		lines = append(lines, "", note)
+	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")
 		lines = append(lines, nav...)
@@ -448,6 +528,7 @@ func renderActionsRunList(target *GitHubTarget, runs []githubActionsRun) []strin
 		if name == "" {
 			name = fmt.Sprintf("Run %d", run.ID)
 		}
+		name = actionsListLabel(name)
 		meta := []string{}
 		if run.Status != "" {
 			meta = append(meta, run.Status)
@@ -470,8 +551,66 @@ func renderActionsRunList(target *GitHubTarget, runs []githubActionsRun) []strin
 	return lines
 }
 
-func renderGitHubActionsRun(target *GitHubTarget, run githubActionsRun, jobs []githubActionsJob, artifacts []githubActionsArtifact) string {
-	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), fmt.Sprintf("run_id: %d", run.ID), fmt.Sprintf("run_number: %d", run.RunNumber), fmt.Sprintf("attempt: %d", run.RunAttempt), "status: " + yamlScalar(run.Status)}
+func actionsListLabel(value string) string {
+	value = strings.TrimSpace(value)
+	preview, truncated := githubOverviewPreview(value, 180)
+	if truncated {
+		return preview + "…"
+	}
+	return preview
+}
+
+func actionsWorkflowsURL(target *GitHubTarget) string {
+	return fmt.Sprintf("https://github.com/%s/%s/actions/workflows", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo))
+}
+
+func renderGitHubActionsRun(target *GitHubTarget, run githubActionsRun, jobs []githubActionsJob, artifacts []githubActionsArtifact, availability githubActionsRunAvailability) string {
+	orderedJobs := append([]githubActionsJob(nil), jobs...)
+	sortGitHubActionsJobs(orderedJobs)
+	jobLimit := minInt(18, len(orderedJobs))
+	artifactLimit := minInt(8, len(artifacts))
+	for {
+		out := renderGitHubActionsRunWithLimits(target, run, orderedJobs, artifacts, availability, jobLimit, artifactLimit)
+		if githubOverviewFits(out) {
+			return out
+		}
+		switch {
+		case artifactLimit > 1:
+			artifactLimit--
+		case jobLimit > 1:
+			jobLimit--
+		default:
+			return out
+		}
+	}
+}
+
+func renderGitHubActionsRunWithLimits(target *GitHubTarget, run githubActionsRun, jobs []githubActionsJob, artifacts []githubActionsArtifact, availability githubActionsRunAvailability, jobLimit, artifactLimit int) string {
+	jobLimit = minInt(jobLimit, len(jobs))
+	artifactLimit = minInt(artifactLimit, len(artifacts))
+	jobsReported := availability.JobsReported
+	if jobsReported < len(jobs) {
+		jobsReported = len(jobs)
+	}
+	artifactsReported := availability.ArtifactsReported
+	if artifactsReported < len(artifacts) {
+		artifactsReported = len(artifacts)
+	}
+	jobStatusCounts, jobConclusionCounts := githubActionsJobCounts(jobs)
+	expiredArtifacts := 0
+	for _, artifact := range artifacts {
+		if artifact.Expired {
+			expiredArtifacts++
+		}
+	}
+	lines := []string{
+		"---",
+		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
+		fmt.Sprintf("run_id: %d", run.ID),
+		fmt.Sprintf("run_number: %d", run.RunNumber),
+		fmt.Sprintf("attempt: %d", run.RunAttempt),
+		"status: " + yamlScalar(run.Status),
+	}
 	if run.Conclusion != "" {
 		lines = append(lines, "conclusion: "+yamlScalar(run.Conclusion))
 	}
@@ -495,7 +634,28 @@ func renderGitHubActionsRun(target *GitHubTarget, run githubActionsRun, jobs []g
 	if run.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(run.HTMLURL))
 	}
-	lines = append(lines, fmt.Sprintf("jobs: %d", len(jobs)), fmt.Sprintf("artifacts: %d", len(artifacts)), "---", "")
+	lines = append(lines,
+		fmt.Sprintf("jobs_returned: %d", len(jobs)),
+		fmt.Sprintf("jobs_reported: %d", jobsReported),
+		fmt.Sprintf("jobs_indexed: %d", jobLimit),
+		fmt.Sprintf("jobs_local_omitted: %d", len(jobs)-jobLimit),
+		"job_status_counts: "+jsonMapScalar(jobStatusCounts),
+		"job_conclusion_counts: "+jsonMapScalar(jobConclusionCounts),
+		fmt.Sprintf("artifacts_returned: %d", len(artifacts)),
+		fmt.Sprintf("artifacts_reported: %d", artifactsReported),
+		fmt.Sprintf("artifacts_indexed: %d", artifactLimit),
+		fmt.Sprintf("artifacts_local_omitted: %d", len(artifacts)-artifactLimit),
+		fmt.Sprintf("artifacts_expired_returned: %d", expiredArtifacts),
+	)
+	if jobsReported > len(jobs) {
+		lines = append(lines, "jobs_provider_complete: false")
+	}
+	if availability.ArtifactsProviderMore {
+		lines = append(lines, "artifacts_provider_more_available: true")
+	} else if artifactsReported > len(artifacts) {
+		lines = append(lines, "artifacts_provider_complete: false")
+	}
+	lines = append(lines, "---", "")
 	title := run.DisplayTitle
 	if title == "" {
 		title = run.Name
@@ -503,48 +663,145 @@ func renderGitHubActionsRun(target *GitHubTarget, run githubActionsRun, jobs []g
 	if title == "" {
 		title = fmt.Sprintf("Run %d", run.ID)
 	}
-	lines = append(lines, "# "+title, "", "## Jobs", "")
+	lines = append(lines, "# "+actionsListLabel(title), "", "## Rollup", "")
+	lines = append(lines, "- Job statuses: "+formatStringCounts(jobStatusCounts))
+	lines = append(lines, "- Job conclusions: "+formatStringCounts(jobConclusionCounts))
+	lines = append(lines, fmt.Sprintf("- Artifacts reported: %d (%d returned on fetched provider page, %d expired)", artifactsReported, len(artifacts), expiredArtifacts))
+
+	lines = append(lines, "", "## Job index", "")
 	if len(jobs) == 0 {
 		lines = append(lines, "_No jobs returned by GitHub._")
 	}
-	for _, job := range jobs {
-		href := job.HTMLURL
-		if href == "" {
-			href = fmt.Sprintf("https://github.com/%s/%s/actions/runs/%d/job/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), run.ID, job.ID)
-		}
-		meta := []string{}
-		if job.Status != "" {
-			meta = append(meta, job.Status)
-		}
-		if job.Conclusion != "" {
-			meta = append(meta, job.Conclusion)
-		}
-		line := fmt.Sprintf("- [%s](%s)", escapeMarkdownLinkText(job.Name), href)
-		if len(meta) > 0 {
-			line += " — " + strings.Join(meta, " · ")
-		}
-		lines = append(lines, line)
+	for _, job := range jobs[:jobLimit] {
+		lines = append(lines, renderGitHubActionsJobIndex(target, run.ID, job))
 	}
-	lines = append(lines, "", "## Artifacts", "")
+	if note := githubLocalOmissionNote("jobs", len(jobs)-jobLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	if jobsReported > len(jobs) {
+		lines = append(lines, "", "> GitHub reported more latest-attempt jobs than were returned by the provider pages; this provider-incomplete state is separate from local overview omission.")
+	}
+
+	lines = append(lines, "", "## Artifact index", "")
 	if len(artifacts) == 0 {
-		lines = append(lines, "_No artifacts returned by GitHub._")
+		lines = append(lines, "_No artifacts returned by GitHub on the fetched provider page._")
 	}
-	for _, artifact := range artifacts {
-		line := fmt.Sprintf("- **%s** — %d bytes", artifact.Name, artifact.SizeInBytes)
-		if artifact.Expired {
-			line += " — expired"
-		} else if artifact.ExpiresAt != "" {
-			line += " — expires " + artifact.ExpiresAt
-		}
-		if artifact.ArchiveDownloadURL != "" {
-			line += " — " + artifact.ArchiveDownloadURL
-		}
-		lines = append(lines, line)
+	for _, artifact := range artifacts[:artifactLimit] {
+		lines = append(lines, renderGitHubActionsArtifactIndex(artifact))
+	}
+	if note := githubLocalOmissionNote("artifacts returned on this provider page", len(artifacts)-artifactLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	if availability.ArtifactsProviderMore {
+		lines = append(lines, "", "> GitHub has more artifacts beyond the provider page fetched for this overview.")
+	} else if artifactsReported > len(artifacts) {
+		lines = append(lines, "", "> GitHub reports more artifacts than were returned by the fetched provider data; this provider-incomplete state is separate from local overview omission.")
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
+func renderGitHubActionsJobIndex(target *GitHubTarget, runID int64, job githubActionsJob) string {
+	href := job.HTMLURL
+	if href == "" {
+		href = fmt.Sprintf("https://github.com/%s/%s/actions/runs/%d/job/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), runID, job.ID)
+	}
+	name := actionsListLabel(job.Name)
+	if name == "" {
+		name = fmt.Sprintf("Job %d", job.ID)
+	}
+	meta := []string{fmt.Sprintf("id %d", job.ID)}
+	if job.Status != "" {
+		meta = append(meta, job.Status)
+	}
+	if job.Conclusion != "" {
+		meta = append(meta, job.Conclusion)
+	}
+	return fmt.Sprintf("- [%s](%s) — %s", escapeMarkdownLinkText(name), href, strings.Join(meta, " · "))
+}
+
+func renderGitHubActionsArtifactIndex(artifact githubActionsArtifact) string {
+	name := actionsListLabel(artifact.Name)
+	if name == "" {
+		name = fmt.Sprintf("Artifact %d", artifact.ID)
+	}
+	line := fmt.Sprintf("- **%s** — id %d · %d bytes", name, artifact.ID, artifact.SizeInBytes)
+	if artifact.Expired {
+		line += " · expired"
+	} else if artifact.ExpiresAt != "" {
+		line += " · expires " + artifact.ExpiresAt
+	}
+	if artifact.ArchiveDownloadURL != "" {
+		line += " · archive API: " + artifact.ArchiveDownloadURL
+	}
+	return line
+}
+
+func sortGitHubActionsJobs(jobs []githubActionsJob) {
+	sort.SliceStable(jobs, func(i, j int) bool {
+		pi, pj := githubActionsJobPriority(jobs[i]), githubActionsJobPriority(jobs[j])
+		if pi != pj {
+			return pi < pj
+		}
+		if jobs[i].Name == jobs[j].Name {
+			return jobs[i].ID < jobs[j].ID
+		}
+		return jobs[i].Name < jobs[j].Name
+	})
+}
+
+func githubActionsJobPriority(job githubActionsJob) int {
+	conclusion := strings.ToLower(strings.TrimSpace(job.Conclusion))
+	status := strings.ToLower(strings.TrimSpace(job.Status))
+	switch conclusion {
+	case "failure", "error", "cancelled", "canceled", "timed_out", "action_required", "startup_failure":
+		return 0
+	}
+	if status != "" && status != "completed" {
+		return 1
+	}
+	if conclusion == "" {
+		return 1
+	}
+	if conclusion == "success" || conclusion == "neutral" || conclusion == "skipped" || conclusion == "stale" {
+		return 2
+	}
+	return 0
+}
+
+func githubActionsJobCounts(jobs []githubActionsJob) (map[string]int, map[string]int) {
+	statuses := map[string]int{}
+	conclusions := map[string]int{}
+	for _, job := range jobs {
+		status := strings.TrimSpace(job.Status)
+		if status == "" {
+			status = "unknown"
+		}
+		statuses[status]++
+		conclusion := strings.TrimSpace(job.Conclusion)
+		if conclusion == "" {
+			conclusion = "none"
+		}
+		conclusions[conclusion]++
+	}
+	return statuses, conclusions
+}
+
 func renderGitHubActionsJob(target *GitHubTarget, job githubActionsJob, log githubJobLog) string {
+	logBudget := 1800
+	for {
+		out := renderGitHubActionsJobWithLogBudget(target, job, log, logBudget)
+		if githubOverviewFits(out) || log.Text == "" || logBudget <= 400 {
+			return out
+		}
+		logBudget -= 200
+	}
+}
+
+func renderGitHubActionsJobWithLogBudget(target *GitHubTarget, job githubActionsJob, log githubJobLog, logBudget int) string {
+	preview := githubJobLogPreview{}
+	if log.Text != "" {
+		preview = buildGitHubJobLogPreview(log.Text, job, logBudget)
+	}
 	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), fmt.Sprintf("run_id: %d", target.RunID), fmt.Sprintf("job_id: %d", target.JobID), "name: " + yamlScalar(job.Name), "status: " + yamlScalar(job.Status)}
 	if job.Conclusion != "" {
 		lines = append(lines, "conclusion: "+yamlScalar(job.Conclusion))
@@ -558,6 +815,14 @@ func renderGitHubActionsJob(target *GitHubTarget, job githubActionsJob, log gith
 	if job.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(job.HTMLURL))
 	}
+	if log.Text != "" {
+		lines = append(lines,
+			"log_preview_strategy: "+yamlScalar(preview.Strategy),
+			fmt.Sprintf("log_preview_truncated: %t", preview.Truncated),
+			fmt.Sprintf("log_lines_total: %d", preview.LinesTotal),
+			fmt.Sprintf("log_preview_lines_output: %d", preview.LinesShown),
+		)
+	}
 	lines = append(lines, "---", "", "# Job: "+job.Name, "", "## Steps", "")
 	if len(job.Steps) == 0 {
 		lines = append(lines, "_No structured steps returned by GitHub._")
@@ -570,9 +835,9 @@ func renderGitHubActionsJob(target *GitHubTarget, job githubActionsJob, log gith
 		if step.Conclusion != "" {
 			meta = append(meta, step.Conclusion)
 		}
-		lines = append(lines, fmt.Sprintf("- %d. **%s** — %s", step.Number, step.Name, strings.Join(meta, " · ")))
+		lines = append(lines, fmt.Sprintf("- %d. **%s** — %s", step.Number, actionsListLabel(step.Name), strings.Join(meta, " · ")))
 	}
-	lines = append(lines, "", "## Log", "")
+	lines = append(lines, "", "## Log preview", "")
 	switch {
 	case log.Unavailable != "":
 		lines = append(lines, "_"+log.Unavailable+"_")
@@ -581,11 +846,158 @@ func renderGitHubActionsJob(target *GitHubTarget, job githubActionsJob, log gith
 	case log.Text == "":
 		lines = append(lines, "_GitHub returned an empty job log._")
 	default:
-		fence := "```"
-		if strings.Contains(log.Text, "```") {
-			fence = "````"
+		fence := markdownFenceForText(preview.Text)
+		lines = append(lines, "Preview strategy: `"+preview.Strategy+"`.", "", fence+"text", preview.Text, fence)
+		if preview.Truncated {
+			lines = append(lines, "", "> Job log preview locally truncated. Use the stable GitHub log endpoint below when you explicitly need the provider's complete retained log.")
 		}
-		lines = append(lines, fence+"text", log.Text, fence)
 	}
+	lines = append(lines, "", "## Useful GitHub URLs", "")
+	if job.HTMLURL != "" {
+		lines = append(lines, "- Job page: "+job.HTMLURL)
+	}
+	lines = append(lines, "- Stable job log endpoint: "+githubActionsJobLogEndpointURL(target))
+	lines = append(lines, "  - GitHub redirects this endpoint to a signed log download that expires after one minute when the retained log is available; webctx does not print that redirect location.")
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func buildGitHubJobLogPreview(text string, job githubActionsJob, maxRunes int) githubJobLogPreview {
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	normalized = strings.TrimRight(normalized, "\n")
+	if normalized == "" {
+		return githubJobLogPreview{Strategy: "empty"}
+	}
+	lines := strings.Split(normalized, "\n")
+	if utf8.RuneCountInString(normalized) <= maxRunes {
+		return githubJobLogPreview{Text: normalized, Strategy: "full", LinesTotal: len(lines), LinesShown: len(lines)}
+	}
+
+	failureLine, strategy := findGitHubJobFailureLogLine(lines, job)
+	var candidate string
+	if failureLine >= 0 {
+		start := failureLine - 5
+		if start < 0 {
+			start = 0
+		}
+		end := failureLine + 11
+		if end > len(lines) {
+			end = len(lines)
+		}
+		candidate, _ = joinGitHubLogRanges(lines, [][2]int{{start, end}, {maxInt(0, len(lines)-6), len(lines)}})
+	} else {
+		strategy = "head+tail"
+		candidate, _ = joinGitHubLogRanges(lines, [][2]int{{0, minInt(7, len(lines))}, {maxInt(0, len(lines)-7), len(lines)}})
+	}
+	preview, _ := githubOverviewPreview(candidate, maxRunes)
+	return githubJobLogPreview{
+		Text:       preview,
+		Strategy:   strategy,
+		Truncated:  true,
+		LinesTotal: len(lines),
+		LinesShown: strings.Count(preview, "\n") + 1,
+	}
+}
+
+func findGitHubJobFailureLogLine(lines []string, job githubActionsJob) (int, string) {
+	failedSteps := []string{}
+	for _, step := range job.Steps {
+		if githubActionsHardFailure(step.Conclusion) {
+			name := strings.ToLower(strings.TrimSpace(step.Name))
+			if name != "" {
+				failedSteps = append(failedSteps, name)
+			}
+		}
+	}
+	if len(failedSteps) > 0 {
+		for i, line := range lines {
+			lower := strings.ToLower(line)
+			for _, step := range failedSteps {
+				if strings.Contains(lower, step) {
+					return i, "failed-step-context+tail"
+				}
+			}
+		}
+	}
+	if githubActionsHardFailure(job.Conclusion) {
+		markers := []string{"##[error]", "error:", "fatal:", "panic:", "failed", "failure", "exit code"}
+		for i, line := range lines {
+			lower := strings.ToLower(line)
+			for _, marker := range markers {
+				if strings.Contains(lower, marker) {
+					return i, "failure-marker-context+tail"
+				}
+			}
+		}
+	}
+	return -1, "head+tail"
+}
+
+func githubActionsHardFailure(conclusion string) bool {
+	switch strings.ToLower(strings.TrimSpace(conclusion)) {
+	case "failure", "error", "cancelled", "canceled", "timed_out", "action_required", "startup_failure":
+		return true
+	default:
+		return false
+	}
+}
+
+func joinGitHubLogRanges(lines []string, ranges [][2]int) (string, int) {
+	type logRange struct{ start, end int }
+	clean := []logRange{}
+	for _, raw := range ranges {
+		start, end := raw[0], raw[1]
+		if start < 0 {
+			start = 0
+		}
+		if end > len(lines) {
+			end = len(lines)
+		}
+		if start >= end {
+			continue
+		}
+		if len(clean) > 0 && start <= clean[len(clean)-1].end {
+			if end > clean[len(clean)-1].end {
+				clean[len(clean)-1].end = end
+			}
+			continue
+		}
+		clean = append(clean, logRange{start: start, end: end})
+	}
+	parts := []string{}
+	shown := 0
+	previousEnd := 0
+	for i, item := range clean {
+		if i == 0 && item.start > 0 {
+			parts = append(parts, fmt.Sprintf("[... %d earlier log lines omitted ...]", item.start))
+		} else if i > 0 && item.start > previousEnd {
+			parts = append(parts, fmt.Sprintf("[... %d log lines omitted ...]", item.start-previousEnd))
+		}
+		parts = append(parts, strings.Join(lines[item.start:item.end], "\n"))
+		shown += item.end - item.start
+		previousEnd = item.end
+	}
+	if len(clean) > 0 && previousEnd < len(lines) {
+		parts = append(parts, fmt.Sprintf("[... %d later log lines omitted ...]", len(lines)-previousEnd))
+	}
+	return strings.Join(parts, "\n"), shown
+}
+
+func markdownFenceForText(text string) string {
+	for length := 3; ; length++ {
+		fence := strings.Repeat("`", length)
+		if !strings.Contains(text, fence) {
+			return fence
+		}
+	}
+}
+
+func githubActionsJobLogEndpointURL(target *GitHubTarget) string {
+	return fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/jobs/%d/logs", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), target.JobID)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

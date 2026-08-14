@@ -61,7 +61,7 @@ When a clean markdown representation is available, webctx prefers it. Otherwise 
 
 A GitHub URL is more than a page address. Its path, query, and fragment often describe the exact context you meant to copy. webctx preserves that intent instead of flattening everything into a generic page scrape.
 
-For example, a repository URL means “give me an overview,” while a source line anchor means “give me these lines.” An Issue URL means “give me the conversation,” and an Actions job URL means “give me this job and its log.”
+For example, a repository URL means “give me an overview,” while a source line anchor means “give me these lines.” An Issue URL means “give me the conversation,” and an Actions job URL means “give me this job's structured steps plus a bounded log preview.”
 
 ## Understand a repository
 
@@ -170,13 +170,13 @@ Start with a run:
 webctx read-link https://github.com/<owner>/<repo>/actions/runs/<run-id>
 ```
 
-The run gives you job and artifact state plus exact job URLs. Then open only the job you need:
+The run gives you job-state rollups, a failure/active-first job index, artifact totals, and exact job URLs without expanding every artifact. Then open only the job you need:
 
 ```bash
 webctx read-link https://github.com/<owner>/<repo>/actions/runs/<run-id>/job/<job-id>
 ```
 
-When GitHub permits the log download, the job URL returns that job's steps and substantive log. It does not pull logs from unrelated jobs.
+When GitHub permits the log download, the job URL returns every structured step plus a bounded log preview. Failed jobs bias the preview toward failed-step/error context; other large logs use a deterministic head/tail preview. The output also includes GitHub's stable job-log API endpoint for an explicit full-log read. GitHub redirects that endpoint to a signed download URL that expires after one minute, and webctx does not print that redirect URL.
 
 ## Trace how code changed
 

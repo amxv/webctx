@@ -77,7 +77,7 @@ webctx does not hide GitHub rate limits by scraping the page instead; a rate-lim
 
 The job can still be valid even when its log is no longer downloadable. GitHub controls log availability and retention.
 
-webctx keeps the job/step metadata and tells you the log is unavailable instead of substituting another job.
+webctx keeps the job/step metadata and tells you the log is unavailable instead of substituting another job. When a retained log is available, large logs are previewed rather than dumped in full; the job output includes GitHub's stable log API endpoint so you can explicitly follow the provider's signed one-minute download when you really need the full log.
 
 ## `map-site` fails
 

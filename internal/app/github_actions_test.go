@@ -8,9 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseGitHubActionsTargets(t *testing.T) {
@@ -84,6 +86,41 @@ func TestActionsOverviewIsBoundedAndPreservesRunFilters(t *testing.T) {
 	}
 }
 
+func TestLargeActionsOverviewAndWorkflowStayWithinSharedBudget(t *testing.T) {
+	target := &GitHubTarget{Owner: "o", Repo: "r", Query: url.Values{"page": []string{"2"}}}
+	workflows := make([]githubWorkflow, 0, 30)
+	runs := make([]githubActionsRun, 0, 30)
+	for i := 0; i < 30; i++ {
+		workflows = append(workflows, githubWorkflow{
+			ID: int64(100 + i), Name: fmt.Sprintf("Workflow %02d %s", i, strings.Repeat("descriptive-name-", 15)),
+			Path: fmt.Sprintf(".github/workflows/workflow-%02d.yml", i), State: "active",
+			HTMLURL: fmt.Sprintf("https://github.com/o/r/actions/workflows/%d", 100+i),
+		})
+		runs = append(runs, githubActionsRun{
+			ID: int64(1000 + i), DisplayTitle: fmt.Sprintf("Run %02d %s", i, strings.Repeat("generated-title-", 18)),
+			Status: "completed", Conclusion: "success", Event: "push", HeadBranch: "main",
+			HTMLURL: fmt.Sprintf("https://github.com/o/r/actions/runs/%d", 1000+i),
+		})
+	}
+	overview := renderGitHubActionsOverview(target, workflows, 30, runs, 300, nil)
+	if got := utf8.RuneCountInString(overview); got > githubOverviewRunes {
+		t.Fatalf("Actions root exceeded shared target: %d runes\n%s", got, overview)
+	}
+	for _, want := range []string{"All workflows: https://github.com/o/r/actions/workflows", "workflows_local_omitted:", "runs_local_omitted:", "locally omitted from this overview"} {
+		if !strings.Contains(overview, want) {
+			t.Fatalf("Actions root missing %q:\n%s", want, overview)
+		}
+	}
+
+	workflow := renderGitHubWorkflow(target, workflows[0], runs, 300, nil)
+	if got := utf8.RuneCountInString(workflow); got > githubOverviewRunes {
+		t.Fatalf("workflow run list exceeded shared target: %d runes\n%s", got, workflow)
+	}
+	if !strings.Contains(workflow, "runs_local_omitted:") || !strings.Contains(workflow, "locally omitted from this overview") {
+		t.Fatalf("workflow did not surface local run omission:\n%s", workflow)
+	}
+}
+
 func TestActionsOverviewRejectsUnmappedUIQueryFilter(t *testing.T) {
 	var calls int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +177,7 @@ func TestWorkflowRejectsUnmappedUIQueryFilter(t *testing.T) {
 	}
 }
 
-func TestActionsRunPaginatesJobsAndArtifactsWithoutLogs(t *testing.T) {
+func TestActionsRunPaginatesJobsButBoundsArtifactsWithoutLogs(t *testing.T) {
 	var jobPages, artifactPages int32
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,8 +199,7 @@ func TestActionsRunPaginatesJobsAndArtifactsWithoutLogs(t *testing.T) {
 		case "/repos/o/r/actions/runs/100/artifacts":
 			atomic.AddInt32(&artifactPages, 1)
 			if r.URL.Query().Get("page") == "2" {
-				_, _ = io.WriteString(w, `{"total_count":2,"artifacts":[{"id":302,"name":"expired-report","size_in_bytes":20,"expired":true,"expires_at":"2026-08-02T00:00:00Z","archive_download_url":"https://api.github.test/artifacts/302/zip"}]}`)
-				return
+				t.Fatal("Actions run overview followed artifact pagination")
 			}
 			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/actions/runs/100/artifacts?per_page=100&page=2>; rel="next"`, server.URL))
 			_, _ = io.WriteString(w, `{"total_count":2,"artifacts":[{"id":301,"name":"report","size_in_bytes":10,"expired":false,"expires_at":"2026-09-01T00:00:00Z","archive_download_url":"https://api.github.test/artifacts/301/zip"}]}`)
@@ -178,13 +214,70 @@ func TestActionsRunPaginatesJobsAndArtifactsWithoutLogs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"run_id: 100", "run_number: 7", "attempt: 2", "conclusion: \"failure\"", "[build](https://github.com/o/r/actions/runs/100/job/201)", "[test](https://github.com/o/r/actions/runs/100/job/202)", "**report** — 10 bytes", "expires 2026-09-01T00:00:00Z", "**expired-report** — 20 bytes — expired"} {
+	for _, want := range []string{
+		"run_id: 100", "run_number: 7", "attempt: 2", "conclusion: \"failure\"",
+		"jobs_returned: 2", "jobs_reported: 2", "job_conclusion_counts: {\"failure\":1,\"success\":1}",
+		"[test](https://github.com/o/r/actions/runs/100/job/202)", "[build](https://github.com/o/r/actions/runs/100/job/201)",
+		"artifacts_returned: 1", "artifacts_reported: 2", "artifacts_provider_more_available: true",
+		"**report** — id 301 · 10 bytes", "expires 2026-09-01T00:00:00Z", "archive API: https://api.github.test/artifacts/301/zip",
+		"GitHub has more artifacts beyond the provider page fetched for this overview",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("run output missing %q:\n%s", want, out)
 		}
 	}
-	if atomic.LoadInt32(&jobPages) != 2 || atomic.LoadInt32(&artifactPages) != 2 {
+	if strings.Index(out, "[test]") > strings.Index(out, "[build]") {
+		t.Fatalf("failed job was not prioritized ahead of success:\n%s", out)
+	}
+	if strings.Contains(out, "expired-report") {
+		t.Fatalf("run overview rendered unfetched artifact page:\n%s", out)
+	}
+	if atomic.LoadInt32(&jobPages) != 2 || atomic.LoadInt32(&artifactPages) != 1 {
 		t.Fatalf("run pagination incomplete jobs=%d artifacts=%d", jobPages, artifactPages)
+	}
+}
+
+func TestLargeActionsRunPrioritizesJobsAndBoundsArtifacts(t *testing.T) {
+	jobs := make([]githubActionsJob, 0, 130)
+	for i := 0; i < 128; i++ {
+		jobs = append(jobs, githubActionsJob{
+			ID: int64(i + 1), RunID: 100, Name: fmt.Sprintf("success-%03d-%s", i, strings.Repeat("routine-", 10)),
+			Status: "completed", Conclusion: "success", HTMLURL: fmt.Sprintf("https://github.com/o/r/actions/runs/100/job/%d", i+1),
+		})
+	}
+	jobs = append(jobs,
+		githubActionsJob{ID: 9002, RunID: 100, Name: "yyy-active", Status: "in_progress", HTMLURL: "https://github.com/o/r/actions/runs/100/job/9002"},
+		githubActionsJob{ID: 9001, RunID: 100, Name: "zzz-hard-failure", Status: "completed", Conclusion: "failure", HTMLURL: "https://github.com/o/r/actions/runs/100/job/9001"},
+	)
+	artifacts := make([]githubActionsArtifact, 0, 100)
+	for i := 0; i < 100; i++ {
+		artifacts = append(artifacts, githubActionsArtifact{
+			ID: int64(5000 + i), Name: fmt.Sprintf("artifact-%03d-%s", i, strings.Repeat("generated-", 8)), SizeInBytes: int64(100 + i),
+			ExpiresAt: "2026-09-01T00:00:00Z", ArchiveDownloadURL: fmt.Sprintf("https://api.github.com/repos/o/r/actions/artifacts/%d/zip", 5000+i),
+		})
+	}
+	artifacts[0].Expired = true
+	out := renderGitHubActionsRun(&GitHubTarget{Owner: "o", Repo: "r", RunID: 100}, githubActionsRun{
+		ID: 100, RunNumber: 7, RunAttempt: 1, Status: "completed", Conclusion: "failure", DisplayTitle: "Large run",
+	}, jobs, artifacts, githubActionsRunAvailability{JobsReported: 130, ArtifactsReported: 133, ArtifactsProviderMore: true})
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("large Actions run exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{
+		"jobs_returned: 130", `job_status_counts: {"completed":129,"in_progress":1}`, `job_conclusion_counts: {"failure":1,"none":1,"success":128}`,
+		"jobs_local_omitted:", "zzz-hard-failure", "yyy-active", "success-000-", "id 9001", "id 9002",
+		"artifacts_returned: 100", "artifacts_reported: 133", "artifacts_provider_more_available: true", "artifacts_local_omitted:", "archive API:",
+		"locally omitted from this overview", "GitHub has more artifacts beyond the provider page fetched for this overview",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("large Actions run missing %q:\n%s", want, out)
+		}
+	}
+	failureAt := strings.Index(out, "zzz-hard-failure")
+	activeAt := strings.Index(out, "yyy-active")
+	successAt := strings.Index(out, "success-000-")
+	if failureAt < 0 || activeAt < 0 || successAt < 0 || !(failureAt < activeAt && activeAt < successAt) {
+		t.Fatalf("job priority is not failure -> active -> routine success:\n%s", out)
 	}
 }
 
@@ -208,8 +301,70 @@ func TestActionsJobFetchesOnlySelectedJobAndPlainLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if atomic.LoadInt32(&requests) != 2 || !strings.Contains(out, "job_id: 202") || !strings.Contains(out, "1. **Checkout** — completed · success") || !strings.Contains(out, "2. **Test** — completed · failure") || !strings.Contains(out, "line one\nline two") || strings.Contains(out, "job/201") {
+	if atomic.LoadInt32(&requests) != 2 || !strings.Contains(out, "job_id: 202") || !strings.Contains(out, "1. **Checkout** — completed · success") || !strings.Contains(out, "2. **Test** — completed · failure") || !strings.Contains(out, "line one\nline two") || !strings.Contains(out, "log_preview_strategy: \"full\"") || !strings.Contains(out, "Stable job log endpoint: https://api.github.com/repos/o/r/actions/jobs/202/logs") || strings.Contains(out, "job/201") {
 		t.Fatalf("job output/scoping incorrect:\n%s", out)
+	}
+}
+
+func TestActionsJobLargeFailureLogIsBoundedAroundFailedStepAndRawNavigation(t *testing.T) {
+	logLines := make([]string, 0, 2400)
+	for i := 0; i < 1700; i++ {
+		logLines = append(logLines, fmt.Sprintf("setup line %04d %s", i, strings.Repeat("routine ", 8)))
+	}
+	logLines = append(logLines, "2026-08-14T00:00:00Z Integration tests", "2026-08-14T00:00:01Z ##[error]expected 200 got 500", "2026-08-14T00:00:02Z Process completed with exit code 1")
+	for i := 0; i < 650; i++ {
+		logLines = append(logLines, fmt.Sprintf("cleanup line %04d %s", i, strings.Repeat("routine ", 8)))
+	}
+	logLines = append(logLines, "TERMINAL TAIL MARKER")
+	largeLog := strings.Join(logLines, "\n") + "\n"
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		switch r.URL.Path {
+		case "/repos/o/r/actions/jobs/202":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":202,"run_id":100,"name":"integration","status":"completed","conclusion":"failure","html_url":"https://github.com/o/r/actions/runs/100/job/202","steps":[{"number":1,"name":"Checkout","status":"completed","conclusion":"success"},{"number":2,"name":"Integration tests","status":"completed","conclusion":"failure"}]}`)
+		case "/repos/o/r/actions/jobs/202/logs":
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = io.WriteString(w, largeLog)
+		default:
+			t.Fatalf("large selected job fetched unrelated endpoint %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	out, err := readGitHubActionsJob(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/actions/runs/100/job/202"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("large selected job exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{
+		"2. **Integration tests** — completed · failure", `log_preview_strategy: "failed-step-context+tail"`, "log_preview_truncated: true",
+		"Integration tests", "##[error]expected 200 got 500", "Process completed with exit code 1", "TERMINAL TAIL MARKER",
+		"Job log preview locally truncated", "Stable job log endpoint: https://api.github.com/repos/o/r/actions/jobs/202/logs", "expires after one minute", "signed log download", "does not print that redirect location",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("large selected job missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "setup line 0000") || strings.Contains(out, "setup line 1000") || atomic.LoadInt32(&requests) != 2 {
+		t.Fatalf("large selected job did not stay scoped/bounded (requests=%d):\n%s", requests, out)
+	}
+}
+
+func TestSuccessfulLargeJobLogUsesDeterministicHeadTailPreview(t *testing.T) {
+	lines := []string{"HEAD LOG MARKER"}
+	for i := 0; i < 300; i++ {
+		lines = append(lines, fmt.Sprintf("routine line %03d %s", i, strings.Repeat("data ", 10)))
+	}
+	lines = append(lines, "TAIL LOG MARKER")
+	preview := buildGitHubJobLogPreview(strings.Join(lines, "\n"), githubActionsJob{Conclusion: "success"}, 1200)
+	if preview.Strategy != "head+tail" || !preview.Truncated || !strings.Contains(preview.Text, "HEAD LOG MARKER") || !strings.Contains(preview.Text, "TAIL LOG MARKER") || !strings.Contains(preview.Text, "log lines omitted") {
+		t.Fatalf("unexpected successful-log head/tail preview: %#v\n%s", preview, preview.Text)
+	}
+	if utf8.RuneCountInString(preview.Text) > 1200 {
+		t.Fatalf("head/tail preview exceeded requested budget: %d", utf8.RuneCountInString(preview.Text))
 	}
 }
 
