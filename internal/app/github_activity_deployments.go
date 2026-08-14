@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +74,11 @@ type githubEnvironment struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type githubDeploymentLatestStatus struct {
+	Status       *githubDeploymentStatus
+	ProviderMore bool
+}
+
 func readGitHubActivity(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
 	if target.Fragment != "" {
 		return "", fmt.Errorf("GitHub activity fragment %q is not a supported native selector", target.Fragment)
@@ -133,9 +139,48 @@ func readGitHubContributorStats(ctx context.Context, client *GitHubClient, targe
 	if err := json.Unmarshal(resp.Body, &stats); err != nil {
 		return "", fmt.Errorf("decode GitHub contributor statistics: %w", err)
 	}
-	lines := statisticsFrontmatter(target, "contributors", len(stats))
-	lines = append(lines, "# Contributor statistics", "", statisticsFreshnessNote(), "")
-	for _, contributor := range stats {
+	sort.SliceStable(stats, func(i, j int) bool {
+		if stats[i].Total != stats[j].Total {
+			return stats[i].Total > stats[j].Total
+		}
+		left := strings.ToLower(stats[i].Author.Login)
+		right := strings.ToLower(stats[j].Author.Login)
+		if left == right {
+			return stats[i].Author.Login < stats[j].Author.Login
+		}
+		return left < right
+	})
+	return renderGitHubContributorStats(target, stats), nil
+}
+
+func renderGitHubContributorStats(target *GitHubTarget, stats []githubContributorStats) string {
+	limit := minInt(70, len(stats))
+	for {
+		out := renderGitHubContributorStatsWithLimit(target, stats, limit)
+		if githubOverviewFits(out) || limit <= 1 {
+			return out
+		}
+		limit--
+	}
+}
+
+func renderGitHubContributorStatsWithLimit(target *GitHubTarget, stats []githubContributorStats, limit int) string {
+	limit = minInt(limit, len(stats))
+	lines := []string{
+		"---",
+		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
+		"view: contributors",
+		fmt.Sprintf("contributors_returned: %d", len(stats)),
+		fmt.Sprintf("contributors_indexed: %d", limit),
+		fmt.Sprintf("contributors_local_omitted: %d", len(stats)-limit),
+		"---",
+		"",
+		"# Contributor statistics",
+		"",
+		statisticsFreshnessNote(),
+		"",
+	}
+	for _, contributor := range stats[:limit] {
 		adds, dels := 0, 0
 		for _, week := range contributor.Weeks {
 			adds += week.Additions
@@ -147,7 +192,10 @@ func readGitHubContributorStats(ctx context.Context, client *GitHubClient, targe
 		}
 		lines = append(lines, fmt.Sprintf("- @%s — %d commits · +%d -%d", name, contributor.Total, adds, dels))
 	}
-	return strings.TrimSpace(strings.Join(lines, "\n")), nil
+	if note := githubLocalOmissionNote("contributors returned by GitHub", len(stats)-limit); note != "" {
+		lines = append(lines, "", note)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func readGitHubCommitActivityStats(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -264,46 +312,86 @@ func readGitHubDeploymentEnvironment(ctx context.Context, client *GitHubClient, 
 	if err != nil {
 		return "", err
 	}
-	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "environment: " + yamlScalar(target.Name), fmt.Sprintf("deployments_returned: %d", len(deployments))}
+	latestStatuses := make([]githubDeploymentLatestStatus, 0, len(deployments))
+	for _, deployment := range deployments {
+		latest, providerMore, err := fetchGitHubLatestDeploymentStatus(ctx, client, target, deployment.ID)
+		if err != nil {
+			return "", err
+		}
+		latestStatuses = append(latestStatuses, githubDeploymentLatestStatus{Status: latest, ProviderMore: providerMore})
+	}
+	return renderGitHubDeploymentEnvironment(target, environment, deployments, latestStatuses, depResp.Links()), nil
+}
+
+func renderGitHubDeploymentEnvironment(target *GitHubTarget, environment githubEnvironment, deployments []githubDeployment, latestStatuses []githubDeploymentLatestStatus, links GitHubLinkRelations) string {
+	limit := len(deployments)
+	for {
+		out := renderGitHubDeploymentEnvironmentWithLimit(target, environment, deployments, latestStatuses, links, limit)
+		if githubOverviewFits(out) || limit <= 1 {
+			return out
+		}
+		limit--
+	}
+}
+
+func renderGitHubDeploymentEnvironmentWithLimit(target *GitHubTarget, environment githubEnvironment, deployments []githubDeployment, latestStatuses []githubDeploymentLatestStatus, links GitHubLinkRelations, limit int) string {
+	limit = minInt(limit, len(deployments))
+	olderCount := 0
+	for _, latest := range latestStatuses {
+		if latest.ProviderMore {
+			olderCount++
+		}
+	}
+	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "environment: " + yamlScalar(target.Name), fmt.Sprintf("deployments_returned: %d", len(deployments)), fmt.Sprintf("deployments_indexed: %d", limit), fmt.Sprintf("deployments_local_omitted: %d", len(deployments)-limit), fmt.Sprintf("deployments_with_older_statuses: %d", olderCount)}
 	if environment.CreatedAt != "" {
 		lines = append(lines, "created: "+yamlScalar(environment.CreatedAt))
 	}
 	if environment.UpdatedAt != "" {
 		lines = append(lines, "updated: "+yamlScalar(environment.UpdatedAt))
 	}
-	lines = append(lines, "---", "", "# Deployment environment: "+target.Name, "", "_GitHub controls deployment-status retention. webctx follows every status page GitHub returns for each deployment on this bounded environment page, but does not imply older statuses remain available indefinitely._", "")
-	for _, deployment := range deployments {
+	lines = append(lines, "---", "", "# Deployment environment: "+target.Name, "", "_GitHub controls deployment-status retention. webctx reads only the latest returned status for each deployment in this bounded overview; older status history may remain available upstream._", "")
+	for i, deployment := range deployments[:limit] {
 		lines = append(lines, renderDeploymentHeading(deployment), "")
-		statuses, err := fetchGitHubDeploymentStatuses(ctx, client, target, deployment.ID)
-		if err != nil {
-			return "", err
-		}
-		if len(statuses) == 0 {
+		if i >= len(latestStatuses) || latestStatuses[i].Status == nil {
 			lines = append(lines, "_No deployment statuses returned by GitHub._", "")
+			continue
 		}
-		for _, status := range statuses {
-			line := "- " + status.State
-			if status.Description != "" {
-				line += " — " + status.Description
+		latest := latestStatuses[i]
+		status := *latest.Status
+		line := fmt.Sprintf("- latest status %d — %s", status.ID, status.State)
+		if status.Description != "" {
+			preview, truncated := githubOverviewPreview(status.Description, 160)
+			line += " — " + preview
+			if truncated {
+				line += "…"
 			}
-			if status.Creator.Login != "" {
-				line += " — @" + status.Creator.Login
-			}
-			if status.CreatedAt != "" {
-				line += " — " + status.CreatedAt
-			}
-			if status.LogURL != "" {
-				line += " — logs " + status.LogURL
-			}
-			lines = append(lines, line)
+		}
+		if status.Creator.Login != "" {
+			line += " — @" + status.Creator.Login
+		}
+		if status.CreatedAt != "" {
+			line += " — " + status.CreatedAt
+		}
+		if status.LogURL != "" {
+			line += " — logs " + status.LogURL
+		}
+		lines = append(lines, line)
+		if status.EnvironmentURL != "" {
+			lines = append(lines, "  Environment: "+status.EnvironmentURL)
+		}
+		if latest.ProviderMore {
+			lines = append(lines, "  Older statuses: available upstream; not expanded in this overview.")
 		}
 		lines = append(lines, "")
 	}
-	if nav := renderGitHubUIPageNavigation(target, depResp.Links()); len(nav) > 0 {
+	if note := githubLocalOmissionNote("deployments returned on this environment page", len(deployments)-limit); note != "" {
+		lines = append(lines, note, "")
+	}
+	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "## Navigation", "")
 		lines = append(lines, nav...)
 	}
-	return strings.TrimSpace(strings.Join(lines, "\n")), nil
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func fetchGitHubDeploymentPage(ctx context.Context, client *GitHubClient, target *GitHubTarget, q url.Values) (GitHubResponse, []githubDeployment, error) {
@@ -319,21 +407,20 @@ func fetchGitHubDeploymentPage(ctx context.Context, client *GitHubClient, target
 	return resp, deployments, nil
 }
 
-func fetchGitHubDeploymentStatuses(ctx context.Context, client *GitHubClient, target *GitHubTarget, deploymentID int64) ([]githubDeploymentStatus, error) {
-	endpoint := fmt.Sprintf("/repos/%s/%s/deployments/%d/statuses?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), deploymentID)
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+func fetchGitHubLatestDeploymentStatus(ctx context.Context, client *GitHubClient, target *GitHubTarget, deploymentID int64) (*githubDeploymentStatus, bool, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/deployments/%d/statuses?per_page=1", url.PathEscape(target.Owner), url.PathEscape(target.Repo), deploymentID)
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	statuses := []githubDeploymentStatus{}
-	for _, page := range pages {
-		var batch []githubDeploymentStatus
-		if err := json.Unmarshal(page.Body, &batch); err != nil {
-			return nil, fmt.Errorf("decode GitHub deployment statuses: %w", err)
-		}
-		statuses = append(statuses, batch...)
+	var statuses []githubDeploymentStatus
+	if err := json.Unmarshal(resp.Body, &statuses); err != nil {
+		return nil, false, fmt.Errorf("decode GitHub deployment statuses: %w", err)
 	}
-	return statuses, nil
+	if len(statuses) == 0 {
+		return nil, resp.Links()["next"] != "", nil
+	}
+	return &statuses[0], resp.Links()["next"] != "", nil
 }
 
 func renderDeploymentRows(target *GitHubTarget, deployments []githubDeployment) []string {

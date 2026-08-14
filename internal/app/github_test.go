@@ -653,7 +653,10 @@ func TestGitHubTreeProviderCeilingIsTruthful(t *testing.T) {
 	if result.Err != nil {
 		t.Fatal(result.Err)
 	}
-	if !strings.Contains(result.Markdown, "complete: false") || !strings.Contains(result.Markdown, "at most 1,000 entries") {
+	if got := utf8.RuneCountInString(result.Markdown); got > githubOverviewRunes {
+		t.Fatalf("directory overview exceeded shared target: %d runes", got)
+	}
+	if !strings.Contains(result.Markdown, "complete: false") || !strings.Contains(result.Markdown, "provider_result_ceiling: 1000") || !strings.Contains(result.Markdown, "entries_returned: 1000") || !strings.Contains(result.Markdown, "entries_local_omitted:") || !strings.Contains(result.Markdown, "locally omitted from this overview") || !strings.Contains(result.Markdown, "at most 1,000 entries") {
 		t.Fatalf("directory provider ceiling not surfaced: %q", result.Markdown[:min(len(result.Markdown), 500)])
 	}
 }

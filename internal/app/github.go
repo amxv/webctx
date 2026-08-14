@@ -1514,19 +1514,67 @@ func readGitHubTree(ctx context.Context, client *GitHubClient, target *GitHubTar
 		return "", fmt.Errorf("decode GitHub directory listing: %w", err)
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
-		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+		left := strings.ToLower(entries[i].Name)
+		right := strings.ToLower(entries[j].Name)
+		if left == right {
+			return entries[i].Name < entries[j].Name
+		}
+		return left < right
 	})
 
+	var readme *githubContent
+	var readmeText string
+	if candidate := chooseDirectoryREADME(entries); candidate != nil {
+		readme = candidate
+		readmeText, err = githubContentText(ctx, client, target.Owner, target.Repo, resolved.Ref, candidate)
+		if err != nil {
+			return "", err
+		}
+	}
+	return renderGitHubTree(target, resolved, entries, readme, readmeText), nil
+}
+
+func renderGitHubTree(target *GitHubTarget, resolved resolvedGitHubPath, entries []githubContent, readme *githubContent, readmeText string) string {
+	entryLimit := minInt(40, len(entries))
+	readmeRunes := 2400
+	if readme == nil {
+		readmeRunes = 0
+	}
+	for {
+		out := renderGitHubTreeWithLimits(target, resolved, entries, readme, readmeText, entryLimit, readmeRunes)
+		if githubOverviewFits(out) {
+			return out
+		}
+		switch {
+		case readmeRunes > 800:
+			readmeRunes -= 200
+		case entryLimit > 1:
+			entryLimit--
+		case readmeRunes > 200:
+			readmeRunes -= 200
+		default:
+			return out
+		}
+	}
+}
+
+func renderGitHubTreeWithLimits(target *GitHubTarget, resolved resolvedGitHubPath, entries []githubContent, readme *githubContent, readmeText string, entryLimit, readmeRunes int) string {
+	entryLimit = minInt(entryLimit, len(entries))
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
 		"ref: " + yamlScalar(resolved.Ref),
 		"path: " + yamlScalar(treeDisplayPath(resolved.Path)),
 		fmt.Sprintf("entries: %d", len(entries)),
+		fmt.Sprintf("entries_returned: %d", len(entries)),
+		fmt.Sprintf("entries_indexed: %d", entryLimit),
+		fmt.Sprintf("entries_local_omitted: %d", len(entries)-entryLimit),
 	}
 	providerCeiling := len(entries) >= 1000
 	if providerCeiling {
-		lines = append(lines, "complete: false")
+		lines = append(lines, "complete: false", "provider_complete: false", "provider_result_ceiling: 1000")
+	} else {
+		lines = append(lines, "provider_complete: true")
 	}
 	lines = append(lines, "---", "", "# "+treeDisplayPath(resolved.Path), "")
 	if providerCeiling {
@@ -1535,7 +1583,7 @@ func readGitHubTree(ctx context.Context, client *GitHubClient, target *GitHubTar
 	if len(entries) == 0 {
 		lines = append(lines, "_Directory is empty._")
 	}
-	for _, entry := range entries {
+	for _, entry := range entries[:entryLimit] {
 		label := entry.Name
 		if entry.Type == "dir" {
 			label += "/"
@@ -1550,22 +1598,21 @@ func readGitHubTree(ctx context.Context, client *GitHubClient, target *GitHubTar
 			lines = append(lines, fmt.Sprintf("- %s %s", kind, label))
 		}
 	}
+	if note := githubLocalOmissionNote("directory entries returned by GitHub", len(entries)-entryLimit); note != "" {
+		lines = append(lines, "", note)
+	}
 
-	if readme := chooseDirectoryREADME(entries); readme != nil {
-		readmeText, err := githubContentText(ctx, client, target.Owner, target.Repo, resolved.Ref, readme)
-		if err != nil {
-			return "", err
-		}
-		preview, truncated := truncateMarkdownSafe(stripInvisibleHTMLComments(readmeText), githubRootPreviewRunes)
+	if readme != nil {
+		preview, truncated := githubOverviewPreview(stripInvisibleHTMLComments(readmeText), readmeRunes)
 		lines = append(lines, "", "## Directory README", "", preview)
 		if truncated {
-			lines = append(lines, "", "> Directory README preview truncated near 5,000 characters.")
+			lines = append(lines, "", "> Directory README preview truncated locally so the tree overview stays bounded.")
 			if readme.HTMLURL != "" {
 				lines = append(lines, "> Full README: "+readme.HTMLURL)
 			}
 		}
 	}
-	return strings.TrimSpace(strings.Join(lines, "\n")), nil
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func chooseDirectoryREADME(entries []githubContent) *githubContent {

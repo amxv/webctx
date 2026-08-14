@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseActivityStatisticsDeploymentTargets(t *testing.T) {
@@ -102,6 +104,39 @@ func TestContributorStatisticsRenderProviderCachedTruth(t *testing.T) {
 	}
 }
 
+func TestContributorStatisticsPrioritizeTotalsAndStayBounded(t *testing.T) {
+	stats := make([]githubContributorStats, 300)
+	for i := range stats {
+		stats[i].Total = i
+		stats[i].Author.Login = fmt.Sprintf("contributor-%03d", i)
+	}
+	stats[0].Total = 10000
+	stats[0].Author.Login = "zeta"
+	stats[1].Total = 10000
+	stats[1].Author.Login = "alpha"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(stats)
+	}))
+	defer server.Close()
+
+	out, err := readGitHubContributorStats(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/graphs/contributors"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("contributor overview exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{"contributors_returned: 300", "contributors_local_omitted:", "locally omitted from this overview", "@alpha — 10000 commits", "@zeta — 10000 commits"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("contributor overview missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "contributors_local_omitted: 0") || strings.Index(out, "@alpha — 10000 commits") > strings.Index(out, "@zeta — 10000 commits") {
+		t.Fatalf("contributor ordering/omission wrong:\n%s", out)
+	}
+}
+
 func TestCommitActivityAndCodeFrequencyRenderWeeks(t *testing.T) {
 	for _, tt := range []struct {
 		raw  string
@@ -151,7 +186,7 @@ func TestDeploymentListIsBoundedAndDoesNotFetchStatuses(t *testing.T) {
 	}
 }
 
-func TestDeploymentEnvironmentFetchesPaginatedStatusHistory(t *testing.T) {
+func TestDeploymentEnvironmentReadsOnlyLatestStatusPage(t *testing.T) {
 	var statusPages int32
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -166,12 +201,11 @@ func TestDeploymentEnvironmentFetchesPaginatedStatusHistory(t *testing.T) {
 			_, _ = io.WriteString(w, `[{"id":101,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ref":"main","environment":"production","creator":{"login":"alice"},"created_at":"2026-08-01T00:00:00Z"}]`)
 		case "/repos/o/r/deployments/101/statuses":
 			atomic.AddInt32(&statusPages, 1)
-			if r.URL.Query().Get("page") == "2" {
-				_, _ = io.WriteString(w, `[{"id":2,"state":"success","description":"ready","creator":{"login":"bot"},"created_at":"2026-08-01T00:02:00Z","log_url":"https://logs/2"}]`)
-				return
+			if r.URL.Query().Get("page") != "" || r.URL.Query().Get("per_page") != "1" {
+				t.Fatalf("deployment status overview followed/changed pagination: %s", r.URL.RawQuery)
 			}
-			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/deployments/101/statuses?per_page=100&page=2>; rel="next"`, server.URL))
-			_, _ = io.WriteString(w, `[{"id":1,"state":"in_progress","description":"deploying","creator":{"login":"bot"},"created_at":"2026-08-01T00:01:00Z"}]`)
+			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/deployments/101/statuses?per_page=1&page=2>; rel="next"`, server.URL))
+			_, _ = io.WriteString(w, `[{"id":2,"state":"success","description":"ready","creator":{"login":"bot"},"created_at":"2026-08-01T00:02:00Z","log_url":"https://logs/2","environment_url":"https://env/2"}]`)
 		default:
 			t.Fatalf("unexpected deployment environment request %s", r.URL.Path)
 		}
@@ -181,13 +215,58 @@ func TestDeploymentEnvironmentFetchesPaginatedStatusHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"environment: \"production\"", "Deployment 101", "in_progress — deploying", "success — ready", "logs https://logs/2", "GitHub controls deployment-status retention", "does not imply older statuses remain available indefinitely"} {
+	for _, want := range []string{"environment: \"production\"", "Deployment 101", "latest status 2 — success — ready", "logs https://logs/2", "Environment: https://env/2", "Older statuses: available upstream", "reads only the latest returned status"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("deployment environment missing %q:\n%s", want, out)
 		}
 	}
-	if atomic.LoadInt32(&statusPages) != 2 {
+	if strings.Contains(out, "deploying") || atomic.LoadInt32(&statusPages) != 1 {
 		t.Fatalf("status pagination pages=%d", statusPages)
+	}
+}
+
+func TestDeploymentEnvironmentDeepStatusHistoryStaysBounded(t *testing.T) {
+	deployments := make([]githubDeployment, 10)
+	for i := range deployments {
+		deployments[i] = githubDeployment{ID: int64(100 + i), SHA: strings.Repeat("a", 40), Ref: fmt.Sprintf("deploy-%d", i), Environment: "production", CreatedAt: "2026-08-01T00:00:00Z"}
+		deployments[i].Creator.Login = "bot"
+	}
+	var statusCalls int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/repos/o/r/environments/production":
+			_, _ = io.WriteString(w, `{"id":9,"name":"production"}`)
+		case r.URL.Path == "/repos/o/r/deployments":
+			_ = json.NewEncoder(w).Encode(deployments)
+		case strings.HasPrefix(r.URL.Path, "/repos/o/r/deployments/") && strings.HasSuffix(r.URL.Path, "/statuses"):
+			atomic.AddInt32(&statusCalls, 1)
+			if r.URL.Query().Get("page") != "" || r.URL.Query().Get("per_page") != "1" {
+				t.Fatalf("deep status history was paginated: %s", r.URL.RawQuery)
+			}
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?per_page=1&page=2>; rel="next", <%s%s?per_page=1&page=250>; rel="last"`, server.URL, r.URL.Path, server.URL, r.URL.Path))
+			_, _ = io.WriteString(w, fmt.Sprintf(`[{"id":999,"state":"success","description":%q,"creator":{"login":"bot"},"created_at":"2026-08-01T00:02:00Z","log_url":"https://logs.example/latest","environment_url":"https://env.example/latest"}]`, strings.Repeat("latest status detail ", 100)))
+		default:
+			t.Fatalf("unexpected request %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	out, err := readGitHubDeploymentEnvironment(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/deployments/production"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("deployment environment exceeded shared target: %d runes\n%s", got, out)
+	}
+	if got := atomic.LoadInt32(&statusCalls); got != 10 {
+		t.Fatalf("deployment statuses made %d calls, want one bounded call per deployment", got)
+	}
+	for _, want := range []string{"deployments_returned: 10", "deployments_with_older_statuses: 10", "latest status 999 — success", "Older statuses: available upstream", "https://logs.example/latest", "https://env.example/latest"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("bounded deployment output missing %q:\n%s", want, out)
+		}
 	}
 }
 

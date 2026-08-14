@@ -286,3 +286,14 @@ Fine-grained tokens can have narrower permissions than GitHub's public surface. 
 Some provider results are naturally bounded, truncated, still computing, expired, or permission-limited. webctx calls those states out instead of pretending the result is complete.
 
 For an agent, that distinction matters: clean context is only useful when it is also honest about what it could not see.
+
+## Large GitHub repository views
+
+Some GitHub pages can represent thousands of child objects. `webctx` keeps those pages navigable instead of dumping the whole provider response into one read.
+
+- **Release details** preview long notes and index a bounded set of assets while keeping the canonical GitHub release page for the complete notes and downloads.
+- **Repository trees** index a bounded set of entries and preview the README. If GitHub returns its 1,000-entry Contents API ceiling, that provider limit is reported separately from anything `webctx` omits locally.
+- **Contributor statistics** prioritize the highest commit totals and bound the displayed contributor rows instead of printing every contributor. GitHub's fixed weekly statistics stay compact, and a temporary `202` remains a provider-computing state rather than an empty result.
+- **Deployments** stay identity-first. Environment detail shows the latest returned status for each bounded deployment and notes when older status history exists upstream rather than expanding the entire history inline.
+
+Use the direct GitHub URLs printed in these views when you need to move from the compact overview to the provider's full page.

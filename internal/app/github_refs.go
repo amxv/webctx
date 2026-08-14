@@ -59,6 +59,10 @@ type githubRelease struct {
 	Assets      []githubReleaseAsset `json:"assets"`
 }
 
+type githubReleaseAssetsAvailability struct {
+	ProviderMore bool
+}
+
 type githubFork struct {
 	FullName        string     `json:"full_name"`
 	HTMLURL         string     `json:"html_url"`
@@ -156,33 +160,29 @@ func readGitHubRelease(ctx context.Context, client *GitHubClient, target *GitHub
 	if err := json.Unmarshal(resp.Body, &release); err != nil {
 		return "", fmt.Errorf("decode GitHub release: %w", err)
 	}
-	assets, err := fetchGitHubReleaseAssets(ctx, client, target, release.ID)
+	assets, availability, err := fetchGitHubReleaseAssets(ctx, client, target, release.ID)
 	if err != nil {
 		return "", err
 	}
 	sortReleaseAssetsByName(assets)
 	release.Assets = assets
-	return renderGitHubRelease(target, release), nil
+	return renderGitHubRelease(target, release, availability), nil
 }
 
-func fetchGitHubReleaseAssets(ctx context.Context, client *GitHubClient, target *GitHubTarget, releaseID int64) ([]githubReleaseAsset, error) {
+func fetchGitHubReleaseAssets(ctx context.Context, client *GitHubClient, target *GitHubTarget, releaseID int64) ([]githubReleaseAsset, githubReleaseAssetsAvailability, error) {
 	if releaseID <= 0 {
-		return nil, fmt.Errorf("GitHub release did not report a release ID")
+		return nil, githubReleaseAssetsAvailability{}, fmt.Errorf("GitHub release did not report a release ID")
 	}
 	endpoint := fmt.Sprintf("/repos/%s/%s/releases/%d/assets?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), releaseID)
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
-		return nil, err
+		return nil, githubReleaseAssetsAvailability{}, err
 	}
-	assets := []githubReleaseAsset{}
-	for _, page := range pages {
-		var batch []githubReleaseAsset
-		if err := json.Unmarshal(page.Body, &batch); err != nil {
-			return nil, fmt.Errorf("decode GitHub release assets: %w", err)
-		}
-		assets = append(assets, batch...)
+	var assets []githubReleaseAsset
+	if err := json.Unmarshal(resp.Body, &assets); err != nil {
+		return nil, githubReleaseAssetsAvailability{}, fmt.Errorf("decode GitHub release assets: %w", err)
 	}
-	return assets, nil
+	return assets, githubReleaseAssetsAvailability{ProviderMore: resp.Links()["next"] != ""}, nil
 }
 
 func readGitHubForks(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -347,7 +347,33 @@ func renderGitHubReleases(target *GitHubTarget, releases []githubRelease, links 
 	return appendListNavigation(lines, target, links)
 }
 
-func renderGitHubRelease(target *GitHubTarget, release githubRelease) string {
+func renderGitHubRelease(target *GitHubTarget, release githubRelease, availability githubReleaseAssetsAvailability) string {
+	assetLimit := minInt(16, len(release.Assets))
+	notesRunes := 2200
+	for {
+		out := renderGitHubReleaseWithLimits(target, release, availability, assetLimit, notesRunes)
+		if githubOverviewFits(out) {
+			return out
+		}
+		switch {
+		case assetLimit > 4:
+			assetLimit--
+		case notesRunes > 800:
+			notesRunes -= 200
+		case assetLimit > 1:
+			assetLimit--
+		default:
+			return out
+		}
+	}
+}
+
+func renderGitHubReleaseWithLimits(target *GitHubTarget, release githubRelease, availability githubReleaseAssetsAvailability, assetLimit, notesRunes int) string {
+	assetLimit = minInt(assetLimit, len(release.Assets))
+	canonicalURL := strings.TrimSpace(release.HTMLURL)
+	if canonicalURL == "" && release.TagName != "" {
+		canonicalURL = fmt.Sprintf("https://github.com/%s/%s/releases/tag/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(release.TagName))
+	}
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
@@ -355,7 +381,13 @@ func renderGitHubRelease(target *GitHubTarget, release githubRelease) string {
 		"name: " + yamlScalar(release.Name),
 		fmt.Sprintf("draft: %t", release.Draft),
 		fmt.Sprintf("prerelease: %t", release.Prerelease),
-		fmt.Sprintf("assets: %d", len(release.Assets)),
+		"overview: true",
+		fmt.Sprintf("assets_returned: %d", len(release.Assets)),
+		fmt.Sprintf("assets_indexed: %d", assetLimit),
+		fmt.Sprintf("assets_local_omitted: %d", len(release.Assets)-assetLimit),
+	}
+	if availability.ProviderMore {
+		lines = append(lines, "assets_provider_more_available: true")
 	}
 	if release.Target != "" {
 		lines = append(lines, "target: "+yamlScalar(release.Target))
@@ -369,8 +401,8 @@ func renderGitHubRelease(target *GitHubTarget, release githubRelease) string {
 	if release.PublishedAt != "" {
 		lines = append(lines, "published: "+yamlScalar(release.PublishedAt))
 	}
-	if release.HTMLURL != "" {
-		lines = append(lines, "url: "+yamlScalar(release.HTMLURL))
+	if canonicalURL != "" {
+		lines = append(lines, "url: "+yamlScalar(canonicalURL))
 	}
 	lines = append(lines, "---", "")
 	title := release.Name
@@ -378,16 +410,31 @@ func renderGitHubRelease(target *GitHubTarget, release githubRelease) string {
 		title = release.TagName
 	}
 	lines = append(lines, "# "+title, "", "## Release notes", "")
-	if release.Body == nil || strings.TrimSpace(stripInvisibleHTMLComments(*release.Body)) == "" {
+	humanNotes := ""
+	if release.Body != nil {
+		humanNotes = strings.TrimSpace(stripInvisibleHTMLComments(*release.Body))
+	}
+	if humanNotes == "" {
 		lines = append(lines, "_No release notes._")
 	} else {
-		lines = append(lines, stripInvisibleHTMLComments(*release.Body))
+		preview, truncated := githubOverviewPreview(humanNotes, notesRunes)
+		lines = append(lines, preview)
+		if truncated {
+			lines = append(lines, "", "> Release notes preview locally truncated for this overview.")
+			if canonicalURL != "" {
+				lines = append(lines, "> Full release notes: "+canonicalURL)
+			}
+		}
 	}
 	lines = append(lines, "", "## Assets", "")
 	if len(release.Assets) == 0 {
-		lines = append(lines, "_No release assets._")
+		if availability.ProviderMore {
+			lines = append(lines, "_No release assets were returned on the provider page fetched for this overview._")
+		} else {
+			lines = append(lines, "_No release assets._")
+		}
 	}
-	for _, asset := range release.Assets {
+	for _, asset := range release.Assets[:assetLimit] {
 		name := asset.Name
 		if asset.Label != "" {
 			name += " — " + asset.Label
@@ -410,6 +457,15 @@ func renderGitHubRelease(target *GitHubTarget, release githubRelease) string {
 			line += " — " + asset.BrowserDownloadURL
 		}
 		lines = append(lines, line)
+	}
+	if note := githubLocalOmissionNote("release assets returned on this provider page", len(release.Assets)-assetLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	if availability.ProviderMore {
+		lines = append(lines, "", "> GitHub has more release assets beyond the provider page fetched for this overview; this provider incompleteness is separate from local overview omission.")
+	}
+	if canonicalURL != "" {
+		lines = append(lines, "", "Canonical release page: "+canonicalURL)
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }

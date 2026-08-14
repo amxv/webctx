@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseGitHubRefReleaseSocialTargets(t *testing.T) {
@@ -108,8 +110,19 @@ func TestReleaseListDoesNotExpandBodies(t *testing.T) {
 	}
 }
 
-func TestReleaseDetailPreservesLongBodyAndPaginatesAssets(t *testing.T) {
+func TestReleaseDetailBoundsLongBodyAndStopsAssetPagination(t *testing.T) {
 	longBody := strings.Repeat("release-notes-line\n", 500)
+	assets := make([]githubReleaseAsset, 100)
+	for i := range assets {
+		assets[i] = githubReleaseAsset{
+			ID:                 int64(i + 1),
+			Name:               fmt.Sprintf("asset-%03d.zip", i),
+			Size:               int64(1024 + i),
+			ContentType:        "application/zip",
+			DownloadCount:      i,
+			BrowserDownloadURL: fmt.Sprintf("https://github.com/o/r/releases/download/release/v2/asset-%03d.zip", i),
+		}
+	}
 	var assetPages int32
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,12 +132,11 @@ func TestReleaseDetailPreservesLongBodyAndPaginatesAssets(t *testing.T) {
 			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":10,"tag_name":"release/v2","target_commitish":"main","name":"Big Release","body":%q,"html_url":"https://github.com/o/r/releases/tag/release/v2","author":{"login":"maintainer"},"published_at":"2026-08-01T00:00:00Z"}`, longBody+"<!-- hidden -->\nvisible-tail"))
 		case "/repos/o/r/releases/10/assets":
 			atomic.AddInt32(&assetPages, 1)
-			if r.URL.Query().Get("page") == "2" {
-				_, _ = io.WriteString(w, `[{"id":2,"name":"b.zip","size":20,"content_type":"application/zip","download_count":7,"browser_download_url":"https://github.com/o/r/releases/download/release/v2/b.zip"}]`)
-				return
+			if r.URL.Query().Get("page") != "" || r.URL.Query().Get("per_page") != "100" {
+				t.Fatalf("release asset overview followed/changed pagination: %s", r.URL.RawQuery)
 			}
 			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/releases/10/assets?per_page=100&page=2>; rel="next"`, server.URL))
-			_, _ = io.WriteString(w, `[{"id":1,"name":"a.tar.gz","label":"source-ish","size":10,"content_type":"application/gzip","download_count":5,"browser_download_url":"https://github.com/o/r/releases/download/release/v2/a.tar.gz"}]`)
+			_ = json.NewEncoder(w).Encode(assets)
 		default:
 			t.Fatalf("unexpected release request %s", r.URL.Path)
 		}
@@ -134,8 +146,21 @@ func TestReleaseDetailPreservesLongBodyAndPaginatesAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) < len(longBody) || !strings.Contains(out, "visible-tail") || strings.Contains(out, "hidden") || !strings.Contains(out, "assets: 2") || !strings.Contains(out, "a.tar.gz — source-ish") || !strings.Contains(out, "b.zip") || atomic.LoadInt32(&assetPages) != 2 {
-		t.Fatalf("release detail truncation/assets/sanitization wrong; len=%d pages=%d\n%s", len(out), assetPages, out[:min(len(out), 1200)])
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("release overview exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{
+		"overview: true", "assets_returned: 100", "assets_provider_more_available: true", "assets_local_omitted:",
+		"Release notes preview locally truncated", "Full release notes: https://github.com/o/r/releases/tag/release/v2",
+		"asset-000.zip", "https://github.com/o/r/releases/download/release/v2/asset-000.zip",
+		"locally omitted from this overview", "more release assets beyond the provider page",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("release overview missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "assets_local_omitted: 0") || strings.Contains(out, "asset-099.zip") || strings.Contains(out, "visible-tail") || strings.Contains(out, "hidden") || atomic.LoadInt32(&assetPages) != 1 {
+		t.Fatalf("release overview expanded subordinate content/provider pages; pages=%d\n%s", assetPages, out)
 	}
 }
 
