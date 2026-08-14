@@ -26,7 +26,7 @@ A phase is `complete` only after its observable outcome, phase-specific positive
 | ---: | --- | --- | --- | --- |
 | 1 | Shared bounded-context contract and resilient Issues | complete | `68db77888bc136f97086aad62d4b844bb4d25159` | Large Issue roots are bounded/adaptive, `minimized` shape drift is tolerant, and exact `#issue-*` body reads are proven live. |
 | 2 | Native Pull Request lists and PR-qualified search correctness | complete | `8d85e3cdf5629fb36bc1f8eb48031282e2e8bf2b` | `/pulls` is native and bounded; PR-qualified `/issues?q=...` preserves PR semantics instead of being rewritten as Issues. |
-| 3 | Bounded PR root and complete selector discoverability | pending | — | PR root becomes a compact map to body/comments/reviews/threads/files/commits/checks. |
+| 3 | Bounded PR root and complete selector discoverability | complete | `b34af6b9d61affb1ed6f0364a61f38cf443891a8` | PR roots are bounded maps with Issue-side body selectors and exact comment/review/thread drill-downs. |
 | 4 | PR Files and Checks bounded subviews | pending | — | Large patch/check fan-out becomes index-first; focused selectors remain exact. |
 | 5 | Actions overview/run/job context safety and raw-log navigation | pending | — | Runs/jobs stop injecting huge child/log output and expose raw log navigation. |
 | 6 | Commit and compare overview/raw split plus commit selectors | pending | — | Plain commit/compare become bounded; raw diff/patch and exact commit selectors remain deep paths. |
@@ -37,9 +37,9 @@ A phase is `complete` only after its observable outcome, phase-specific positive
 
 ## Current handoff
 
-- **Last completed phase:** Phase 2 — `Native Pull Request lists and PR-qualified search correctness`.
-- **Earliest incomplete phase:** Phase 3 — `Bounded PR root and complete selector discoverability`.
-- **Observable boundary:** repository `/pulls` pages now use the Pull Requests REST list directly with compact stable rows, validated filter/sort/page semantics and provider-derived web navigation; PR-search `q=` URLs use Search Issues with explicit `is:pr`, including copied `/issues?q=is:pr...` forms. PR roots themselves still render the existing complete conversation/reviews/threads transcript and lack the Phase 3 stable bounded map/selectable full-description contract.
+- **Last completed phase:** Phase 3 — `Bounded PR root and complete selector discoverability`.
+- **Earliest incomplete phase:** Phase 4 — `PR Files and Checks bounded subviews`.
+- **Observable boundary:** PR roots now always render a bounded structured overview that preserves PR REST state/branch/stats truth, fetches the distinct Issue-side identity for the canonical full-description `#issue-<id>` selector, and indexes ordinary comments, reviews, and inline threads with exact existing GitHub anchors. Root child fetches stop after the first REST provider page and distinguish upstream-more/provider-incomplete state from local overview omission; exact body/comment/review/thread selectors stay scoped and full. PR `/files` and `/checks` still retain their current potentially large child expansion and are the next boundary.
 - **Current blockers:** none known. GitHub/provider behavior listed as assumptions in the plan must be verified at the phase that depends on it.
 - **Plan Amendments affecting next phase:** none.
 - **Prompt to use now:** `subsequent-agent-prompt.md`.
@@ -114,6 +114,22 @@ Never place credentials, private live content, tokens, raw private provider payl
 - **Amendments:** none; GitHub's current first-party Pull Requests REST documentation still supports the planned list filters and pagination contract.
 - **Known defects/risks:** PR root still expands complete conversation, reviews and inline threads and does not yet expose an exact `#issue-<Issue-side id>` description selector; that is the intentional Phase 3 boundary. Later PR Files/Checks/Actions/compare fan-out remains untouched.
 - **Next handoff:** Phase 3 — start from `subsequent-agent-prompt.md`, reconcile remote state, then read only the Phase 3 plan/sweep/source surfaces for the always-bounded PR root and selector map.
+
+### 2026-08-14 — Phase 3 — `complete`
+
+- **Agent/session:** continuation in the same ChatGPT Atlas implementation session on `/workspace/repos/webctx`.
+- **Starting state:** clean synchronized `main` at `3110c39f2ff0b1ea5539d62ab3205b32153765fd` after the Phase 2 remote verification.
+- **Ending commit(s):** `b34af6b9d61affb1ed6f0364a61f38cf443891a8` (implementation/tests/public docs); this ledger handoff follows as a separate administrative commit.
+- **Outcome:** plain PR roots are no longer complete transcripts. They use PR REST metadata as the state/branch/stat authority, fetch the Issue-side PR object to obtain the distinct canonical `#issue-<Issue-side id>` description anchor, fetch only one REST provider page of timeline/reviews/review-comments for the overview, and render deterministic description/comment/review/thread previews plus exact selectors and `/files` `/commits` `/checks` navigation. Exact `#issue-*`, `#issuecomment-*`, `#pullrequestreview-*`, and `#discussion_r*` reads remain full scoped semantic reads.
+- **Files/areas changed:** PR identity/fetch/render/selector logic in `internal/app/github_pulls.go`; converted bounded-root and new pathological/Issue-side selector coverage in `internal/app/github_pulls_test.go`; public PR overview/navigation wording in `src/content/docs/read-link.md`.
+- **Positive evidence:** the converted anonymous PR fixture proves distinct PR REST id `123456789` versus Issue-side id `987654321`, uses only the latter in `#issue-*`, preserves state/base/head/stats and all first-page substantive event semantics, exposes stable comment/review/thread IDs plus exact selectors, keeps bot content visible, omits reply bodies from the root thread index, reports provider-more truth separately, never calls GraphQL without auth, and stays under the shared 5k-rune target. A synthetic large body + 20 comments + 12 reviews + 12 threads stays <=5,000 runes, safely closes Markdown fences, locally omits child index entries deterministically, and verifies every emitted child has a matching selector URL. Exact PR-body selection uses one Issue-side provider read and rejects mismatched IDs.
+- **Regression evidence:** exact selected review still includes its review comments; exact selected thread still reconstructs root/replies; exact ordinary comment remains shared with Issue semantics; GraphQL resolved/outdated enrichment remains visible when available and non-fatal when unavailable; invisible GitHub HTML comments remain stripped. Final validation passed `go test ./...`, `go vet ./...`, `npm test`, `make build`, and `git diff --check`.
+- **Live evidence:** built `webctx` read `vercel/next.js#97343` in 2,469 runes / 85 lines (planning baseline ~46k) and `cli/cli#13250` in 4,583 runes / 122 lines (planning baseline ~21.8k). Next.js exposed Issue-side body id `5146963444` and two exact ordinary-comment selectors; CLI exposed Issue-side body id `4301913599` plus exact review/thread selectors. Following the printed Next.js body selector returned only the 304-rune full description; following a printed large Next.js automation-comment selector returned the selected ~30,381-rune comment only; following CLI review/thread selectors returned scoped 2,418-rune and 1,008-rune reads respectively. This proves large child bodies are opt-in rather than root-injected.
+- **Documentation:** `read-link` now describes PR roots as compact overviews, explains the printed `#issue-*` full-description path, and states that copied comment/review/thread anchors remain exact scoped reads.
+- **Decisions made:** root timeline/review/review-comment REST collections stop after their first 100-item provider page and surface a provider-more flag rather than eagerly chasing pagination; local index limits adapt downward until the shared output target fits. Existing authenticated GraphQL thread-state enrichment remains optional and non-fatal because it adds state only, not subordinate text.
+- **Amendments:** none.
+- **Known defects/risks:** `/pull/<n>/files` can still render every returned patch up to GitHub's provider ceiling and `/checks` can still expand large check-run fan-out/annotation context. Those are intentional Phase 4 targets; `/commits` remains compact enough to preserve as-is unless Phase 4 evidence disproves that assumption.
+- **Next handoff:** Phase 4 — start from `subsequent-agent-prompt.md`, reconcile remote state, then inspect only the PR Files/Checks plan, sweep, source, tests, and current provider docs needed for their bounded overview/focused-selector contract.
 
 ## Execution rules
 
