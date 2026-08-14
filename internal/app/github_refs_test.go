@@ -55,11 +55,11 @@ func TestBranchesBoundedPaginationAndProtection(t *testing.T) {
 		if r.URL.Path != "/repos/o/r/branches" {
 			t.Fatalf("unexpected branch path %s", r.URL.Path)
 		}
-		if r.URL.Query().Get("per_page") != "30" || r.URL.Query().Get("page") != "2" || r.URL.Query().Get("protected") != "true" {
+		if r.URL.Query().Get("per_page") != "8" || r.URL.Query().Get("page") != "2" || r.URL.Query().Get("protected") != "true" {
 			t.Fatalf("branch query lost: %s", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/branches?protected=true&per_page=30&page=1>; rel="prev", <%s/repos/o/r/branches?protected=true&per_page=30&page=3>; rel="next"`, server.URL, server.URL))
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/branches?protected=true&per_page=8&page=1>; rel="prev", <%s/repos/o/r/branches?protected=true&per_page=8&page=3>; rel="next"`, server.URL, server.URL))
 		_, _ = io.WriteString(w, `[{"name":"release/next","protected":true,"commit":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}]`)
 	}))
 	defer server.Close()
@@ -151,7 +151,7 @@ func TestReleaseDetailBoundsLongBodyAndStopsAssetPagination(t *testing.T) {
 	}
 	for _, want := range []string{
 		"overview: true", "assets_returned: 100", "assets_provider_more_available: true", "assets_local_omitted:",
-		"Release notes preview locally truncated", "Full release notes: https://github.com/o/r/releases/tag/release/v2",
+		"Release notes preview locally truncated", "Canonical GitHub release page (complete notes in the browser): https://github.com/o/r/releases/tag/release/v2",
 		"asset-000.zip", "https://github.com/o/r/releases/download/release/v2/asset-000.zip",
 		"locally omitted from this overview", "more release assets beyond the provider page",
 	} {

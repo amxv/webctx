@@ -97,6 +97,7 @@ type githubPullOverviewAvailability struct {
 	ReviewsProviderMore        bool
 	ReviewCommentsProviderMore bool
 	ReviewCommentsReturned     int
+	ThreadStatesProviderMore   bool
 }
 
 type githubPullListItem struct {
@@ -204,9 +205,7 @@ func githubPullListProviderQuery(input url.Values) (url.Values, error) {
 	if err := validateGitHubPageSize(query); err != nil {
 		return nil, err
 	}
-	if query.Get("per_page") == "" {
-		query.Set("per_page", "30")
-	}
+	query.Set("per_page", strconv.Itoa(githubPageableListSize))
 	return query, nil
 }
 
@@ -246,9 +245,7 @@ func githubPullSearchProviderQuery(input url.Values, owner, repo string) (url.Va
 	if err := validateGitHubPageSize(provider); err != nil {
 		return nil, err
 	}
-	if provider.Get("per_page") == "" {
-		provider.Set("per_page", "30")
-	}
+	provider.Set("per_page", strconv.Itoa(githubPageableListSize))
 	return provider, nil
 }
 
@@ -269,14 +266,7 @@ func validateGitHubPageSize(query url.Values) error {
 }
 
 func renderGitHubPullList(target *GitHubTarget, pulls []githubPullListItem, links GitHubLinkRelations, total int, incomplete bool) string {
-	limit := minInt(30, len(pulls))
-	for {
-		out := renderGitHubPullListWithLimit(target, pulls, links, total, incomplete, limit)
-		if githubOverviewFits(out) || limit <= 1 {
-			return out
-		}
-		limit--
-	}
+	return renderGitHubPullListWithLimit(target, pulls, links, total, incomplete, len(pulls))
 }
 
 func renderGitHubPullListWithLimit(target *GitHubTarget, pulls []githubPullListItem, links GitHubLinkRelations, total int, incomplete bool, limit int) string {
@@ -347,9 +337,6 @@ func renderGitHubPullListWithLimit(target *GitHubTarget, pulls []githubPullListI
 		}
 		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", pr.Number, escapeMarkdownLinkText(title), href, strings.Join(meta, " · ")))
 	}
-	if note := githubLocalOmissionNote("Pull Requests returned on this provider page", len(pulls)-limit); note != "" {
-		lines = append(lines, "", note)
-	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")
 		lines = append(lines, nav...)
@@ -419,8 +406,9 @@ func readGitHubPullRequest(ctx context.Context, client *GitHubClient, target *Gi
 	}
 	threads := groupGitHubPullThreads(comments)
 	enrichmentNote := ""
+	threadStatesMore := false
 	if client.hasToken() && len(threads) > 0 {
-		states, enrichErr := fetchGitHubPullThreadStates(ctx, client, target)
+		states, statesMore, enrichErr := fetchGitHubPullThreadStatesOverview(ctx, client, target)
 		if enrichErr != nil {
 			enrichmentNote = "Review-thread resolved/outdated enrichment was unavailable from GitHub GraphQL; REST thread content is still complete."
 		} else {
@@ -430,6 +418,10 @@ func readGitHubPullRequest(ctx context.Context, client *GitHubClient, target *Gi
 					threads[i].State = &copyState
 				}
 			}
+			if statesMore {
+				enrichmentNote = "Review-thread state enrichment is limited to GitHub's first GraphQL page for this overview; exact thread reads may resolve deeper state without expanding the PR root."
+				threadStatesMore = true
+			}
 		}
 	}
 	availability := githubPullOverviewAvailability{
@@ -437,6 +429,7 @@ func readGitHubPullRequest(ctx context.Context, client *GitHubClient, target *Gi
 		ReviewsProviderMore:        reviewsMore,
 		ReviewCommentsProviderMore: commentsMore,
 		ReviewCommentsReturned:     len(comments),
+		ThreadStatesProviderMore:   threadStatesMore,
 	}
 	return renderGitHubPullRequest(target, pr, issue.ID, timeline, reviews, threads, availability, enrichmentNote, client.hasToken()), nil
 }
@@ -648,6 +641,56 @@ func sortPullComments(comments []githubPullReviewComment) {
 	})
 }
 
+func fetchGitHubPullThreadStatesOverview(ctx context.Context, client *GitHubClient, target *GitHubTarget) (map[int64]githubPullThreadState, bool, error) {
+	const query = `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved isOutdated resolvedBy{login} comments(first:1){nodes{fullDatabaseId}}}pageInfo{hasNextPage}}}}}`
+	var data struct {
+		Repository struct {
+			PullRequest *struct {
+				ReviewThreads struct {
+					Nodes []struct {
+						IsResolved bool `json:"isResolved"`
+						IsOutdated bool `json:"isOutdated"`
+						ResolvedBy *struct {
+							Login string `json:"login"`
+						} `json:"resolvedBy"`
+						Comments struct {
+							Nodes []struct {
+								FullDatabaseID string `json:"fullDatabaseId"`
+							} `json:"nodes"`
+						} `json:"comments"`
+					} `json:"nodes"`
+					PageInfo struct {
+						HasNextPage bool `json:"hasNextPage"`
+					} `json:"pageInfo"`
+				} `json:"reviewThreads"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	}
+	if err := client.GraphQL(ctx, query, map[string]any{"owner": target.Owner, "repo": target.Repo, "number": target.Number}, &data); err != nil {
+		return nil, false, err
+	}
+	if data.Repository.PullRequest == nil {
+		return nil, false, fmt.Errorf("GitHub GraphQL Pull Request was unavailable")
+	}
+	states := map[int64]githubPullThreadState{}
+	connection := data.Repository.PullRequest.ReviewThreads
+	for _, node := range connection.Nodes {
+		if len(node.Comments.Nodes) == 0 {
+			continue
+		}
+		id, err := strconv.ParseInt(node.Comments.Nodes[0].FullDatabaseID, 10, 64)
+		if err != nil || id <= 0 {
+			continue
+		}
+		state := githubPullThreadState{Resolved: node.IsResolved, Outdated: node.IsOutdated}
+		if node.ResolvedBy != nil {
+			state.ResolvedBy = node.ResolvedBy.Login
+		}
+		states[id] = state
+	}
+	return states, connection.PageInfo.HasNextPage, nil
+}
+
 func fetchGitHubPullThreadStates(ctx context.Context, client *GitHubClient, target *GitHubTarget) (map[int64]githubPullThreadState, error) {
 	const query = `query($owner:String!,$repo:String!,$number:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100,after:$after){nodes{isResolved isOutdated resolvedBy{login} comments(first:1){nodes{fullDatabaseId}}}pageInfo{hasNextPage endCursor}}}}}`
 	states := map[int64]githubPullThreadState{}
@@ -780,45 +823,43 @@ func readGitHubPullReviewSelector(ctx context.Context, client *GitHubClient, tar
 }
 
 func renderGitHubPullRequest(target *GitHubTarget, pr githubPullRequest, issueID int64, timeline []githubTimelineEvent, reviews []githubPullReview, threads []githubPullThread, availability githubPullOverviewAvailability, enrichmentNote string, hasToken bool) string {
-	visible := substantivePullTimeline(timeline)
-	conversationLimit := minInt(10, len(visible))
+	comments, events := splitPullTimelineForOverview(timeline)
+	commentLimit := minInt(3, len(comments))
+	eventLimit := minInt(6, len(events))
 	reviewLimit := minInt(4, len(reviews))
 	threadLimit := minInt(4, len(threads))
 	bodyLimit := 900
 	for {
-		out := renderGitHubPullOverviewWithLimits(target, pr, issueID, visible, reviews, threads, availability, enrichmentNote, hasToken, conversationLimit, reviewLimit, threadLimit, bodyLimit)
+		out := renderGitHubPullOverviewWithLimits(target, pr, issueID, comments, events, reviews, threads, availability, enrichmentNote, hasToken, commentLimit, eventLimit, reviewLimit, threadLimit, bodyLimit)
 		if githubOverviewFits(out) {
 			return out
 		}
 		switch {
+		case eventLimit > 0:
+			eventLimit--
 		case threadLimit > 1:
 			threadLimit--
 		case reviewLimit > 1:
 			reviewLimit--
-		case conversationLimit > 1:
-			conversationLimit--
 		case bodyLimit > 400:
 			bodyLimit = 400
 		case bodyLimit > 200:
 			bodyLimit = 200
+		case commentLimit > 1:
+			commentLimit--
 		default:
-			// Mandatory metadata, one representative item per available child
-			// family, and exact navigation win over the shared soft target.
+			// Mandatory metadata, one representative human comment per available
+			// conversation, and exact navigation win over the shared soft target.
 			return out
 		}
 	}
 }
 
-func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullRequest, issueID int64, visible []githubTimelineEvent, reviews []githubPullReview, threads []githubPullThread, availability githubPullOverviewAvailability, enrichmentNote string, hasToken bool, conversationLimit, reviewLimit, threadLimit, bodyLimit int) string {
-	conversationLimit = minInt(conversationLimit, len(visible))
+func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullRequest, issueID int64, comments, events []githubTimelineEvent, reviews []githubPullReview, threads []githubPullThread, availability githubPullOverviewAvailability, enrichmentNote string, hasToken bool, commentLimit, eventLimit, reviewLimit, threadLimit, bodyLimit int) string {
+	commentLimit = minInt(commentLimit, len(comments))
+	eventLimit = minInt(eventLimit, len(events))
 	reviewLimit = minInt(reviewLimit, len(reviews))
 	threadLimit = minInt(threadLimit, len(threads))
-	commentReturned := 0
-	for _, event := range visible {
-		if event.Event == "commented" {
-			commentReturned++
-		}
-	}
 	titlePreview, titleTruncated := githubOverviewInlinePreview(pr.Title, 180)
 	if titleTruncated {
 		titlePreview += "…"
@@ -869,10 +910,15 @@ func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullReque
 		fmt.Sprintf("additions: %d", pr.Additions),
 		fmt.Sprintf("deletions: %d", pr.Deletions),
 		fmt.Sprintf("conversation_comments_reported: %d", pr.Comments),
-		fmt.Sprintf("conversation_comments_returned: %d", commentReturned),
-		fmt.Sprintf("conversation_items_returned: %d", len(visible)),
-		fmt.Sprintf("conversation_items_indexed: %d", conversationLimit),
-		fmt.Sprintf("conversation_items_omitted: %d", len(visible)-conversationLimit),
+		fmt.Sprintf("conversation_comments_returned: %d", len(comments)),
+		fmt.Sprintf("conversation_comments_indexed: %d", commentLimit),
+		fmt.Sprintf("conversation_comments_omitted: %d", len(comments)-commentLimit),
+		fmt.Sprintf("conversation_events_returned: %d", len(events)),
+		fmt.Sprintf("conversation_events_indexed: %d", eventLimit),
+		fmt.Sprintf("conversation_events_omitted: %d", len(events)-eventLimit),
+		fmt.Sprintf("conversation_items_returned: %d", len(comments)+len(events)),
+		fmt.Sprintf("conversation_items_indexed: %d", commentLimit+eventLimit),
+		fmt.Sprintf("conversation_items_omitted: %d", len(comments)+len(events)-commentLimit-eventLimit),
 		fmt.Sprintf("reviews_returned: %d", len(reviews)),
 		fmt.Sprintf("reviews_indexed: %d", reviewLimit),
 		fmt.Sprintf("reviews_omitted: %d", len(reviews)-reviewLimit),
@@ -884,7 +930,7 @@ func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullReque
 	)
 	if availability.TimelineProviderMore {
 		lines = append(lines, "conversation_provider_more_available: true")
-	} else if pr.Comments > commentReturned {
+	} else if pr.Comments > len(comments) {
 		lines = append(lines, "conversation_provider_complete: false")
 	}
 	if availability.ReviewsProviderMore {
@@ -897,6 +943,8 @@ func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullReque
 	}
 	if len(threads) > 0 && !hasToken {
 		lines = append(lines, "thread_state_enrichment: unavailable_without_auth")
+	} else if availability.ThreadStatesProviderMore {
+		lines = append(lines, "thread_state_enrichment: partial_provider_page")
 	} else if enrichmentNote != "" {
 		lines = append(lines, "thread_state_enrichment: unavailable")
 	}
@@ -918,27 +966,34 @@ func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullReque
 	}
 	lines = append(lines, "> Full description: "+bodySelector)
 
-	lines = append(lines, "", "## Conversation index", "")
-	if len(visible) == 0 {
-		lines = append(lines, "_No substantive conversation timeline activity._")
+	lines = append(lines, "", "## Conversation comment index", "")
+	if len(comments) == 0 {
+		lines = append(lines, "_No ordinary conversation comments returned on this provider page._")
 	}
-	for _, event := range visible[:conversationLimit] {
-		if event.Event == "commented" {
-			comment := githubIssueComment{ID: event.ID, Body: event.Body, HTMLURL: event.HTMLURL, User: event.User, AuthorAssociation: event.AuthorAssociation, CreatedAt: event.CreatedAt, UpdatedAt: event.UpdatedAt, IsPinned: event.IsPinned, Minimized: event.Minimized, MinimizedReason: event.MinimizedReason}
-			lines = append(lines, renderPullConversationCommentIndex(target, comment)...)
-			continue
-		}
+	for _, event := range comments[:commentLimit] {
+		comment := githubIssueComment{ID: event.ID, Body: event.Body, HTMLURL: event.HTMLURL, User: event.User, AuthorAssociation: event.AuthorAssociation, CreatedAt: event.CreatedAt, UpdatedAt: event.UpdatedAt, IsPinned: event.IsPinned, Minimized: event.Minimized, MinimizedReason: event.MinimizedReason}
+		lines = append(lines, renderPullConversationCommentIndex(target, comment)...)
+	}
+	if note := githubLocalOmissionNote("conversation comments", len(comments)-commentLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+
+	lines = append(lines, "", "## Timeline event index", "")
+	if len(events) == 0 {
+		lines = append(lines, "_No substantive non-comment timeline events returned on this provider page._")
+	}
+	for _, event := range events[:eventLimit] {
 		if rendered, ok := renderPullTimelineState(event); ok {
 			lines = append(lines, rendered)
 		}
 	}
-	if note := githubLocalOmissionNote("substantive conversation items", len(visible)-conversationLimit); note != "" {
+	if note := githubLocalOmissionNote("timeline events", len(events)-eventLimit); note != "" {
 		lines = append(lines, "", note)
 	}
 	if availability.TimelineProviderMore {
 		lines = append(lines, "", "> GitHub has more conversation timeline items beyond the provider page fetched for this overview.")
-	} else if pr.Comments > commentReturned {
-		lines = append(lines, "", "> GitHub reports more conversation comments than were returned by the fetched timeline page; this provider-incomplete state is separate from local overview omission.")
+	} else if pr.Comments > len(comments) {
+		lines = append(lines, "", fmt.Sprintf("> GitHub reports %d conversation comments, while the fetched timeline page returned %d comment events; this provider-incomplete state is separate from local overview omission.", pr.Comments, len(comments)))
 	}
 
 	lines = append(lines, "", "## Review index", "")
@@ -979,18 +1034,19 @@ func renderGitHubPullOverviewWithLimits(target *GitHubTarget, pr githubPullReque
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func substantivePullTimeline(timeline []githubTimelineEvent) []githubTimelineEvent {
-	visible := make([]githubTimelineEvent, 0, len(timeline))
+func splitPullTimelineForOverview(timeline []githubTimelineEvent) ([]githubTimelineEvent, []githubTimelineEvent) {
+	comments := make([]githubTimelineEvent, 0, len(timeline))
+	events := make([]githubTimelineEvent, 0, len(timeline))
 	for _, event := range timeline {
 		if event.Event == "commented" {
-			visible = append(visible, event)
+			comments = append(comments, event)
 			continue
 		}
 		if _, ok := renderPullTimelineState(event); ok {
-			visible = append(visible, event)
+			events = append(events, event)
 		}
 	}
-	return visible
+	return comments, events
 }
 
 func renderPullConversationCommentIndex(target *GitHubTarget, comment githubIssueComment) []string {

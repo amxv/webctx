@@ -363,10 +363,10 @@ func TestHistoryResolverHandlesSlashRefAndBoundedPageNavigation(t *testing.T) {
 			_, _ = io.WriteString(w, `{"message":"Not Found"}`)
 			return
 		}
-		if sha != "feature/slash" || path != "path.go" || perPage != "30" {
+		if sha != "feature/slash" || path != "path.go" || perPage != "8" {
 			t.Fatalf("resolved history query incorrect: %s", r.URL.RawQuery)
 		}
-		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/commits?sha=feature%%2Fslash&path=path.go&per_page=30&page=2>; rel="next"`, server.URL))
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/commits?sha=feature%%2Fslash&path=path.go&per_page=8&page=2>; rel="next"`, server.URL))
 		_, _ = io.WriteString(w, `[{"sha":"abc","html_url":"https://github.com/o/r/commit/abc","author":{"login":"alice"},"commit":{"message":"Change path","author":{"date":"2026-08-01T00:00:00Z"}}}]`)
 	}))
 	defer server.Close()

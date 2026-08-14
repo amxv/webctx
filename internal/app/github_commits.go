@@ -802,7 +802,7 @@ func readGitHubHistory(ctx context.Context, client *GitHubClient, target *GitHub
 	if err != nil {
 		return "", err
 	}
-	query := url.Values{"sha": []string{resolved.Ref}, "per_page": []string{"30"}}
+	query := url.Values{"sha": []string{resolved.Ref}, "per_page": []string{strconv.Itoa(githubPageableListSize)}}
 	if resolved.Path != "" {
 		query.Set("path", resolved.Path)
 	}
@@ -828,9 +828,7 @@ func readGitHubHistory(ctx context.Context, client *GitHubClient, target *GitHub
 }
 
 func renderGitHubHistory(target *GitHubTarget, resolved resolvedGitHubPath, page int, commits []githubPullCommit, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(commits), 20, func(limit int) string {
-		return renderGitHubHistoryWithLimit(target, resolved, page, commits, links, limit)
-	})
+	return renderGitHubHistoryWithLimit(target, resolved, page, commits, links, len(commits))
 }
 
 func renderGitHubHistoryWithLimit(target *GitHubTarget, resolved resolvedGitHubPath, page int, commits []githubPullCommit, links GitHubLinkRelations, limit int) string {
@@ -885,9 +883,6 @@ func renderGitHubHistoryWithLimit(target *GitHubTarget, resolved resolvedGitHubP
 			line += " — " + strings.Join(meta, " · ")
 		}
 		lines = append(lines, line)
-	}
-	if note := githubLocalOmissionNote("commits returned on this history page", len(commits)-limit); note != "" {
-		lines = append(lines, "", note)
 	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")

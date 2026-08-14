@@ -21,10 +21,14 @@ import (
 )
 
 const (
-	githubRESTAPIVersion    = "2026-03-10"
-	githubDefaultAPIBase    = "https://api.github.com"
-	githubDefaultRawBase    = "https://raw.githubusercontent.com"
-	githubOverviewRunes     = 5000
+	githubRESTAPIVersion = "2026-03-10"
+	githubDefaultAPIBase = "https://api.github.com"
+	githubDefaultRawBase = "https://raw.githubusercontent.com"
+	githubOverviewRunes  = 5000
+	// Pageable list readers render every provider row; keep the provider page
+	// itself small instead of fetching a larger page and creating an unreachable
+	// locally omitted tail before the next GitHub page.
+	githubPageableListSize  = 8
 	githubRootPreviewRunes  = githubOverviewRunes
 	githubIndexPreviewRunes = 240
 	githubBlobMaxBytes      = int64(100 * 1024 * 1024)

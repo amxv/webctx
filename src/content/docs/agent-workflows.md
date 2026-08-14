@@ -129,7 +129,7 @@ webctx read-link https://github.com/<owner>/<repo>/actions/runs/123/job/456
 
 The easiest way to save tokens is often to narrow the source **before** the model sees it.
 
-When an overview says GitHub has more provider pages or that some returned rows were locally omitted, follow the exact/page URL it prints. Do not invent a webctx `--page`, `--all`, or “full” switch: copied provider URLs are the navigation contract. Use an explicit `.diff`/`.patch` URL when bulk raw change text is actually what the task needs.
+For normal pageable lists, follow the printed Next/Previous GitHub URL; webctx renders every row from its compact provider page, so pagination does not skip a hidden tail. When a root/aggregate overview reports local omission instead, use the exact child/subresource URLs it prints. Do not invent a webctx `--page`, `--all`, or “full” switch: copied provider URLs are the navigation contract. Use an explicit `.diff`/`.patch` URL when bulk raw change text is actually what the task needs.
 
 ## Let the URL do the routing
 

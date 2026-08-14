@@ -60,7 +60,7 @@ func TestGitHubPullListUsesRESTFiltersDraftStateAndNavigation(t *testing.T) {
 			t.Fatalf("unexpected PR-list path: %s", r.URL.Path)
 		}
 		for key, want := range map[string]string{
-			"state": "all", "head": "alice:feature", "base": "main", "sort": "updated", "direction": "asc", "per_page": "30", "page": "2",
+			"state": "all", "head": "alice:feature", "base": "main", "sort": "updated", "direction": "asc", "per_page": "8", "page": "2",
 		} {
 			if got := r.URL.Query().Get(key); got != want {
 				t.Errorf("PR-list query %s=%q want %q (%s)", key, got, want, r.URL.RawQuery)
@@ -82,7 +82,7 @@ func TestGitHubPullListUsesRESTFiltersDraftStateAndNavigation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`repository: "o/r"`, "view: pull_requests", `page: "2"`, "# Pull Requests",
+		`repository: "o/r"`, "view: pull_requests", `page: "2"`, "results_indexed: 3", "results_local_omitted: 0", "# Pull Requests",
 		"[#10 Open PR](https://github.com/o/r/pull/10) — open · @alice · updated 2026-08-10T00:00:00Z",
 		"[#11 Draft PR](https://github.com/o/r/pull/11) — draft · @bob · created 2026-08-09T00:00:00Z",
 		"[#12 Closed PR](https://github.com/o/r/pull/12) — closed · @carol",
@@ -114,7 +114,7 @@ func TestGitHubPullSearchAndIssuesPRSearchShareTruthfulSemantics(t *testing.T) {
 				if !strings.Contains(q, "repo:o/r") || !strings.Contains(q, "is:pr") || strings.Contains(q, "is:issue") || !strings.Contains(q, "label:bug") {
 					t.Fatalf("PR search provider query lost semantics: %q", q)
 				}
-				if r.URL.Query().Get("page") != "2" || r.URL.Query().Get("per_page") != "30" {
+				if r.URL.Query().Get("page") != "2" || r.URL.Query().Get("per_page") != "8" {
 					t.Fatalf("PR search pagination wrong: %s", r.URL.RawQuery)
 				}
 				w.Header().Set("Content-Type", "application/json")
@@ -332,7 +332,7 @@ func TestReadGitHubPullRequestGraphQLEnrichesThreadState(t *testing.T) {
 			if !strings.Contains(fmt.Sprint(payload["query"]), "reviewThreads") {
 				t.Errorf("unexpected GraphQL query: %#v", payload)
 			}
-			_, _ = io.WriteString(w, `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true,"isOutdated":true,"resolvedBy":{"login":"resolver"},"comments":{"nodes":[{"fullDatabaseId":"100"}]}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}`)
+			_, _ = io.WriteString(w, `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true,"isOutdated":true,"resolvedBy":{"login":"resolver"},"comments":{"nodes":[{"fullDatabaseId":"100"}]}}],"pageInfo":{"hasNextPage":true,"endCursor":"must-not-follow"}}}}}}`)
 		default:
 			t.Fatalf("unexpected request %s", r.URL.Path)
 		}
@@ -343,11 +343,34 @@ func TestReadGitHubPullRequestGraphQLEnrichesThreadState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "State: resolved · outdated · by @resolver") || strings.Contains(out, "unavailable_without_auth") {
+	if !strings.Contains(out, "State: resolved · outdated · by @resolver") || !strings.Contains(out, "thread_state_enrichment: partial_provider_page") || !strings.Contains(out, "first GraphQL page") || strings.Contains(out, "unavailable_without_auth") {
 		t.Fatalf("GraphQL thread state missing:\n%s", out)
 	}
 	if atomic.LoadInt32(&graphQLCalls) != 1 {
 		t.Fatalf("expected one GraphQL call")
+	}
+}
+
+func TestPullOverviewReservesOrdinaryCommentSelectorsAheadOfStateEvents(t *testing.T) {
+	timeline := []githubTimelineEvent{}
+	for i := 0; i < 12; i++ {
+		timeline = append(timeline, githubTimelineEvent{Event: "head_ref_force_pushed", CommitID: fmt.Sprintf("%040x", i+1), CreatedAt: fmt.Sprintf("2026-08-01T00:%02d:00Z", i)})
+	}
+	for i := 0; i < 3; i++ {
+		id := int64(900 + i)
+		body := fmt.Sprintf("comment-%d", id)
+		timeline = append(timeline, githubTimelineEvent{ID: id, Event: "commented", Body: &body, HTMLURL: fmt.Sprintf("https://github.com/o/r/pull/42#issuecomment-%d", id), User: githubUser{Login: "u"}, CreatedAt: fmt.Sprintf("2026-08-02T00:%02d:00Z", i)})
+	}
+	pr := githubPullRequest{Number: 42, State: "open", Title: "mixed timeline", HTMLURL: "https://github.com/o/r/pull/42", Comments: 3}
+	out := renderGitHubPullRequest(&GitHubTarget{Owner: "o", Repo: "r", Number: 42}, pr, 987, timeline, nil, nil, githubPullOverviewAvailability{}, "", false)
+	for i := 0; i < 3; i++ {
+		id := 900 + i
+		if !strings.Contains(out, fmt.Sprintf("Comment `%d`", id)) || !strings.Contains(out, fmt.Sprintf("#issuecomment-%d", id)) {
+			t.Fatalf("ordinary comment %d was crowded out by state events:\n%s", id, out)
+		}
+	}
+	if !strings.Contains(out, "conversation_comments_indexed: 3") || !strings.Contains(out, "conversation_events_omitted:") {
+		t.Fatalf("split conversation/event accounting missing:\n%s", out)
 	}
 }
 

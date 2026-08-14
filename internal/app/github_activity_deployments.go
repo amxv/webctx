@@ -90,7 +90,7 @@ func readGitHubActivity(ctx context.Context, client *GitHubClient, target *GitHu
 		}
 	}
 	q := copySelectedQuery(target.Query, []string{"ref", "activity_type", "actor", "time_period", "before", "after", "page"})
-	q.Set("per_page", "30")
+	q.Set("per_page", strconv.Itoa(githubPageableListSize))
 	if page := q.Get("page"); page != "" {
 		n, err := strconv.Atoi(page)
 		if err != nil || n <= 0 {
@@ -106,43 +106,38 @@ func readGitHubActivity(ctx context.Context, client *GitHubClient, target *GitHu
 	if err := json.Unmarshal(resp.Body, &items); err != nil {
 		return "", fmt.Errorf("decode GitHub repository activity: %w", err)
 	}
-	out := githubBoundedOverviewList(len(items), 30, func(limit int) string {
-		lines := listFrontmatter(target, "activity", len(items), limit)
-		lines = append(lines, "# Repository activity", "")
-		if len(items) == 0 {
-			lines = append(lines, "_No activity returned by GitHub on this page._")
+	limit := len(items)
+	lines := listFrontmatter(target, "activity", len(items), limit)
+	lines = append(lines, "# Repository activity", "")
+	if len(items) == 0 {
+		lines = append(lines, "_No activity returned by GitHub on this page._")
+	}
+	for _, item := range items[:limit] {
+		activityType, _ := githubOverviewInlinePreview(item.ActivityType, 60)
+		line := "- " + activityType
+		if item.Actor.Login != "" {
+			actor, truncated := githubOverviewInlinePreview(item.Actor.Login, 80)
+			if truncated {
+				actor += "…"
+			}
+			line += " by @" + actor
 		}
-		for _, item := range items[:limit] {
-			activityType, _ := githubOverviewInlinePreview(item.ActivityType, 60)
-			line := "- " + activityType
-			if item.Actor.Login != "" {
-				actor, truncated := githubOverviewInlinePreview(item.Actor.Login, 80)
-				if truncated {
-					actor += "…"
-				}
-				line += " by @" + actor
+		if item.Ref != "" {
+			ref, truncated := githubOverviewInlinePreview(item.Ref, 120)
+			if truncated {
+				ref += "…"
 			}
-			if item.Ref != "" {
-				ref, truncated := githubOverviewInlinePreview(item.Ref, 120)
-				if truncated {
-					ref += "…"
-				}
-				line += " — `" + ref + "`"
-			}
-			if item.Before != "" || item.After != "" {
-				line += " — `" + shortSHA(item.Before) + "` → `" + shortSHA(item.After) + "`"
-			}
-			if item.Timestamp != "" {
-				line += " — " + item.Timestamp
-			}
-			lines = append(lines, line)
+			line += " — `" + ref + "`"
 		}
-		if note := githubLocalOmissionNote("activity items returned on this provider page", len(items)-limit); note != "" {
-			lines = append(lines, "", note)
+		if item.Before != "" || item.After != "" {
+			line += " — `" + shortSHA(item.Before) + "` → `" + shortSHA(item.After) + "`"
 		}
-		return appendListNavigation(lines, target, resp.Links())
-	})
-	return out, nil
+		if item.Timestamp != "" {
+			line += " — " + item.Timestamp
+		}
+		lines = append(lines, line)
+	}
+	return appendListNavigation(lines, target, resp.Links()), nil
 }
 
 func readGitHubContributorStats(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -320,21 +315,16 @@ func readGitHubDeployments(ctx context.Context, client *GitHubClient, target *Gi
 		}
 	}
 	q := copySelectedQuery(target.Query, []string{"sha", "ref", "task", "environment", "page"})
-	q.Set("per_page", "30")
+	q.Set("per_page", strconv.Itoa(githubPageableListSize))
 	resp, deployments, err := fetchGitHubDeploymentPage(ctx, client, target, q)
 	if err != nil {
 		return "", err
 	}
-	out := githubBoundedOverviewList(len(deployments), 30, func(limit int) string {
-		lines := listFrontmatter(target, "deployments", len(deployments), limit)
-		lines = append(lines, "# Deployments", "")
-		lines = append(lines, renderDeploymentRows(target, deployments[:limit])...)
-		if note := githubLocalOmissionNote("deployments returned on this provider page", len(deployments)-limit); note != "" {
-			lines = append(lines, "", note)
-		}
-		return appendListNavigation(lines, target, resp.Links())
-	})
-	return out, nil
+	limit := len(deployments)
+	lines := listFrontmatter(target, "deployments", len(deployments), limit)
+	lines = append(lines, "# Deployments", "")
+	lines = append(lines, renderDeploymentRows(target, deployments[:limit])...)
+	return appendListNavigation(lines, target, resp.Links()), nil
 }
 
 func readGitHubDeploymentEnvironment(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
@@ -355,7 +345,7 @@ func readGitHubDeploymentEnvironment(ctx context.Context, client *GitHubClient, 
 	if err := json.Unmarshal(envResp.Body, &environment); err != nil {
 		return "", fmt.Errorf("decode GitHub environment: %w", err)
 	}
-	q := url.Values{"environment": []string{target.Name}, "per_page": []string{"10"}}
+	q := url.Values{"environment": []string{target.Name}, "per_page": []string{strconv.Itoa(githubPageableListSize)}}
 	if page := target.Query.Get("page"); page != "" {
 		n, err := strconv.Atoi(page)
 		if err != nil || n <= 0 {
@@ -379,14 +369,7 @@ func readGitHubDeploymentEnvironment(ctx context.Context, client *GitHubClient, 
 }
 
 func renderGitHubDeploymentEnvironment(target *GitHubTarget, environment githubEnvironment, deployments []githubDeployment, latestStatuses []githubDeploymentLatestStatus, links GitHubLinkRelations) string {
-	limit := len(deployments)
-	for {
-		out := renderGitHubDeploymentEnvironmentWithLimit(target, environment, deployments, latestStatuses, links, limit)
-		if githubOverviewFits(out) || limit <= 1 {
-			return out
-		}
-		limit--
-	}
+	return renderGitHubDeploymentEnvironmentWithLimit(target, environment, deployments, latestStatuses, links, len(deployments))
 }
 
 func renderGitHubDeploymentEnvironmentWithLimit(target *GitHubTarget, environment githubEnvironment, deployments []githubDeployment, latestStatuses []githubDeploymentLatestStatus, links GitHubLinkRelations, limit int) string {

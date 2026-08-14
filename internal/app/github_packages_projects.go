@@ -108,7 +108,7 @@ func readGitHubPackage(ctx context.Context, client *GitHubClient, target *GitHub
 	if err := json.Unmarshal(resp.Body, &pkg); err != nil {
 		return "", fmt.Errorf("decode GitHub Package: %w", err)
 	}
-	q := url.Values{"per_page": []string{"30"}}
+	q := url.Values{"per_page": []string{strconv.Itoa(githubPageableListSize)}}
 	if page != "" {
 		q.Set("page", page)
 	}
@@ -137,9 +137,7 @@ func githubPackageAPIBase(scope, owner, packageType, name string) (string, error
 }
 
 func renderGitHubPackage(target *GitHubTarget, pkg githubPackage, versions []githubPackageVersion, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(versions), 15, func(limit int) string {
-		return renderGitHubPackageWithLimit(target, pkg, versions, links, limit)
-	})
+	return renderGitHubPackageWithLimit(target, pkg, versions, links, len(versions))
 }
 
 func renderGitHubPackageWithLimit(target *GitHubTarget, pkg githubPackage, versions []githubPackageVersion, links GitHubLinkRelations, limit int) string {
@@ -215,9 +213,6 @@ func renderGitHubPackageWithLimit(target *GitHubTarget, pkg githubPackage, versi
 			line += " — " + version.PackageHTMLURL
 		}
 		lines = append(lines, line)
-	}
-	if note := githubLocalOmissionNote("package versions returned on this provider page", len(versions)-limit); note != "" {
-		lines = append(lines, "", note)
 	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Version navigation", "")

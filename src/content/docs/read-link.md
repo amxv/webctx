@@ -138,7 +138,7 @@ webctx read-link https://github.com/amxv/webctx/pulls
 webctx read-link 'https://github.com/vercel/next.js/pulls?q=is%3Apr+is%3Aopen'
 ```
 
-Copied PR searches stay PR searches even when GitHub uses an `/issues?q=is:pr...` URL. Native list URLs preserve supported state/branch/sort/page intent and return compact rows with direct PR links.
+Copied PR searches stay PR searches even when GitHub uses an `/issues?q=is:pr...` URL. Native pageable lists use compact provider pages and render every row returned on that page, so following the printed Next/Previous URL does not skip locally hidden rows.
 
 Read the Pull Request overview:
 
@@ -146,7 +146,7 @@ Read the Pull Request overview:
 webctx read-link https://github.com/amxv/webctx/pull/15
 ```
 
-The root stays compact: it previews the description and indexes the substantive conversation, submitted reviews, and inline review threads with exact GitHub selector URLs. Follow the printed `#issue-<id>` URL when you need the complete PR description without loading the rest of the conversation.
+The root stays compact: it previews the description and gives ordinary conversation comments their own selector index, separate from compact timeline/state events, submitted reviews, and inline review threads. Follow the printed `#issue-<id>` URL when you need the complete PR description without loading the rest of the conversation.
 
 If you already copied a GitHub anchor, keep it. `#issuecomment-*`, `#pullrequestreview-*`, and `#discussion_r*` select the corresponding full comment, review, or thread instead of rebuilding the PR root.
 
@@ -168,7 +168,7 @@ That separation is intentional. A review conversation, a diff, a commit index, a
 
 Checks start with status/conclusion rollups and put failures or active work ahead of routine successes. Every indexed check run includes a focused `?check_run_id=<id>` URL. Focused checks keep source annotation coordinates while previewing oversized machine-generated summaries/details and link the provider's deeper Details URL when available.
 
-If GitHub auth is available, review threads can include extra state such as whether a thread is resolved or outdated.
+If GitHub auth is available, review threads can include extra state such as whether a thread is resolved or outdated. Root overviews only read the first bounded GraphQL thread-state page; exact thread URLs can do deeper provider work when that selected thread requires it.
 
 ## Debug CI without dumping every log
 
@@ -315,6 +315,7 @@ Some GitHub pages can represent thousands of child objects. `webctx` keeps those
 - **Contributor statistics** prioritize the highest commit totals and bound the displayed contributor rows instead of printing every contributor. GitHub's fixed weekly statistics stay compact, and a temporary `202` remains a provider-computing state rather than an empty result.
 - **Deployments** stay identity-first. Environment detail shows the latest returned status for each bounded deployment and notes when older status history exists upstream rather than expanding the entire history inline.
 - **Code-frequency statistics** retain aggregate additions/deletions across the provider result while indexing only the recent weekly buckets when a repository has a long history.
-- **Lists and indexes** such as Issues, PRs, branches, tags, releases, search results, workflows, profile tabs, Packages, and Projects bound long human-authored row text as well as row counts. Direct GitHub links remain the drill-down mechanism.
+- **Pageable lists** such as Issues, PRs, branches, tags, releases, search results, workflows, profile tabs, Packages, activity, deployments, and commit history ask GitHub for a small stable page and render every returned row. Their printed Next/Previous URLs therefore resume without skipping a locally omitted tail.
+- **Aggregate/root indexes** such as a PR conversation map, Actions run, large Files/Checks view, Project, tree, contributor statistics, or release assets may still omit child rows locally; those views report the omission separately and print exact child/subresource URLs wherever GitHub provides them.
 
 Use the direct GitHub URLs printed in these views when you need to move from the compact overview to the provider's full page.

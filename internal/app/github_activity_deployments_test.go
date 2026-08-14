@@ -49,13 +49,13 @@ func TestRepositoryActivityIsBoundedAndPreservesProviderFilters(t *testing.T) {
 		if r.URL.Path != "/repos/o/r/activity" {
 			t.Fatalf("activity endpoint=%s", r.URL.Path)
 		}
-		for key, want := range map[string]string{"ref": "refs/heads/main", "activity_type": "push", "actor": "alice", "page": "2", "per_page": "30"} {
+		for key, want := range map[string]string{"ref": "refs/heads/main", "activity_type": "push", "actor": "alice", "page": "2", "per_page": "8"} {
 			if got := r.URL.Query().Get(key); got != want {
 				t.Errorf("activity %s=%q want %q", key, got, want)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/activity?ref=refs%%2Fheads%%2Fmain&activity_type=push&actor=alice&per_page=30&page=1>; rel="prev", <%s/repos/o/r/activity?ref=refs%%2Fheads%%2Fmain&activity_type=push&actor=alice&per_page=30&page=3>; rel="next"`, server.URL, server.URL))
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/activity?ref=refs%%2Fheads%%2Fmain&activity_type=push&actor=alice&per_page=8&page=1>; rel="prev", <%s/repos/o/r/activity?ref=refs%%2Fheads%%2Fmain&activity_type=push&actor=alice&per_page=8&page=3>; rel="next"`, server.URL, server.URL))
 		_, _ = io.WriteString(w, `[{"id":1,"before":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","after":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","ref":"refs/heads/main","timestamp":"2026-08-01T00:00:00Z","activity_type":"push","actor":{"login":"alice"}}]`)
 	}))
 	defer server.Close()
@@ -199,7 +199,7 @@ func TestDeploymentListIsBoundedAndDoesNotFetchStatuses(t *testing.T) {
 		if r.URL.Path != "/repos/o/r/deployments" {
 			t.Fatalf("deployment list endpoint=%s", r.URL.Path)
 		}
-		for key, want := range map[string]string{"environment": "production", "page": "2", "per_page": "30"} {
+		for key, want := range map[string]string{"environment": "production", "page": "2", "per_page": "8"} {
 			if got := r.URL.Query().Get(key); got != want {
 				t.Errorf("deployments %s=%q want %q", key, got, want)
 			}
@@ -226,7 +226,7 @@ func TestDeploymentEnvironmentReadsOnlyLatestStatusPage(t *testing.T) {
 		case "/repos/o/r/environments/production":
 			_, _ = io.WriteString(w, `{"id":9,"name":"production","html_url":"https://github.com/o/r/deployments/production","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-08-01T00:00:00Z"}`)
 		case "/repos/o/r/deployments":
-			if r.URL.Query().Get("environment") != "production" || r.URL.Query().Get("per_page") != "10" {
+			if r.URL.Query().Get("environment") != "production" || r.URL.Query().Get("per_page") != "8" {
 				t.Fatalf("environment deployment query=%s", r.URL.RawQuery)
 			}
 			_, _ = io.WriteString(w, `[{"id":101,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ref":"main","environment":"production","creator":{"login":"alice"},"created_at":"2026-08-01T00:00:00Z"}]`)

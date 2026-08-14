@@ -60,14 +60,17 @@ func TestActionsOverviewIsBoundedAndPreservesRunFilters(t *testing.T) {
 			if r.URL.Query().Get("page") != "" {
 				t.Errorf("Actions run page leaked into workflow sidebar query: %s", r.URL.RawQuery)
 			}
-			_, _ = io.WriteString(w, `{"total_count":1,"workflows":[{"id":10,"name":"CI","path":".github/workflows/ci.yml","state":"active","html_url":"https://github.com/o/r/actions/workflows/ci.yml"}]}`)
+			if r.URL.Query().Get("per_page") != "4" {
+				t.Errorf("Actions root workflow slice=%s", r.URL.RawQuery)
+			}
+			_, _ = io.WriteString(w, `{"total_count":1,"workflows":[{"id":10,"name":"CI","path":".github/workflows/ci.yml","state":"active","html_url":"https://github.com/o/r/blob/main/.github/workflows/ci.yml"}]}`)
 		case "/repos/o/r/actions/runs":
-			for key, want := range map[string]string{"branch": "main", "status": "failure", "page": "2", "per_page": "30"} {
+			for key, want := range map[string]string{"branch": "main", "status": "failure", "page": "2", "per_page": "8"} {
 				if got := r.URL.Query().Get(key); got != want {
 					t.Errorf("run query %s=%q want %q", key, got, want)
 				}
 			}
-			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/actions/runs?branch=main&status=failure&per_page=30&page=1>; rel="prev", <%s/repos/o/r/actions/runs?branch=main&status=failure&per_page=30&page=3>; rel="next"`, server.URL, server.URL))
+			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/actions/runs?branch=main&status=failure&per_page=8&page=1>; rel="prev", <%s/repos/o/r/actions/runs?branch=main&status=failure&per_page=8&page=3>; rel="next"`, server.URL, server.URL))
 			_, _ = io.WriteString(w, `{"total_count":50,"workflow_runs":[{"id":100,"name":"CI","display_title":"Failing build","status":"completed","conclusion":"failure","event":"push","head_branch":"main","html_url":"https://github.com/o/r/actions/runs/100"}]}`)
 		default:
 			t.Fatalf("unexpected Actions overview request %s", r.URL.Path)
@@ -79,7 +82,7 @@ func TestActionsOverviewIsBoundedAndPreservesRunFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"workflows_reported: 1", "runs_reported: 50", "[CI](https://github.com/o/r/actions/workflows/ci.yml)", "[Failing build](https://github.com/o/r/actions/runs/100)", "failure", "Previous", "page=1", "Next", "page=3"} {
+	for _, want := range []string{"workflows_reported: 1", "runs_reported: 50", "runs_provider_more_available: true", "[CI](https://github.com/o/r/actions/workflows/ci.yml)", "source https://github.com/o/r/blob/main/.github/workflows/ci.yml", "[Failing build](https://github.com/o/r/actions/runs/100)", "failure", "Previous", "page=1", "Next", "page=3"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("Actions overview missing %q:\n%s", want, out)
 		}
@@ -88,14 +91,16 @@ func TestActionsOverviewIsBoundedAndPreservesRunFilters(t *testing.T) {
 
 func TestLargeActionsOverviewAndWorkflowStayWithinSharedBudget(t *testing.T) {
 	target := &GitHubTarget{Owner: "o", Repo: "r", Query: url.Values{"page": []string{"2"}}}
-	workflows := make([]githubWorkflow, 0, 30)
-	runs := make([]githubActionsRun, 0, 30)
-	for i := 0; i < 30; i++ {
-		workflows = append(workflows, githubWorkflow{
-			ID: int64(100 + i), Name: fmt.Sprintf("Workflow %02d %s", i, strings.Repeat("descriptive-name-", 15)),
-			Path: fmt.Sprintf(".github/workflows/workflow-%02d.yml", i), State: "active",
-			HTMLURL: fmt.Sprintf("https://github.com/o/r/actions/workflows/%d", 100+i),
-		})
+	workflows := make([]githubWorkflow, 0, 4)
+	runs := make([]githubActionsRun, 0, githubPageableListSize)
+	for i := 0; i < githubPageableListSize; i++ {
+		if i < 4 {
+			workflows = append(workflows, githubWorkflow{
+				ID: int64(100 + i), Name: fmt.Sprintf("Workflow %02d %s", i, strings.Repeat("descriptive-name-", 15)),
+				Path: fmt.Sprintf(".github/workflows/workflow-%02d.yml", i), State: "active",
+				HTMLURL: fmt.Sprintf("https://github.com/o/r/blob/main/.github/workflows/workflow-%02d.yml", i),
+			})
+		}
 		runs = append(runs, githubActionsRun{
 			ID: int64(1000 + i), DisplayTitle: fmt.Sprintf("Run %02d %s", i, strings.Repeat("generated-title-", 18)),
 			Status: "completed", Conclusion: "success", Event: "push", HeadBranch: "main",
@@ -106,7 +111,7 @@ func TestLargeActionsOverviewAndWorkflowStayWithinSharedBudget(t *testing.T) {
 	if got := utf8.RuneCountInString(overview); got > githubOverviewRunes {
 		t.Fatalf("Actions root exceeded shared target: %d runes\n%s", got, overview)
 	}
-	for _, want := range []string{"All workflows: https://github.com/o/r/actions/workflows", "workflows_local_omitted:", "runs_local_omitted:", "locally omitted from this overview"} {
+	for _, want := range []string{"All workflows: https://github.com/o/r/actions/workflows", "workflows_local_omitted: 0", "runs_local_omitted: 0", "workflows_provider_more_available: true", "runs_provider_more_available: true", "https://github.com/o/r/actions/workflows/workflow-00.yml"} {
 		if !strings.Contains(overview, want) {
 			t.Fatalf("Actions root missing %q:\n%s", want, overview)
 		}
@@ -116,8 +121,8 @@ func TestLargeActionsOverviewAndWorkflowStayWithinSharedBudget(t *testing.T) {
 	if got := utf8.RuneCountInString(workflow); got > githubOverviewRunes {
 		t.Fatalf("workflow run list exceeded shared target: %d runes\n%s", got, workflow)
 	}
-	if !strings.Contains(workflow, "runs_local_omitted:") || !strings.Contains(workflow, "locally omitted from this overview") {
-		t.Fatalf("workflow did not surface local run omission:\n%s", workflow)
+	if !strings.Contains(workflow, "runs_local_omitted: 0") || !strings.Contains(workflow, "url: \"https://github.com/o/r/actions/workflows/workflow-00.yml\"") || !strings.Contains(workflow, "source_url: \"https://github.com/o/r/blob/main/.github/workflows/workflow-00.yml\"") {
+		t.Fatalf("workflow page did not preserve complete provider page/native navigation:\n%s", workflow)
 	}
 }
 
@@ -142,9 +147,9 @@ func TestWorkflowDetailAndRunsStayBounded(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/repos/o/r/actions/workflows/ci.yml":
-			_, _ = io.WriteString(w, `{"id":10,"name":"CI","path":".github/workflows/ci.yml","state":"active","html_url":"https://github.com/o/r/actions/workflows/ci.yml"}`)
+			_, _ = io.WriteString(w, `{"id":10,"name":"CI","path":".github/workflows/ci.yml","state":"active","html_url":"https://github.com/o/r/blob/main/.github/workflows/ci.yml"}`)
 		case "/repos/o/r/actions/workflows/ci.yml/runs":
-			if r.URL.Query().Get("event") != "push" || r.URL.Query().Get("page") != "2" {
+			if r.URL.Query().Get("event") != "push" || r.URL.Query().Get("page") != "2" || r.URL.Query().Get("per_page") != "8" {
 				t.Errorf("workflow run filters lost: %s", r.URL.RawQuery)
 			}
 			_, _ = io.WriteString(w, `{"total_count":1,"workflow_runs":[{"id":100,"display_title":"Push run","status":"completed","conclusion":"success","html_url":"https://github.com/o/r/actions/runs/100"}]}`)
@@ -157,7 +162,7 @@ func TestWorkflowDetailAndRunsStayBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "workflow_id: 10") || !strings.Contains(out, "[Push run](https://github.com/o/r/actions/runs/100)") || !strings.Contains(out, "success") {
+	if !strings.Contains(out, "workflow_id: 10") || !strings.Contains(out, `url: "https://github.com/o/r/actions/workflows/ci.yml"`) || !strings.Contains(out, `source_url: "https://github.com/o/r/blob/main/.github/workflows/ci.yml"`) || !strings.Contains(out, "runs_local_omitted: 0") || !strings.Contains(out, "[Push run](https://github.com/o/r/actions/runs/100)") || !strings.Contains(out, "success") {
 		t.Fatalf("workflow output incorrect:\n%s", out)
 	}
 }

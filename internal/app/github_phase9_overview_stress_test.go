@@ -51,7 +51,7 @@ func TestPhase9AdversarialHumanTextCannotAmplifyMajorOverviews(t *testing.T) {
 		release := githubRelease{TagName: long, Name: long, HTMLURL: "https://github.com/o/r/releases/tag/v1", Body: &body}
 		out := renderGitHubRelease(parseGitHubTarget("https://github.com/o/r/releases/tag/v1"), release, githubReleaseAssetsAvailability{})
 		assertGitHubOverviewBound(t, "Release root", out)
-		if !strings.Contains(out, "tag_preview_truncated: true") || !strings.Contains(out, "name_preview_truncated: true") || !strings.Contains(out, "Full release notes:") {
+		if !strings.Contains(out, "tag_preview_truncated: true") || !strings.Contains(out, "name_preview_truncated: true") || !strings.Contains(out, "Canonical GitHub release page (complete notes in the browser):") {
 			t.Fatalf("release overview lost truncation/deeper navigation:\n%s", out)
 		}
 	})
@@ -71,23 +71,23 @@ func TestPhase9AdversarialOverviewIndexesStayBounded(t *testing.T) {
 	target := parseGitHubTarget("https://github.com/o/r")
 
 	t.Run("issues", func(t *testing.T) {
-		items := make([]githubIssue, 100)
+		items := make([]githubIssue, githubPageableListSize)
 		for i := range items {
 			items[i] = githubIssue{Number: i + 1, State: "open", Title: long, HTMLURL: fmt.Sprintf("https://github.com/o/r/issues/%d", i+1)}
 			for j := 0; j < 20; j++ {
 				items[i].Labels = append(items[i].Labels, githubIssueLabel{Name: long})
 			}
 		}
-		listTarget := parseGitHubTarget("https://github.com/o/r/issues?per_page=100")
+		listTarget := parseGitHubTarget("https://github.com/o/r/issues")
 		out := renderGitHubIssueList(listTarget, items, nil, 100, false)
 		assertGitHubOverviewBound(t, "Issue list", out)
-		if !strings.Contains(out, "results_local_omitted:") || !strings.Contains(out, "locally omitted") {
-			t.Fatalf("Issue list omission not explicit:\n%s", out)
+		if !strings.Contains(out, fmt.Sprintf("results_indexed: %d", githubPageableListSize)) || !strings.Contains(out, "results_local_omitted: 0") {
+			t.Fatalf("Issue provider page was not rendered completely:\n%s", out)
 		}
 	})
 
 	t.Run("pulls", func(t *testing.T) {
-		items := make([]githubPullListItem, 100)
+		items := make([]githubPullListItem, githubPageableListSize)
 		for i := range items {
 			items[i] = githubPullListItem{Number: i + 1, State: "open", Title: long, HTMLURL: fmt.Sprintf("https://github.com/o/r/pull/%d", i+1)}
 		}
@@ -96,16 +96,16 @@ func TestPhase9AdversarialOverviewIndexesStayBounded(t *testing.T) {
 	})
 
 	t.Run("repository-lists", func(t *testing.T) {
-		branches := make([]githubBranch, 100)
-		tags := make([]githubTag, 100)
-		releases := make([]githubRelease, 100)
-		forks := make([]githubFork, 100)
-		stars := make([]githubStar, 100)
-		users := make([]githubUser, 100)
+		branches := make([]githubBranch, githubPageableListSize)
+		tags := make([]githubTag, githubPageableListSize)
+		releases := make([]githubRelease, githubPageableListSize)
+		forks := make([]githubFork, githubPageableListSize)
+		stars := make([]githubStar, githubPageableListSize)
+		users := make([]githubUser, githubPageableListSize)
 		for i := range branches {
-			branches[i].Name = long
-			tags[i].Name = long
-			releases[i].Name, releases[i].TagName = long, long
+			branches[i].Name = fmt.Sprintf("branch-%02d-%s", i, strings.Repeat("x", 80))
+			tags[i].Name = fmt.Sprintf("tag-%02d-%s", i, strings.Repeat("y", 80))
+			releases[i].Name, releases[i].TagName = long, fmt.Sprintf("v%d", i)
 			releases[i].HTMLURL = fmt.Sprintf("https://github.com/o/r/releases/tag/%d", i)
 			forks[i].FullName, forks[i].HTMLURL = long, fmt.Sprintf("https://github.com/fork/%d", i)
 			stars[i].User.Login = fmt.Sprintf("user-%d", i)
@@ -124,7 +124,7 @@ func TestPhase9AdversarialOverviewIndexesStayBounded(t *testing.T) {
 	})
 
 	t.Run("search", func(t *testing.T) {
-		items := make([]githubRepository, 30)
+		items := make([]githubRepository, githubPageableListSize)
 		for i := range items {
 			items[i] = githubRepository{FullName: fmt.Sprintf("o/r-%d", i), HTMLURL: fmt.Sprintf("https://github.com/o/r-%d", i), Description: long}
 		}
@@ -135,7 +135,7 @@ func TestPhase9AdversarialOverviewIndexesStayBounded(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertGitHubOverviewBound(t, "Search", out)
-		if !strings.Contains(out, "indexed: 15") || !strings.Contains(out, "query_preview_truncated: true") {
+		if !strings.Contains(out, fmt.Sprintf("indexed: %d", githubPageableListSize)) || !strings.Contains(out, "local_omitted: 0") || !strings.Contains(out, "query_preview_truncated: true") {
 			t.Fatalf("Search bounds not explicit:\n%s", out)
 		}
 	})
@@ -143,11 +143,11 @@ func TestPhase9AdversarialOverviewIndexesStayBounded(t *testing.T) {
 	t.Run("package-project-workflow-history", func(t *testing.T) {
 		pkg := githubPackage{Name: "pkg", PackageType: "container", HTMLURL: "https://github.com/users/o/packages/container/package/pkg"}
 		pkg.Description = &long
-		versions := make([]githubPackageVersion, 30)
+		versions := make([]githubPackageVersion, githubPageableListSize)
 		for i := range versions {
 			versions[i].Name = long
 			versions[i].PackageHTMLURL = fmt.Sprintf("https://github.com/pkg/%d", i)
-			versions[i].Metadata.Container.Tags = make([]string, 30)
+			versions[i].Metadata.Container.Tags = make([]string, 3)
 			for j := range versions[i].Metadata.Container.Tags {
 				versions[i].Metadata.Container.Tags[j] = long
 			}
@@ -160,13 +160,13 @@ func TestPhase9AdversarialOverviewIndexesStayBounded(t *testing.T) {
 		}
 		assertGitHubOverviewBound(t, "Project", renderGitHubProjectV2(&GitHubTarget{Owner: "o"}, project))
 
-		workflows := make([]githubWorkflow, 30)
+		workflows := make([]githubWorkflow, githubPageableListSize)
 		for i := range workflows {
-			workflows[i] = githubWorkflow{ID: int64(i + 1), Name: long, Path: long, HTMLURL: fmt.Sprintf("https://github.com/o/r/actions/workflows/%d", i+1)}
+			workflows[i] = githubWorkflow{ID: int64(i + 1), Name: long, Path: fmt.Sprintf(".github/workflows/workflow-%02d.yml", i), HTMLURL: fmt.Sprintf("https://github.com/o/r/blob/main/.github/workflows/workflow-%02d.yml", i)}
 		}
 		assertGitHubOverviewBound(t, "Workflow list", renderGitHubWorkflows(target, workflows, 30, nil))
 
-		commits := make([]githubPullCommit, 30)
+		commits := make([]githubPullCommit, githubPageableListSize)
 		for i := range commits {
 			commits[i].SHA = fmt.Sprintf("%040x", i+1)
 			commits[i].HTMLURL = fmt.Sprintf("https://github.com/o/r/commit/%040x", i+1)

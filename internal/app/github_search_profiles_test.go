@@ -51,13 +51,13 @@ func TestGitHubSearchRepositoryScopeSortOrderAndNavigation(t *testing.T) {
 		if r.URL.Path != "/search/repositories" {
 			t.Fatalf("unexpected search path %s", r.URL.Path)
 		}
-		for key, want := range map[string]string{"q": "reader repo:o/r", "sort": "stars", "order": "desc", "page": "2", "per_page": "30"} {
+		for key, want := range map[string]string{"q": "reader repo:o/r", "sort": "stars", "order": "desc", "page": "2", "per_page": "8"} {
 			if got := r.URL.Query().Get(key); got != want {
 				t.Errorf("search query %s=%q want %q (%s)", key, got, want, r.URL.RawQuery)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Link", fmt.Sprintf(`<%s/search/repositories?q=reader+repo%%3Ao%%2Fr&sort=stars&order=desc&per_page=30&page=1>; rel="prev", <%s/search/repositories?q=reader+repo%%3Ao%%2Fr&sort=stars&order=desc&per_page=30&page=3>; rel="next"`, server.URL, server.URL))
+		w.Header().Set("Link", fmt.Sprintf(`<%s/search/repositories?q=reader+repo%%3Ao%%2Fr&sort=stars&order=desc&per_page=8&page=1>; rel="prev", <%s/search/repositories?q=reader+repo%%3Ao%%2Fr&sort=stars&order=desc&per_page=8&page=3>; rel="next"`, server.URL, server.URL))
 		_, _ = io.WriteString(w, `{"total_count":1200,"incomplete_results":true,"items":[{"full_name":"o/r","html_url":"https://github.com/o/r","description":"repo","language":"Go","stargazers_count":12,"forks_count":3,"archived":false}]}`)
 	}))
 	defer server.Close()
@@ -226,7 +226,7 @@ func TestUserProfileTabsAreBoundedToSelectedEndpoint(t *testing.T) {
 					return
 				}
 				atomic.AddInt32(&listCalls, 1)
-				if r.URL.Path != tt.endpoint || r.URL.Query().Get("per_page") != "30" || r.URL.Query().Get("page") != "2" {
+				if r.URL.Path != tt.endpoint || r.URL.Query().Get("per_page") != "8" || r.URL.Query().Get("page") != "2" {
 					t.Fatalf("tab %s request %s?%s", tt.tab, r.URL.Path, r.URL.RawQuery)
 				}
 				_, _ = io.WriteString(w, tt.body)

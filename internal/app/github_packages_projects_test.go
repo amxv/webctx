@@ -53,10 +53,10 @@ func TestPackageDetailAndBoundedVersions(t *testing.T) {
 		case "/orgs/acme/packages/container/widget":
 			_, _ = io.WriteString(w, `{"id":1,"name":"widget","package_type":"container","html_url":"https://github.com/orgs/acme/packages/container/package/widget","visibility":"public","description":"demo package","version_count":50,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-08-01T00:00:00Z","repository":{"full_name":"acme/widget","html_url":"https://github.com/acme/widget"}}`)
 		case "/orgs/acme/packages/container/widget/versions":
-			if r.URL.Query().Get("per_page") != "30" || r.URL.Query().Get("page") != "2" {
+			if r.URL.Query().Get("per_page") != "8" || r.URL.Query().Get("page") != "2" {
 				t.Fatalf("version pagination lost: %s", r.URL.RawQuery)
 			}
-			w.Header().Set("Link", fmt.Sprintf(`<%s/orgs/acme/packages/container/widget/versions?per_page=30&page=1>; rel="prev", <%s/orgs/acme/packages/container/widget/versions?per_page=30&page=3>; rel="next"`, server.URL, server.URL))
+			w.Header().Set("Link", fmt.Sprintf(`<%s/orgs/acme/packages/container/widget/versions?per_page=8&page=1>; rel="prev", <%s/orgs/acme/packages/container/widget/versions?per_page=8&page=3>; rel="next"`, server.URL, server.URL))
 			_, _ = io.WriteString(w, `[{"id":11,"name":"sha256:abc","package_html_url":"https://github.com/orgs/acme/packages/container/widget/11","updated_at":"2026-08-01T00:00:00Z","metadata":{"package_type":"container","container":{"tags":["latest","v1"]}}}]`)
 		default:
 			t.Fatalf("unexpected package request %s", r.URL.Path)

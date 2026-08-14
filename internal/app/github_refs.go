@@ -259,7 +259,7 @@ func boundedListQuery(input url.Values, allowed []string) (url.Values, error) {
 		}
 	}
 	query := copySelectedQuery(input, allowed)
-	query.Set("per_page", "30")
+	query.Set("per_page", strconv.Itoa(githubPageableListSize))
 	if rawPage := query.Get("page"); rawPage != "" {
 		page, err := strconv.Atoi(rawPage)
 		if err != nil || page <= 0 {
@@ -270,112 +270,100 @@ func boundedListQuery(input url.Values, allowed []string) (url.Values, error) {
 }
 
 func renderGitHubBranches(target *GitHubTarget, branches []githubBranch, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(branches), 30, func(limit int) string {
-		lines := listFrontmatter(target, "branches", len(branches), limit)
-		lines = append(lines, "# Branches", "")
-		if len(branches) == 0 {
-			lines = append(lines, "_No branches returned by GitHub._")
+	limit := len(branches)
+	lines := listFrontmatter(target, "branches", len(branches), limit)
+	lines = append(lines, "# Branches", "")
+	if len(branches) == 0 {
+		lines = append(lines, "_No branches returned by GitHub._")
+	}
+	for _, branch := range branches[:limit] {
+		href := fmt.Sprintf("https://github.com/%s/%s/tree/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(branch.Name))
+		name, truncated := githubOverviewInlinePreview(branch.Name, 120)
+		if truncated {
+			name += "…"
 		}
-		for _, branch := range branches[:limit] {
-			href := fmt.Sprintf("https://github.com/%s/%s/tree/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(branch.Name))
-			name, truncated := githubOverviewInlinePreview(branch.Name, 120)
-			if truncated {
-				name += "…"
-			}
-			line := fmt.Sprintf("- [%s](%s)", escapeMarkdownLinkText(name), href)
-			meta := []string{}
-			if branch.Commit.SHA != "" {
-				meta = append(meta, "`"+shortSHA(branch.Commit.SHA)+"`")
-			}
-			if branch.Protected {
-				meta = append(meta, "protected")
-			}
-			if len(meta) > 0 {
-				line += " — " + strings.Join(meta, " · ")
-			}
-			lines = append(lines, line)
+		line := fmt.Sprintf("- [%s](%s)", escapeMarkdownLinkText(name), href)
+		meta := []string{}
+		if branch.Commit.SHA != "" {
+			meta = append(meta, "`"+shortSHA(branch.Commit.SHA)+"`")
 		}
-		if note := githubLocalOmissionNote("branches returned on this provider page", len(branches)-limit); note != "" {
-			lines = append(lines, "", note)
+		if branch.Protected {
+			meta = append(meta, "protected")
 		}
-		return appendListNavigation(lines, target, links)
-	})
+		if len(meta) > 0 {
+			line += " — " + strings.Join(meta, " · ")
+		}
+		lines = append(lines, line)
+	}
+	return appendListNavigation(lines, target, links)
 }
 
 func renderGitHubTags(target *GitHubTarget, tags []githubTag, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(tags), 30, func(limit int) string {
-		lines := listFrontmatter(target, "tags", len(tags), limit)
-		lines = append(lines, "# Tags", "")
-		if len(tags) == 0 {
-			lines = append(lines, "_No tags returned by GitHub._")
+	limit := len(tags)
+	lines := listFrontmatter(target, "tags", len(tags), limit)
+	lines = append(lines, "# Tags", "")
+	if len(tags) == 0 {
+		lines = append(lines, "_No tags returned by GitHub._")
+	}
+	for _, tag := range tags[:limit] {
+		href := fmt.Sprintf("https://github.com/%s/%s/tree/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(tag.Name))
+		name, truncated := githubOverviewInlinePreview(tag.Name, 120)
+		if truncated {
+			name += "…"
 		}
-		for _, tag := range tags[:limit] {
-			href := fmt.Sprintf("https://github.com/%s/%s/tree/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(tag.Name))
-			name, truncated := githubOverviewInlinePreview(tag.Name, 120)
-			if truncated {
-				name += "…"
-			}
-			line := fmt.Sprintf("- [%s](%s)", escapeMarkdownLinkText(name), href)
-			if tag.Commit.SHA != "" {
-				line += " — `" + shortSHA(tag.Commit.SHA) + "`"
-			}
-			lines = append(lines, line)
+		line := fmt.Sprintf("- [%s](%s)", escapeMarkdownLinkText(name), href)
+		if tag.Commit.SHA != "" {
+			line += " — `" + shortSHA(tag.Commit.SHA) + "`"
 		}
-		if note := githubLocalOmissionNote("tags returned on this provider page", len(tags)-limit); note != "" {
-			lines = append(lines, "", note)
-		}
-		return appendListNavigation(lines, target, links)
-	})
+		lines = append(lines, line)
+	}
+	return appendListNavigation(lines, target, links)
 }
 
 func renderGitHubReleases(target *GitHubTarget, releases []githubRelease, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(releases), 20, func(limit int) string {
-		lines := listFrontmatter(target, "releases", len(releases), limit)
-		lines = append(lines, "# Releases", "")
-		if len(releases) == 0 {
-			lines = append(lines, "_No releases returned by GitHub._")
+	limit := len(releases)
+	lines := listFrontmatter(target, "releases", len(releases), limit)
+	lines = append(lines, "# Releases", "")
+	if len(releases) == 0 {
+		lines = append(lines, "_No releases returned by GitHub._")
+	}
+	for _, release := range releases[:limit] {
+		title := release.Name
+		if title == "" {
+			title = release.TagName
 		}
-		for _, release := range releases[:limit] {
-			title := release.Name
-			if title == "" {
-				title = release.TagName
-			}
-			href := release.HTMLURL
-			if href == "" {
-				href = fmt.Sprintf("https://github.com/%s/%s/releases/tag/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(release.TagName))
-			}
-			titlePreview, truncated := githubOverviewInlinePreview(title, 140)
-			if truncated {
-				titlePreview += "…"
-			}
-			line := fmt.Sprintf("- [%s](%s)", escapeMarkdownLinkText(titlePreview), href)
-			meta := []string{}
-			if release.TagName != "" && release.TagName != title {
-				tagPreview, tagTruncated := githubOverviewInlinePreview(release.TagName, 100)
-				if tagTruncated {
-					tagPreview += "…"
-				}
-				meta = append(meta, "tag `"+tagPreview+"`")
-			}
-			if release.Draft {
-				meta = append(meta, "draft")
-			}
-			if release.Prerelease {
-				meta = append(meta, "prerelease")
-			}
-			if release.PublishedAt != "" {
-				meta = append(meta, release.PublishedAt)
-			}
-			if len(meta) > 0 {
-				line += " — " + strings.Join(meta, " · ")
-			}
-			lines = append(lines, line)
+		href := release.HTMLURL
+		if href == "" {
+			href = fmt.Sprintf("https://github.com/%s/%s/releases/tag/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(release.TagName))
 		}
-		if note := githubLocalOmissionNote("releases returned on this provider page", len(releases)-limit); note != "" {
-			lines = append(lines, "", note)
+		titlePreview, truncated := githubOverviewInlinePreview(title, 140)
+		if truncated {
+			titlePreview += "…"
 		}
-		return appendListNavigation(lines, target, links)
-	})
+		line := fmt.Sprintf("- [%s](%s)", escapeMarkdownLinkText(titlePreview), href)
+		meta := []string{}
+		if release.TagName != "" && release.TagName != title {
+			tagPreview, tagTruncated := githubOverviewInlinePreview(release.TagName, 100)
+			if tagTruncated {
+				tagPreview += "…"
+			}
+			meta = append(meta, "tag `"+tagPreview+"`")
+		}
+		if release.Draft {
+			meta = append(meta, "draft")
+		}
+		if release.Prerelease {
+			meta = append(meta, "prerelease")
+		}
+		if release.PublishedAt != "" {
+			meta = append(meta, release.PublishedAt)
+		}
+		if len(meta) > 0 {
+			line += " — " + strings.Join(meta, " · ")
+		}
+		lines = append(lines, line)
+	}
+	return appendListNavigation(lines, target, links)
 }
 
 func renderGitHubRelease(target *GitHubTarget, release githubRelease, availability githubReleaseAssetsAvailability) string {
@@ -471,7 +459,7 @@ func renderGitHubReleaseWithLimits(target *GitHubTarget, release githubRelease, 
 		if truncated {
 			lines = append(lines, "", "> Release notes preview locally truncated for this overview.")
 			if canonicalURL != "" {
-				lines = append(lines, "> Full release notes: "+canonicalURL)
+				lines = append(lines, "> Canonical GitHub release page (complete notes in the browser): "+canonicalURL)
 			}
 		}
 	}
@@ -520,83 +508,71 @@ func renderGitHubReleaseWithLimits(target *GitHubTarget, release githubRelease, 
 }
 
 func renderGitHubForks(target *GitHubTarget, forks []githubFork, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(forks), 30, func(limit int) string {
-		lines := listFrontmatter(target, "forks", len(forks), limit)
-		lines = append(lines, "# Forks", "")
-		if len(forks) == 0 {
-			lines = append(lines, "_No forks returned by GitHub._")
+	limit := len(forks)
+	lines := listFrontmatter(target, "forks", len(forks), limit)
+	lines = append(lines, "# Forks", "")
+	if len(forks) == 0 {
+		lines = append(lines, "_No forks returned by GitHub._")
+	}
+	for _, fork := range forks[:limit] {
+		name := fork.FullName
+		if name == "" {
+			name = fork.Owner.Login
 		}
-		for _, fork := range forks[:limit] {
-			name := fork.FullName
-			if name == "" {
-				name = fork.Owner.Login
-			}
-			namePreview, truncated := githubOverviewInlinePreview(name, 120)
-			if truncated {
-				namePreview += "…"
-			}
-			line := "- [" + escapeMarkdownLinkText(namePreview) + "](" + fork.HTMLURL + ")"
-			meta := []string{}
-			if fork.StargazersCount > 0 {
-				meta = append(meta, fmt.Sprintf("%d stars", fork.StargazersCount))
-			}
-			if fork.Language != nil && strings.TrimSpace(*fork.Language) != "" {
-				meta = append(meta, *fork.Language)
-			}
-			if fork.Archived {
-				meta = append(meta, "archived")
-			}
-			if fork.UpdatedAt != "" {
-				meta = append(meta, "updated "+fork.UpdatedAt)
-			}
-			if len(meta) > 0 {
-				line += " — " + strings.Join(meta, " · ")
-			}
-			lines = append(lines, line)
+		namePreview, truncated := githubOverviewInlinePreview(name, 120)
+		if truncated {
+			namePreview += "…"
 		}
-		if note := githubLocalOmissionNote("forks returned on this provider page", len(forks)-limit); note != "" {
-			lines = append(lines, "", note)
+		line := "- [" + escapeMarkdownLinkText(namePreview) + "](" + fork.HTMLURL + ")"
+		meta := []string{}
+		if fork.StargazersCount > 0 {
+			meta = append(meta, fmt.Sprintf("%d stars", fork.StargazersCount))
 		}
-		return appendListNavigation(lines, target, links)
-	})
+		if fork.Language != nil && strings.TrimSpace(*fork.Language) != "" {
+			meta = append(meta, *fork.Language)
+		}
+		if fork.Archived {
+			meta = append(meta, "archived")
+		}
+		if fork.UpdatedAt != "" {
+			meta = append(meta, "updated "+fork.UpdatedAt)
+		}
+		if len(meta) > 0 {
+			line += " — " + strings.Join(meta, " · ")
+		}
+		lines = append(lines, line)
+	}
+	return appendListNavigation(lines, target, links)
 }
 
 func renderGitHubStargazers(target *GitHubTarget, stars []githubStar, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(stars), 30, func(limit int) string {
-		lines := listFrontmatter(target, "stargazers", len(stars), limit)
-		lines = append(lines, "# Stargazers", "", "_These are users who starred the repository. GitHub's `watchers_count` is also a historical star-count alias; it is not the subscriber count._", "")
-		if len(stars) == 0 {
-			lines = append(lines, "_No stargazers returned by GitHub._")
+	limit := len(stars)
+	lines := listFrontmatter(target, "stargazers", len(stars), limit)
+	lines = append(lines, "# Stargazers", "", "_These are users who starred the repository. GitHub's `watchers_count` is also a historical star-count alias; it is not the subscriber count._", "")
+	if len(stars) == 0 {
+		lines = append(lines, "_No stargazers returned by GitHub._")
+	}
+	for _, star := range stars[:limit] {
+		line := renderGitHubUserIdentity(star.User)
+		if star.StarredAt != "" {
+			line += " — starred " + star.StarredAt
 		}
-		for _, star := range stars[:limit] {
-			line := renderGitHubUserIdentity(star.User)
-			if star.StarredAt != "" {
-				line += " — starred " + star.StarredAt
-			}
-			lines = append(lines, line)
-		}
-		if note := githubLocalOmissionNote("stargazers returned on this provider page", len(stars)-limit); note != "" {
-			lines = append(lines, "", note)
-		}
-		return appendListNavigation(lines, target, links)
-	})
+		lines = append(lines, line)
+	}
+	return appendListNavigation(lines, target, links)
 }
 
 func renderGitHubWatchers(target *GitHubTarget, users []githubUser, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(users), 30, func(limit int) string {
-		lines := listFrontmatter(target, "watchers", len(users), limit)
-		lines = append(lines, "# Watchers / subscribers", "", "_This list uses GitHub's subscribers API: these are actual repository watchers/subscribers, not stars._", "")
-		if len(users) == 0 {
-			lines = append(lines, "_No watchers/subscribers returned by GitHub._")
-		}
-		for _, user := range users[:limit] {
-			lines = append(lines, renderGitHubUserIdentity(user))
-		}
-		if note := githubLocalOmissionNote("watchers returned on this provider page", len(users)-limit); note != "" {
-			lines = append(lines, "", note)
-		}
-		return appendListNavigation(lines, target, links)
-	})
+	limit := len(users)
+	lines := listFrontmatter(target, "watchers", len(users), limit)
+	lines = append(lines, "# Watchers / subscribers", "", "_This list uses GitHub's subscribers API: these are actual repository watchers/subscribers, not stars._", "")
+	if len(users) == 0 {
+		lines = append(lines, "_No watchers/subscribers returned by GitHub._")
+	}
+	for _, user := range users[:limit] {
+		lines = append(lines, renderGitHubUserIdentity(user))
+	}
+	return appendListNavigation(lines, target, links)
 }
 
 func renderGitHubUserIdentity(user githubUser) string {

@@ -114,7 +114,7 @@ func readGitHubSearch(ctx context.Context, client *GitHubClient, target *GitHubT
 	} else if uiType == "pullrequests" {
 		q += " is:pr"
 	}
-	provider := url.Values{"q": []string{q}, "per_page": []string{"30"}}
+	provider := url.Values{"q": []string{q}, "per_page": []string{strconv.Itoa(githubPageableListSize)}}
 	if sort := target.Query.Get("s"); sort != "" {
 		provider.Set("sort", sort)
 	}
@@ -148,7 +148,7 @@ func renderGitHubSearch(target *GitHubTarget, searchType string, envelope github
 		}
 	}
 	returned := len(rawItems)
-	indexed := minInt(15, returned)
+	indexed := returned
 	queryPreview, queryTruncated := githubOverviewInlinePreview(target.Query.Get("q"), 300)
 	lines := []string{
 		"---",
@@ -273,9 +273,6 @@ func renderGitHubSearch(target *GitHubTarget, searchType string, envelope github
 			}
 			lines = append(lines, line)
 		}
-	}
-	if note := githubLocalOmissionNote("GitHub Search results returned on this provider page", returned-indexed); note != "" {
-		lines = append(lines, "", note)
 	}
 	if returned == 0 {
 		lines = append(lines, "_No results returned on this page._")
@@ -412,7 +409,7 @@ func renderGitHubProfile(profile githubProfile) string {
 
 func readGitHubProfileTab(ctx context.Context, client *GitHubClient, target *GitHubTarget, profile githubProfile, tab string) (string, error) {
 	page := target.Query.Get("page")
-	provider := url.Values{"per_page": []string{"30"}}
+	provider := url.Values{"per_page": []string{strconv.Itoa(githubPageableListSize)}}
 	if page != "" {
 		provider.Set("page", page)
 	}
@@ -461,7 +458,7 @@ func readGitHubProfileTab(ctx context.Context, client *GitHubClient, target *Git
 			return "", fmt.Errorf("decode GitHub profile repositories: %w", err)
 		}
 		returned = len(items)
-		indexed = minInt(20, returned)
+		indexed = returned
 		for _, item := range items[:indexed] {
 			name, truncated := githubOverviewInlinePreview(item.FullName, 120)
 			if truncated {
@@ -475,7 +472,7 @@ func readGitHubProfileTab(ctx context.Context, client *GitHubClient, target *Git
 			return "", fmt.Errorf("decode GitHub profile Gists: %w", err)
 		}
 		returned = len(items)
-		indexed = minInt(20, returned)
+		indexed = returned
 		for _, item := range items[:indexed] {
 			line := "- [" + item.ID + "](" + item.HTMLURL + ")"
 			if item.Description != "" {
@@ -493,16 +490,13 @@ func readGitHubProfileTab(ctx context.Context, client *GitHubClient, target *Git
 			return "", fmt.Errorf("decode GitHub profile users: %w", err)
 		}
 		returned = len(items)
-		indexed = minInt(20, returned)
+		indexed = returned
 		for _, item := range items[:indexed] {
 			rows = append(rows, renderGitHubUserIdentity(item))
 		}
 	}
 	lines := []string{"---", "login: " + yamlScalar(profile.Login), "type: " + yamlScalar(profile.Type), "view: " + yamlScalar(tab), "page: " + page, fmt.Sprintf("returned: %d", returned), fmt.Sprintf("indexed: %d", indexed), fmt.Sprintf("local_omitted: %d", returned-indexed), "---", "", "# " + profile.Login + " — " + tab, ""}
 	lines = append(lines, rows...)
-	if note := githubLocalOmissionNote("profile-tab results returned on this provider page", returned-indexed); note != "" {
-		lines = append(lines, "", note)
-	}
 	if nav := renderGitHubUIPageNavigation(target, resp.Links()); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")
 		lines = append(lines, nav...)

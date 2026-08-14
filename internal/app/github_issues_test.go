@@ -377,6 +377,9 @@ func TestIssueListFiltersPullRequestsAndPreservesFiltersAndNavigation(t *testing
 				t.Errorf("query %s: got %q want %q", key, got, want)
 			}
 		}
+		if r.URL.Query().Get("per_page") != "8" {
+			t.Errorf("Issue list provider page size = %q", r.URL.Query().Get("per_page"))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/issues?state=closed&labels=bug%%2Cui&page=1>; rel="prev", <%s/repos/o/r/issues?state=closed&labels=bug%%2Cui&page=3>; rel="next"`, server.URL, server.URL))
 		_, _ = io.WriteString(w, `[
@@ -399,6 +402,9 @@ func TestIssueListFiltersPullRequestsAndPreservesFiltersAndNavigation(t *testing
 	if !strings.Contains(out, "labels=bug%2Cui") || !strings.Contains(out, "state=closed") {
 		t.Fatalf("UI filters were not preserved in navigation:\n%s", out)
 	}
+	if !strings.Contains(out, "results_indexed: 1") || !strings.Contains(out, "results_local_omitted: 0") {
+		t.Fatalf("Issue provider page was not rendered completely:\n%s", out)
+	}
 }
 
 func TestIssueSearchUsesSearchResourceAndSurfacesIncompleteResults(t *testing.T) {
@@ -409,6 +415,9 @@ func TestIssueSearchUsesSearchResourceAndSurfacesIncompleteResults(t *testing.T)
 		q := r.URL.Query().Get("q")
 		if !strings.Contains(q, "repo:o/r") || !strings.Contains(q, "label:bug") || !strings.Contains(q, "is:issue") {
 			t.Errorf("search qualifiers missing from %q", q)
+		}
+		if r.URL.Query().Get("per_page") != "8" {
+			t.Errorf("Issue search provider page size = %q", r.URL.Query().Get("per_page"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-RateLimit-Resource", "search")

@@ -80,7 +80,7 @@ That is not necessarily an error. Large GitHub roots are deliberately context-bo
 - **Provider-more / provider ceiling** means GitHub itself has another page or exposes only a bounded provider result.
 - **Local omission** means webctx received rows but kept only a compact index in this overview.
 
-Use the GitHub URLs printed in the result to open the next page or exact child. For copied comments, threads, source ranges, diff hunks, focused checks, and Gist selectors, pass that exact URL back to `read-link`. For bulk change text, use the explicit `.diff` or `.patch` URL. There is no separate webctx “fetch everything” flag.
+For a normal pageable list, webctx renders every row from its compact provider page; use the printed Next/Previous URL to continue without skipping rows. Local omission is reserved for aggregate/root overviews where enumerating every child is not the page contract. In those views, use the exact child/subresource URLs that are printed. For copied comments, threads, source ranges, diff hunks, focused checks, and Gist selectors, pass that exact URL back to `read-link`. For bulk change text, use the explicit `.diff` or `.patch` URL. There is no separate webctx “fetch everything” flag.
 
 ## An unsupported GitHub page is being crawled
 

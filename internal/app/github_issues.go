@@ -1156,10 +1156,8 @@ func readGitHubIssueList(ctx context.Context, client *GitHubClient, target *GitH
 		}
 		return readGitHubIssueSearch(ctx, client, target)
 	}
-	query := copySelectedQuery(target.Query, []string{"milestone", "state", "assignee", "type", "creator", "mentioned", "labels", "sort", "direction", "since", "per_page", "page"})
-	if query.Get("per_page") == "" {
-		query.Set("per_page", "30")
-	}
+	query := copySelectedQuery(target.Query, []string{"milestone", "state", "assignee", "type", "creator", "mentioned", "labels", "sort", "direction", "since", "page"})
+	query.Set("per_page", strconv.Itoa(githubPageableListSize))
 	endpoint := fmt.Sprintf("/repos/%s/%s/issues?%s", url.PathEscape(target.Owner), url.PathEscape(target.Repo), query.Encode())
 	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
@@ -1189,14 +1187,12 @@ func readGitHubIssueSearch(ctx context.Context, client *GitHubClient, target *Gi
 		q += " is:issue"
 	}
 	apiQuery := url.Values{"q": []string{strings.TrimSpace(q)}}
-	for _, key := range []string{"sort", "order", "per_page", "page"} {
+	for _, key := range []string{"sort", "order", "page"} {
 		if value := target.Query.Get(key); value != "" {
 			apiQuery.Set(key, value)
 		}
 	}
-	if apiQuery.Get("per_page") == "" {
-		apiQuery.Set("per_page", "30")
-	}
+	apiQuery.Set("per_page", strconv.Itoa(githubPageableListSize))
 	endpoint := "/search/issues?" + apiQuery.Encode()
 	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
@@ -1292,14 +1288,7 @@ func filterPullRequestsFromIssues(issues []githubIssue) []githubIssue {
 }
 
 func renderGitHubIssueList(target *GitHubTarget, issues []githubIssue, links GitHubLinkRelations, total int, incomplete bool) string {
-	limit := minInt(30, len(issues))
-	for {
-		out := renderGitHubIssueListWithLimit(target, issues, links, total, incomplete, limit)
-		if githubOverviewFits(out) || limit <= 1 {
-			return out
-		}
-		limit--
-	}
+	return renderGitHubIssueListWithLimit(target, issues, links, total, incomplete, len(issues))
 }
 
 func renderGitHubIssueListWithLimit(target *GitHubTarget, issues []githubIssue, links GitHubLinkRelations, total int, incomplete bool, limit int) string {
@@ -1356,9 +1345,6 @@ func renderGitHubIssueListWithLimit(target *GitHubTarget, issues []githubIssue, 
 		}
 		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", issue.Number, escapeMarkdownLinkText(title), urlText, strings.Join(meta, " · ")))
 	}
-	if note := githubLocalOmissionNote("Issues returned on this provider page", len(issues)-limit); note != "" {
-		lines = append(lines, "", note)
-	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")
 		lines = append(lines, nav...)
@@ -1370,10 +1356,8 @@ func readGitHubLabelList(ctx context.Context, client *GitHubClient, target *GitH
 	if target.Fragment != "" {
 		return "", fmt.Errorf("GitHub label-list fragment %q is not supported", target.Fragment)
 	}
-	query := copySelectedQuery(target.Query, []string{"per_page", "page"})
-	if query.Get("per_page") == "" {
-		query.Set("per_page", "30")
-	}
+	query := copySelectedQuery(target.Query, []string{"page"})
+	query.Set("per_page", strconv.Itoa(githubPageableListSize))
 	endpoint := fmt.Sprintf("/repos/%s/%s/labels?%s", url.PathEscape(target.Owner), url.PathEscape(target.Repo), query.Encode())
 	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
@@ -1383,7 +1367,7 @@ func readGitHubLabelList(ctx context.Context, client *GitHubClient, target *GitH
 	if err := json.Unmarshal(resp.Body, &labels); err != nil {
 		return "", fmt.Errorf("decode GitHub labels: %w", err)
 	}
-	out := githubBoundedOverviewList(len(labels), 20, func(limit int) string {
+	out := func(limit int) string {
 		lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: labels", fmt.Sprintf("results: %d", len(labels)), fmt.Sprintf("results_indexed: %d", limit), fmt.Sprintf("results_local_omitted: %d", len(labels)-limit), "---", "", "# Labels", ""}
 		for _, label := range labels[:limit] {
 			labelURL := fmt.Sprintf("https://github.com/%s/%s/labels/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), url.PathEscape(label.Name))
@@ -1404,15 +1388,12 @@ func readGitHubLabelList(ctx context.Context, client *GitHubClient, target *GitH
 		if len(labels) == 0 {
 			lines = append(lines, "_No labels on this page._")
 		}
-		if note := githubLocalOmissionNote("labels returned on this provider page", len(labels)-limit); note != "" {
-			lines = append(lines, "", note)
-		}
 		if nav := renderGitHubUIPageNavigation(target, resp.Links()); len(nav) > 0 {
 			lines = append(lines, "", "## Navigation", "")
 			lines = append(lines, nav...)
 		}
 		return strings.TrimSpace(strings.Join(lines, "\n"))
-	})
+	}(len(labels))
 	return out, nil
 }
 
@@ -1429,7 +1410,7 @@ func readGitHubLabel(ctx context.Context, client *GitHubClient, target *GitHubTa
 	if err := json.Unmarshal(resp.Body, &label); err != nil {
 		return "", fmt.Errorf("decode GitHub label: %w", err)
 	}
-	listQuery := url.Values{"labels": []string{target.Name}, "state": []string{"all"}, "per_page": []string{"30"}}
+	listQuery := url.Values{"labels": []string{target.Name}, "state": []string{"all"}, "per_page": []string{strconv.Itoa(githubPageableListSize)}}
 	if page := target.Query.Get("page"); page != "" {
 		listQuery.Set("page", page)
 	}
@@ -1465,10 +1446,8 @@ func readGitHubMilestones(ctx context.Context, client *GitHubClient, target *Git
 	if target.Fragment != "" {
 		return "", fmt.Errorf("GitHub milestone-list fragment %q is not supported", target.Fragment)
 	}
-	query := copySelectedQuery(target.Query, []string{"state", "sort", "direction", "per_page", "page"})
-	if query.Get("per_page") == "" {
-		query.Set("per_page", "30")
-	}
+	query := copySelectedQuery(target.Query, []string{"state", "sort", "direction", "page"})
+	query.Set("per_page", strconv.Itoa(githubPageableListSize))
 	endpoint := fmt.Sprintf("/repos/%s/%s/milestones?%s", url.PathEscape(target.Owner), url.PathEscape(target.Repo), query.Encode())
 	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
@@ -1478,7 +1457,7 @@ func readGitHubMilestones(ctx context.Context, client *GitHubClient, target *Git
 	if err := json.Unmarshal(resp.Body, &milestones); err != nil {
 		return "", fmt.Errorf("decode GitHub milestones: %w", err)
 	}
-	out := githubBoundedOverviewList(len(milestones), 20, func(limit int) string {
+	out := func(limit int) string {
 		lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: milestones", fmt.Sprintf("results: %d", len(milestones)), fmt.Sprintf("results_indexed: %d", limit), fmt.Sprintf("results_local_omitted: %d", len(milestones)-limit), "---", "", "# Milestones", ""}
 		if len(milestones) == 0 {
 			lines = append(lines, "_No milestones on this page._")
@@ -1495,15 +1474,12 @@ func readGitHubMilestones(ctx context.Context, client *GitHubClient, target *Git
 			}
 			lines = append(lines, fmt.Sprintf("- [%s](%s) — %s", escapeMarkdownLinkText(title), href, meta))
 		}
-		if note := githubLocalOmissionNote("milestones returned on this provider page", len(milestones)-limit); note != "" {
-			lines = append(lines, "", note)
-		}
 		if nav := renderGitHubUIPageNavigation(target, resp.Links()); len(nav) > 0 {
 			lines = append(lines, "", "## Navigation", "")
 			lines = append(lines, nav...)
 		}
 		return strings.TrimSpace(strings.Join(lines, "\n"))
-	})
+	}(len(milestones))
 	return out, nil
 }
 
@@ -1520,7 +1496,7 @@ func readGitHubMilestone(ctx context.Context, client *GitHubClient, target *GitH
 	if err := json.Unmarshal(resp.Body, &milestone); err != nil {
 		return "", fmt.Errorf("decode GitHub milestone: %w", err)
 	}
-	listQuery := url.Values{"milestone": []string{strconv.Itoa(target.Number)}, "state": []string{"all"}, "per_page": []string{"30"}}
+	listQuery := url.Values{"milestone": []string{strconv.Itoa(target.Number)}, "state": []string{"all"}, "per_page": []string{strconv.Itoa(githubPageableListSize)}}
 	if page := target.Query.Get("page"); page != "" {
 		listQuery.Set("page", page)
 	}

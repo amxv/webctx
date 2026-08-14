@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -134,11 +135,11 @@ func readGitHubActionsOverview(ctx context.Context, client *GitHubClient, target
 	if q := strings.TrimSpace(target.Query.Get("query")); q != "" {
 		return "", fmt.Errorf("GitHub Actions UI filter query %q is not yet a supported native filter", q)
 	}
-	workflows, workflowTotal, _, err := fetchGitHubWorkflowPageForRepo(ctx, client, target.Owner, target.Repo, "")
+	workflows, workflowTotal, _, err := fetchGitHubWorkflowPageForRepo(ctx, client, target.Owner, target.Repo, "", 4)
 	if err != nil {
 		return "", err
 	}
-	runs, runTotal, links, err := fetchGitHubRunPage(ctx, client, target, "")
+	runs, runTotal, links, err := fetchGitHubRunPage(ctx, client, target, "", 8)
 	if err != nil {
 		return "", err
 	}
@@ -149,15 +150,18 @@ func readGitHubWorkflows(ctx context.Context, client *GitHubClient, target *GitH
 	if target.Fragment != "" {
 		return "", fmt.Errorf("GitHub workflows fragment %q is not a supported native selector", target.Fragment)
 	}
-	workflows, total, links, err := fetchGitHubWorkflowPageForRepo(ctx, client, target.Owner, target.Repo, target.Query.Get("page"))
+	workflows, total, links, err := fetchGitHubWorkflowPageForRepo(ctx, client, target.Owner, target.Repo, target.Query.Get("page"), githubPageableListSize)
 	if err != nil {
 		return "", err
 	}
 	return renderGitHubWorkflows(target, workflows, total, links), nil
 }
 
-func fetchGitHubWorkflowPageForRepo(ctx context.Context, client *GitHubClient, owner, repo, page string) ([]githubWorkflow, int, GitHubLinkRelations, error) {
-	query := url.Values{"per_page": []string{"30"}}
+func fetchGitHubWorkflowPageForRepo(ctx context.Context, client *GitHubClient, owner, repo, page string, perPage int) ([]githubWorkflow, int, GitHubLinkRelations, error) {
+	if perPage <= 0 {
+		perPage = githubPageableListSize
+	}
+	query := url.Values{"per_page": []string{strconv.Itoa(perPage)}}
 	if strings.TrimSpace(page) != "" {
 		if parsed, err := strconv.Atoi(page); err != nil || parsed <= 0 {
 			return nil, 0, nil, fmt.Errorf("invalid GitHub Actions page %q", page)
@@ -192,16 +196,19 @@ func readGitHubWorkflow(ctx context.Context, client *GitHubClient, target *GitHu
 	if err := json.Unmarshal(resp.Body, &workflow); err != nil {
 		return "", fmt.Errorf("decode GitHub workflow: %w", err)
 	}
-	runs, total, links, err := fetchGitHubRunPage(ctx, client, target, target.Name)
+	runs, total, links, err := fetchGitHubRunPage(ctx, client, target, target.Name, githubPageableListSize)
 	if err != nil {
 		return "", err
 	}
 	return renderGitHubWorkflow(target, workflow, runs, total, links), nil
 }
 
-func fetchGitHubRunPage(ctx context.Context, client *GitHubClient, target *GitHubTarget, workflow string) ([]githubActionsRun, int, GitHubLinkRelations, error) {
+func fetchGitHubRunPage(ctx context.Context, client *GitHubClient, target *GitHubTarget, workflow string, perPage int) ([]githubActionsRun, int, GitHubLinkRelations, error) {
 	query := copySelectedQuery(target.Query, []string{"actor", "branch", "event", "status", "created", "exclude_pull_requests", "check_suite_id", "head_sha", "page"})
-	query.Set("per_page", "30")
+	if perPage <= 0 {
+		perPage = githubPageableListSize
+	}
+	query.Set("per_page", strconv.Itoa(perPage))
 	if rawPage := query.Get("page"); rawPage != "" {
 		if parsed, err := strconv.Atoi(rawPage); err != nil || parsed <= 0 {
 			return nil, 0, nil, fmt.Errorf("invalid GitHub Actions page %q", rawPage)
@@ -385,22 +392,7 @@ func decodeGitHubJobLog(body []byte) (string, error) {
 }
 
 func renderGitHubActionsOverview(target *GitHubTarget, workflows []githubWorkflow, workflowTotal int, runs []githubActionsRun, runTotal int, links GitHubLinkRelations) string {
-	workflowLimit := minInt(6, len(workflows))
-	runLimit := minInt(14, len(runs))
-	for {
-		out := renderGitHubActionsOverviewWithLimits(target, workflows, workflowTotal, runs, runTotal, links, workflowLimit, runLimit)
-		if githubOverviewFits(out) {
-			return out
-		}
-		switch {
-		case runLimit > 1:
-			runLimit--
-		case workflowLimit > 1:
-			workflowLimit--
-		default:
-			return out
-		}
-	}
+	return renderGitHubActionsOverviewWithLimits(target, workflows, workflowTotal, runs, runTotal, links, len(workflows), len(runs))
 }
 
 func renderGitHubActionsOverviewWithLimits(target *GitHubTarget, workflows []githubWorkflow, workflowTotal int, runs []githubActionsRun, runTotal int, links GitHubLinkRelations, workflowLimit, runLimit int) string {
@@ -418,19 +410,17 @@ func renderGitHubActionsOverviewWithLimits(target *GitHubTarget, workflows []git
 		fmt.Sprintf("runs_reported: %d", runTotal),
 		fmt.Sprintf("runs_indexed: %d", runLimit),
 		fmt.Sprintf("runs_local_omitted: %d", len(runs)-runLimit),
-		"---", "", "# Actions", "",
-		"All workflows: " + actionsWorkflowsURL(target),
-		"", "## Workflow index", "",
 	}
+	if workflowTotal > len(workflows) {
+		lines = append(lines, "workflows_provider_more_available: true")
+	}
+	if runTotal > len(runs) {
+		lines = append(lines, "runs_provider_more_available: true")
+	}
+	lines = append(lines, "---", "", "# Actions", "", "All workflows: "+actionsWorkflowsURL(target), "", "## Workflow index", "")
 	lines = append(lines, renderWorkflowList(target, workflows[:workflowLimit])...)
-	if note := githubLocalOmissionNote("workflows from this provider page", len(workflows)-workflowLimit); note != "" {
-		lines = append(lines, "", note)
-	}
 	lines = append(lines, "", "## Recent run index", "")
 	lines = append(lines, renderActionsRunList(target, runs[:runLimit])...)
-	if note := githubLocalOmissionNote("recent runs from this provider page", len(runs)-runLimit); note != "" {
-		lines = append(lines, "", note)
-	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Run navigation", "")
 		lines = append(lines, nav...)
@@ -439,18 +429,14 @@ func renderGitHubActionsOverviewWithLimits(target *GitHubTarget, workflows []git
 }
 
 func renderGitHubWorkflows(target *GitHubTarget, workflows []githubWorkflow, total int, links GitHubLinkRelations) string {
-	return githubBoundedOverviewList(len(workflows), 20, func(limit int) string {
-		lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: workflows", fmt.Sprintf("workflows_returned: %d", len(workflows)), fmt.Sprintf("workflows_reported: %d", total), fmt.Sprintf("workflows_indexed: %d", limit), fmt.Sprintf("workflows_local_omitted: %d", len(workflows)-limit), "---", "", "# Workflows", ""}
-		lines = append(lines, renderWorkflowList(target, workflows[:limit])...)
-		if note := githubLocalOmissionNote("workflows returned on this provider page", len(workflows)-limit); note != "" {
-			lines = append(lines, "", note)
-		}
-		if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
-			lines = append(lines, "", "## Navigation", "")
-			lines = append(lines, nav...)
-		}
-		return strings.TrimSpace(strings.Join(lines, "\n"))
-	})
+	limit := len(workflows)
+	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "view: workflows", fmt.Sprintf("workflows_returned: %d", len(workflows)), fmt.Sprintf("workflows_reported: %d", total), fmt.Sprintf("workflows_indexed: %d", limit), fmt.Sprintf("workflows_local_omitted: %d", len(workflows)-limit), "---", "", "# Workflows", ""}
+	lines = append(lines, renderWorkflowList(target, workflows[:limit])...)
+	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
+		lines = append(lines, "", "## Navigation", "")
+		lines = append(lines, nav...)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func renderWorkflowList(target *GitHubTarget, workflows []githubWorkflow) []string {
@@ -459,10 +445,7 @@ func renderWorkflowList(target *GitHubTarget, workflows []githubWorkflow) []stri
 	}
 	lines := []string{}
 	for _, workflow := range workflows {
-		href := workflow.HTMLURL
-		if href == "" {
-			href = fmt.Sprintf("https://github.com/%s/%s/actions/workflows/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), workflow.ID)
-		}
+		href := actionsWorkflowURL(target, workflow)
 		name := workflow.Name
 		if name == "" {
 			name = workflow.Path
@@ -480,6 +463,9 @@ func renderWorkflowList(target *GitHubTarget, workflows []githubWorkflow) []stri
 			}
 			meta = append(meta, "`"+path+"`")
 		}
+		if workflow.HTMLURL != "" && workflow.Path != "" {
+			meta = append(meta, "source "+workflow.HTMLURL)
+		}
 		if len(meta) > 0 {
 			line += " — " + strings.Join(meta, " · ")
 		}
@@ -489,17 +475,7 @@ func renderWorkflowList(target *GitHubTarget, workflows []githubWorkflow) []stri
 }
 
 func renderGitHubWorkflow(target *GitHubTarget, workflow githubWorkflow, runs []githubActionsRun, total int, links GitHubLinkRelations) string {
-	runLimit := len(runs)
-	for {
-		out := renderGitHubWorkflowWithLimit(target, workflow, runs, total, links, runLimit)
-		if githubOverviewFits(out) {
-			return out
-		}
-		if runLimit <= 1 {
-			return out
-		}
-		runLimit--
-	}
+	return renderGitHubWorkflowWithLimit(target, workflow, runs, total, links, len(runs))
 }
 
 func renderGitHubWorkflowWithLimit(target *GitHubTarget, workflow githubWorkflow, runs []githubActionsRun, total int, links GitHubLinkRelations, runLimit int) string {
@@ -510,14 +486,12 @@ func renderGitHubWorkflowWithLimit(target *GitHubTarget, workflow githubWorkflow
 		path += "…"
 	}
 	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), fmt.Sprintf("workflow_id: %d", workflow.ID), "name: " + yamlScalar(name), "state: " + yamlScalar(workflow.State), "path: " + yamlScalar(path), fmt.Sprintf("runs_returned: %d", len(runs)), fmt.Sprintf("runs_reported: %d", total), fmt.Sprintf("runs_indexed: %d", runLimit), fmt.Sprintf("runs_local_omitted: %d", len(runs)-runLimit)}
-	if workflow.HTMLURL != "" {
-		lines = append(lines, "url: "+yamlScalar(workflow.HTMLURL))
+	lines = append(lines, "url: "+yamlScalar(actionsWorkflowURL(target, workflow)))
+	if workflow.HTMLURL != "" && workflow.Path != "" {
+		lines = append(lines, "source_url: "+yamlScalar(workflow.HTMLURL))
 	}
 	lines = append(lines, "---", "", "# Workflow: "+name, "", "## Runs", "")
 	lines = append(lines, renderActionsRunList(target, runs[:runLimit])...)
-	if note := githubLocalOmissionNote("runs from this provider page", len(runs)-runLimit); note != "" {
-		lines = append(lines, "", note)
-	}
 	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
 		lines = append(lines, "", "## Navigation", "")
 		lines = append(lines, nav...)
@@ -579,6 +553,20 @@ func actionsListLabel(value string) string {
 
 func actionsWorkflowsURL(target *GitHubTarget) string {
 	return fmt.Sprintf("https://github.com/%s/%s/actions/workflows", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo))
+}
+
+func actionsWorkflowURL(target *GitHubTarget, workflow githubWorkflow) string {
+	selector := strings.TrimSpace(workflow.Path)
+	if selector != "" {
+		selector = path.Base(selector)
+	}
+	if selector == "" && workflow.ID > 0 {
+		selector = strconv.FormatInt(workflow.ID, 10)
+	}
+	if selector == "" {
+		return actionsWorkflowsURL(target)
+	}
+	return fmt.Sprintf("https://github.com/%s/%s/actions/workflows/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), url.PathEscape(selector))
 }
 
 func renderGitHubActionsRun(target *GitHubTarget, run githubActionsRun, jobs []githubActionsJob, artifacts []githubActionsArtifact, availability githubActionsRunAvailability) string {
