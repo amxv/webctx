@@ -24,7 +24,7 @@ A phase is `complete` only after its observable outcome, phase-specific positive
 
 | Phase | Capability | Status | Completion commit | Evidence / next boundary |
 | ---: | --- | --- | --- | --- |
-| 1 | Shared bounded-context contract and resilient Issues | pending | — | Start here. Prove bounded Issue behavior plus polymorphic timeline decoding and `#issue-*`. |
+| 1 | Shared bounded-context contract and resilient Issues | complete | `68db77888bc136f97086aad62d4b844bb4d25159` | Large Issue roots are bounded/adaptive, `minimized` shape drift is tolerant, and exact `#issue-*` body reads are proven live. |
 | 2 | Native Pull Request lists and PR-qualified search correctness | pending | — | `/pulls` and `/issues?q=is:pr...` become truthful native PR lists. |
 | 3 | Bounded PR root and complete selector discoverability | pending | — | PR root becomes a compact map to body/comments/reviews/threads/files/commits/checks. |
 | 4 | PR Files and Checks bounded subviews | pending | — | Large patch/check fan-out becomes index-first; focused selectors remain exact. |
@@ -37,12 +37,12 @@ A phase is `complete` only after its observable outcome, phase-specific positive
 
 ## Current handoff
 
-- **Last completed phase:** none.
-- **Earliest incomplete phase:** Phase 1 — `Shared bounded-context contract and resilient Issues`.
-- **Observable boundary:** current `v0.2.0` native GitHub readers are feature-rich but some container/detail URLs still expand subordinate text without a context budget; old Issues can also fail on object-shaped `minimized` timeline data.
+- **Last completed phase:** Phase 1 — `Shared bounded-context contract and resilient Issues`.
+- **Earliest incomplete phase:** Phase 2 — `Native Pull Request lists and PR-qualified search correctness`.
+- **Observable boundary:** Issue roots now preserve the complete readable conversation when small and switch to a deterministic bounded overview when large; `#issue-<id>` reads the exact Issue description, and live object-shaped Issue timeline `minimized` data no longer erases the primary Issue. `/pulls` and PR-qualified `/issues?q=...` remain the next unsupported/incorrect public boundary.
 - **Current blockers:** none known. GitHub/provider behavior listed as assumptions in the plan must be verified at the phase that depends on it.
 - **Plan Amendments affecting next phase:** none.
-- **Prompt to use now:** `first-agent-prompt.md`.
+- **Prompt to use now:** `subsequent-agent-prompt.md`.
 
 ## Planning baseline evidence
 
@@ -82,6 +82,22 @@ Append one entry after every completed or blocked phase:
 ```
 
 Never place credentials, private live content, tokens, raw private provider payloads, or local secret values in this ledger.
+
+### 2026-08-14 — Phase 1 — `complete`
+
+- **Agent/session:** ChatGPT Atlas implementation session on the existing `/workspace/repos/webctx` checkout.
+- **Starting state:** clean `main` at `7f3a294f1aef96c7c65070c932fce77ac3972297`, already fast-forwarded to `origin/main` before edits.
+- **Ending commit(s):** `68db77888bc136f97086aad62d4b844bb4d25159` (implementation and user-facing Issue docs); this ledger update follows as the administrative handoff commit.
+- **Outcome:** GitHub Issue timeline decoding now tolerates boolean, null, and object-shaped `minimized` data; exact `#issue-<Issue id>` reads verify identity and return only the complete selected description; small Issue roots retain the prior readable conversation while large roots switch to a deterministic ~5k-rune overview with body/comment previews, relationship/pinned facts, exact selector URLs, and distinct local-omission/provider-incomplete truth.
+- **Files/areas changed:** shared GitHub overview helpers in `internal/app/github.go`; Issue decode/select/render behavior and fixtures in `internal/app/github_issues.go` / `internal/app/github_issues_test.go`; public Issue navigation guidance in `src/content/docs/read-link.md`.
+- **Positive evidence:** deterministic `minimized` fixtures cover false/null/true and object `{"reason":"spam"}` plus nearby unknown shapes; exact Issue-body tests prove one-provider-read selection and mismatch rejection; the synthetic pathological Issue renders at 4,134 Unicode runes with safe body/comment previews, selectors, pinned/relationship facts, and truthful omission; the existing small complete-conversation fixture remains in full form.
+- **Regression evidence:** `go test ./...`, `go vet ./...`, `npm test`, `make build`, and `git diff --check` all passed; existing Issue comment ownership, relationship/pinned/noise filtering, repository/source, client/error, and non-GitHub fallback tests remain green as part of the repository suite.
+- **Live evidence:** built `webctx` successfully read `https://github.com/cli/cli/issues/326` in 4,315 runes instead of failing decode; the current public timeline still exposed 34 null and 8 object-shaped minimized values with object reason `spam`; the returned overview exposed `#issue-561414098` and exact comment selectors; reading `#issue-561414098` returned only the description in 1,379 runes with no timeline expansion.
+- **Documentation:** `src/content/docs/read-link.md` now documents adaptive Issue roots and the exact `#issue-<issue-id>` description path; no later-phase behavior was documented early.
+- **Decisions made:** kept Issue timeline pagination complete in this first vertical slice to preserve the existing Issue conversation/provider contract; boundedness is applied at rendering while later phases address high-amplification container pagination where the plan explicitly requires it.
+- **Amendments:** none.
+- **Known defects/risks:** `/pulls` is still non-native and PR-qualified `/issues?q=...` is still handled as an Issue search; those are intentionally Phase 2. Other PR/Actions/compare context growth remains in later phases.
+- **Next handoff:** Phase 2 — read `subsequent-agent-prompt.md`, reconcile current remote state, then inspect only the Phase 2 plan/sweep/source boundaries for native `/pulls` and PR-qualified search correctness.
 
 ## Execution rules
 
