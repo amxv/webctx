@@ -186,11 +186,22 @@ One commit:
 webctx read-link https://github.com/<owner>/<repo>/commit/<sha>
 ```
 
+Commit roots stay compact: the commit message, authorship/verification/stats, parents, changed-file index, and commit-comment index are kept, while file patches and long comment bodies are not expanded into the root. Every indexed file uses GitHub's exact `#diff-<sha256(path)>` selector; copied left/right line-range anchors narrow that selected patch further. Copied `#commitcomment-<id>` anchors read only that commit comment.
+
+When you explicitly want the complete textual change instead of the semantic overview, use the raw representations printed by the commit output:
+
+```bash
+webctx read-link https://github.com/<owner>/<repo>/commit/<sha>.diff
+webctx read-link https://github.com/<owner>/<repo>/commit/<sha>.patch
+```
+
 Compare two refs:
 
 ```bash
 webctx read-link 'https://github.com/<owner>/<repo>/compare/main...feature'
 ```
+
+Compare roots likewise keep bounded commit/file indexes and provider completeness facts instead of embedding every patch or chasing every commit page. Use the printed `.diff` or `.patch` comparison URL when the raw comparison is what you actually need.
 
 History for one path:
 

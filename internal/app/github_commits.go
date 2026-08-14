@@ -65,6 +65,11 @@ type githubCommitComment struct {
 	UpdatedAt         string     `json:"updated_at"`
 }
 
+type githubCommitAvailability struct {
+	FilesProviderMore    bool
+	CommentsProviderMore bool
+}
+
 type githubCompareResult struct {
 	HTMLURL         string             `json:"html_url"`
 	PermalinkURL    string             `json:"permalink_url"`
@@ -78,6 +83,10 @@ type githubCompareResult struct {
 	MergeBaseCommit githubPullCommit   `json:"merge_base_commit"`
 	Commits         []githubPullCommit `json:"commits"`
 	Files           []githubPullFile   `json:"files"`
+}
+
+type githubCompareAvailability struct {
+	CommitsProviderMore bool
 }
 
 type githubBlameRange struct {
@@ -101,23 +110,60 @@ type githubBlameRange struct {
 }
 
 func readGitHubCommit(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
+	if commentID, ok, err := parseCommitCommentSelector(target.Fragment); ok {
+		if err != nil {
+			return "", err
+		}
+		return readGitHubCommitComment(ctx, client, target, commentID)
+	}
+	if selector, ok, err := parseGitHubDiffSelector(target.Fragment); ok {
+		if err != nil {
+			return "", err
+		}
+		return readGitHubCommitDiffSelector(ctx, client, target, selector)
+	}
 	if target.Fragment != "" {
 		return "", fmt.Errorf("GitHub commit fragment %q is not a supported native selector", target.Fragment)
 	}
-	endpoint := fmt.Sprintf("/repos/%s/%s/commits/%s?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), url.PathEscape(target.Name))
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+	detail, filesMore, err := fetchGitHubCommitPage(ctx, client, target)
 	if err != nil {
 		return "", err
 	}
+	comments, commentsMore, err := fetchGitHubCommitCommentsPage(ctx, client, target, detail)
+	if err != nil {
+		return "", err
+	}
+	return renderGitHubCommit(target, detail, comments, githubCommitAvailability{FilesProviderMore: filesMore, CommentsProviderMore: commentsMore}), nil
+}
+
+func fetchGitHubCommitPage(ctx context.Context, client *GitHubClient, target *GitHubTarget) (githubCommitDetail, bool, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/commits/%s?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), url.PathEscape(target.Name))
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return githubCommitDetail{}, false, err
+	}
+	var detail githubCommitDetail
+	if err := json.Unmarshal(resp.Body, &detail); err != nil {
+		return githubCommitDetail{}, false, fmt.Errorf("decode GitHub commit: %w", err)
+	}
+	return detail, strings.TrimSpace(resp.Links()["next"]) != "", nil
+}
+
+func fetchGitHubCommitAllFiles(ctx context.Context, client *GitHubClient, target *GitHubTarget) (githubCommitDetail, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/commits/%s?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), url.PathEscape(target.Name))
+	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return githubCommitDetail{}, err
+	}
 	if len(pages) == 0 {
-		return "", fmt.Errorf("GitHub returned no commit pages")
+		return githubCommitDetail{}, fmt.Errorf("GitHub returned no commit pages")
 	}
 	var detail githubCommitDetail
 	files := []githubPullFile{}
 	for i, page := range pages {
 		var current githubCommitDetail
 		if err := json.Unmarshal(page.Body, &current); err != nil {
-			return "", fmt.Errorf("decode GitHub commit: %w", err)
+			return githubCommitDetail{}, fmt.Errorf("decode GitHub commit: %w", err)
 		}
 		if i == 0 {
 			detail = current
@@ -125,12 +171,7 @@ func readGitHubCommit(ctx context.Context, client *GitHubClient, target *GitHubT
 		files = append(files, current.Files...)
 	}
 	detail.Files = files
-	comments, err := fetchGitHubCommitComments(ctx, client, target, detail.SHA)
-	if err != nil {
-		return "", err
-	}
-	capReached := len(files) >= githubCommitFilesMax
-	return renderGitHubCommit(target, detail, comments, !capReached, capReached), nil
+	return detail, nil
 }
 
 func fetchGitHubCommitComments(ctx context.Context, client *GitHubClient, target *GitHubTarget, sha string) ([]githubCommitComment, error) {
@@ -150,17 +191,165 @@ func fetchGitHubCommitComments(ctx context.Context, client *GitHubClient, target
 	return comments, nil
 }
 
-func renderGitHubCommit(target *GitHubTarget, detail githubCommitDetail, comments []githubCommitComment, complete, capReached bool) string {
+func fetchGitHubCommitCommentsPage(ctx context.Context, client *GitHubClient, target *GitHubTarget, detail githubCommitDetail) ([]githubCommitComment, bool, error) {
+	if detail.Commit.CommentCount == 0 {
+		return nil, false, nil
+	}
+	endpoint := fmt.Sprintf("/repos/%s/%s/commits/%s/comments?per_page=100", url.PathEscape(target.Owner), url.PathEscape(target.Repo), url.PathEscape(detail.SHA))
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return nil, false, err
+	}
+	var comments []githubCommitComment
+	if err := json.Unmarshal(resp.Body, &comments); err != nil {
+		return nil, false, fmt.Errorf("decode GitHub commit comments: %w", err)
+	}
+	return comments, strings.TrimSpace(resp.Links()["next"]) != "", nil
+}
+
+func parseCommitCommentSelector(fragment string) (int64, bool, error) {
+	if fragment == "" || !strings.HasPrefix(fragment, "commitcomment-") {
+		return 0, false, nil
+	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(fragment, "commitcomment-"), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, true, fmt.Errorf("invalid GitHub commit-comment selector %q", fragment)
+	}
+	return id, true, nil
+}
+
+func readGitHubCommitComment(ctx context.Context, client *GitHubClient, target *GitHubTarget, commentID int64) (string, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/comments/%d", url.PathEscape(target.Owner), url.PathEscape(target.Repo), commentID)
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return "", err
+	}
+	var comment githubCommitComment
+	if err := json.Unmarshal(resp.Body, &comment); err != nil {
+		return "", fmt.Errorf("decode GitHub commit comment: %w", err)
+	}
+	if isHexCommitish(target.Name) {
+		if !commitishMatchesSHA(target.Name, comment.CommitID) {
+			return "", fmt.Errorf("GitHub commit-comment selector commitcomment-%d belongs to commit %s, not %s", commentID, comment.CommitID, target.Name)
+		}
+	} else if !commitishMatchesSHA(target.Name, comment.CommitID) {
+		detail, _, err := fetchGitHubCommitPage(ctx, client, target)
+		if err != nil {
+			return "", err
+		}
+		if !strings.EqualFold(detail.SHA, comment.CommitID) {
+			return "", fmt.Errorf("GitHub commit-comment selector commitcomment-%d belongs to commit %s, not %s", commentID, comment.CommitID, detail.SHA)
+		}
+	}
+	return renderGitHubSelectedCommitComment(target, comment), nil
+}
+
+func commitishMatchesSHA(commitish, sha string) bool {
+	commitish = strings.TrimSpace(commitish)
+	sha = strings.TrimSpace(sha)
+	if len(commitish) < 7 || len(commitish) > len(sha) {
+		return false
+	}
+	for _, r := range commitish {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') && !(r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return strings.HasPrefix(strings.ToLower(sha), strings.ToLower(commitish))
+}
+
+func isHexCommitish(commitish string) bool {
+	commitish = strings.TrimSpace(commitish)
+	if len(commitish) < 7 || len(commitish) > 64 {
+		return false
+	}
+	for _, r := range commitish {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') && !(r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+func readGitHubCommitDiffSelector(ctx context.Context, client *GitHubClient, target *GitHubTarget, selector githubDiffSelector) (string, error) {
+	detail, err := fetchGitHubCommitAllFiles(ctx, client, target)
+	if err != nil {
+		return "", err
+	}
+	var selected *githubPullFile
+	for i := range detail.Files {
+		if githubDiffPathHash(detail.Files[i].Filename) == selector.Hash {
+			selected = &detail.Files[i]
+			break
+		}
+	}
+	if selected == nil {
+		return "", fmt.Errorf("GitHub diff selector %q does not match any changed file in commit %s", target.Fragment, detail.SHA)
+	}
+	file := *selected
+	if selector.Side != 0 {
+		if file.Patch == nil || strings.TrimSpace(*file.Patch) == "" {
+			return "", fmt.Errorf("GitHub diff line selector %q targets a file whose patch is unavailable from the provider", target.Fragment)
+		}
+		patch, err := selectGitHubPatchHunks(*file.Patch, selector.Side, selector.Start, selector.End)
+		if err != nil {
+			return "", fmt.Errorf("GitHub diff line selector %q is stale or out of range: %w", target.Fragment, err)
+		}
+		file.Patch = &patch
+	}
+	return renderGitHubSelectedCommitFile(target, detail, file, selector), nil
+}
+
+func renderGitHubCommit(target *GitHubTarget, detail githubCommitDetail, comments []githubCommitComment, availability githubCommitAvailability) string {
+	fileLimit := minInt(14, len(detail.Files))
+	commentLimit := minInt(6, len(comments))
+	for {
+		out := renderGitHubCommitWithLimits(target, detail, comments, availability, fileLimit, commentLimit)
+		if githubOverviewFits(out) {
+			return out
+		}
+		switch {
+		case commentLimit > 1:
+			commentLimit--
+		case fileLimit > 1:
+			fileLimit--
+		default:
+			return out
+		}
+	}
+}
+
+func renderGitHubCommitWithLimits(target *GitHubTarget, detail githubCommitDetail, comments []githubCommitComment, availability githubCommitAvailability, fileLimit, commentLimit int) string {
+	fileLimit = minInt(fileLimit, len(detail.Files))
+	commentLimit = minInt(commentLimit, len(comments))
+	commentReported := detail.Commit.CommentCount
+	if commentReported < len(comments) {
+		commentReported = len(comments)
+	}
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
 		"sha: " + yamlScalar(detail.SHA),
+		"overview: true",
 		fmt.Sprintf("files_returned: %d", len(detail.Files)),
-		fmt.Sprintf("files_complete: %t", complete),
-		fmt.Sprintf("comments: %d", len(comments)),
+		fmt.Sprintf("files_indexed: %d", fileLimit),
+		fmt.Sprintf("files_local_omitted: %d", len(detail.Files)-fileLimit),
+		fmt.Sprintf("comments_reported: %d", commentReported),
+		fmt.Sprintf("comments_returned: %d", len(comments)),
+		fmt.Sprintf("comments_indexed: %d", commentLimit),
+		fmt.Sprintf("comments_local_omitted: %d", len(comments)-commentLimit),
 		fmt.Sprintf("additions: %d", detail.Stats.Additions),
 		fmt.Sprintf("deletions: %d", detail.Stats.Deletions),
 		fmt.Sprintf("changes: %d", detail.Stats.Total),
+		fmt.Sprintf("provider_file_ceiling: %d", githubCommitFilesMax),
+	}
+	if availability.FilesProviderMore {
+		lines = append(lines, "files_provider_more_available: true")
+	}
+	if availability.CommentsProviderMore {
+		lines = append(lines, "comments_provider_more_available: true")
+	} else if commentReported > len(comments) {
+		lines = append(lines, "comments_provider_complete: false")
 	}
 	if detail.Author.Login != "" {
 		lines = append(lines, "author: "+yamlScalar("@"+detail.Author.Login))
@@ -200,24 +389,139 @@ func renderGitHubCommit(target *GitHubTarget, detail githubCommitDetail, comment
 		}
 		lines = append(lines, "")
 	}
-	lines = append(lines, "## Changed files", "")
-	if capReached {
-		lines = append(lines, "> GitHub's commit JSON file listing has a 3,000-file maximum. This result must not be treated as complete beyond that provider ceiling.", "")
+	lines = append(lines, "## Changed-file index", "")
+	if availability.FilesProviderMore {
+		lines = append(lines, "> GitHub has more changed files beyond the provider page fetched for this overview. Exact diff selectors and raw `.diff`/`.patch` remain explicit deep paths.", "")
 	}
 	if len(detail.Files) == 0 {
 		lines = append(lines, "_No changed files returned by GitHub._", "")
 	}
-	for _, file := range detail.Files {
-		lines = append(lines, renderGitHubPullFile(file, githubDiffSelector{}, false)...)
+	for _, file := range detail.Files[:fileLimit] {
+		lines = append(lines, renderCommitFileIndex(detail, file)...)
 	}
-	lines = append(lines, "## Commit comments", "")
+	if note := githubLocalOmissionNote("changed files returned on this provider page", len(detail.Files)-fileLimit); note != "" {
+		lines = append(lines, note, "")
+	}
+	lines = append(lines, "## Commit-comment index", "")
 	if len(comments) == 0 {
-		lines = append(lines, "_No commit comments._")
+		lines = append(lines, "_No commit comments returned on this provider page._")
 	}
-	for _, comment := range comments {
-		lines = append(lines, renderGitHubCommitComment(comment)...)
+	for _, comment := range comments[:commentLimit] {
+		lines = append(lines, renderGitHubCommitCommentIndex(target, detail, comment)...)
 	}
+	if note := githubLocalOmissionNote("commit comments returned on this provider page", len(comments)-commentLimit); note != "" {
+		lines = append(lines, note)
+	}
+	if availability.CommentsProviderMore {
+		lines = append(lines, "", "> GitHub has more commit comments beyond the provider page fetched for this overview.")
+	} else if commentReported > len(comments) {
+		lines = append(lines, "", "> GitHub reports more commit comments than were returned by the fetched provider data; this provider-incomplete state is separate from local overview omission.")
+	}
+	lines = append(lines, "", "## Raw GitHub representations", "", "- Diff: "+commitRawURL(detail, target, ".diff"), "- Patch: "+commitRawURL(detail, target, ".patch"))
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func renderCommitFileIndex(detail githubCommitDetail, file githubPullFile) []string {
+	lines := []string{"### `" + file.Filename + "`", ""}
+	meta := []string{}
+	if file.Status != "" {
+		meta = append(meta, "status "+file.Status)
+	}
+	meta = append(meta, fmt.Sprintf("+%d", file.Additions), fmt.Sprintf("-%d", file.Deletions), fmt.Sprintf("%d changes", file.Changes))
+	if file.PreviousFilename != "" {
+		meta = append(meta, "renamed from `"+file.PreviousFilename+"`")
+	}
+	lines = append(lines, "_"+strings.Join(meta, " · ")+"_")
+	base := detail.HTMLURL
+	if base != "" {
+		lines = append(lines, "Selector: "+base+"#diff-"+githubDiffPathHash(file.Filename))
+	}
+	if file.BlobURL != "" {
+		lines = append(lines, "Blob: "+file.BlobURL)
+	}
+	if file.RawURL != "" {
+		lines = append(lines, "Raw: "+file.RawURL)
+	}
+	lines = append(lines, "")
+	return lines
+}
+
+func renderGitHubCommitCommentIndex(target *GitHubTarget, detail githubCommitDetail, comment githubCommitComment) []string {
+	heading := fmt.Sprintf("### Comment `%d`", comment.ID)
+	if comment.User.Login != "" {
+		heading += " by @" + comment.User.Login
+	}
+	if comment.CreatedAt != "" {
+		heading += " — " + comment.CreatedAt
+	}
+	lines := []string{heading, ""}
+	if coord := commitCommentCoordinate(comment); coord != "" {
+		lines = append(lines, "Location: "+coord, "")
+	}
+	body := "_Commit comment body is unavailable or deleted._"
+	if comment.Body != nil {
+		body = strings.TrimSpace(stripInvisibleHTMLComments(*comment.Body))
+		if body == "" {
+			body = "_Comment is empty after removing invisible GitHub markup._"
+		}
+	}
+	preview, truncated := githubOverviewPreview(body, githubIndexPreviewRunes)
+	for _, line := range strings.Split(preview, "\n") {
+		lines = append(lines, "> "+line)
+	}
+	if truncated {
+		lines = append(lines, "> _Preview locally truncated._")
+	}
+	selector := comment.HTMLURL
+	if selector == "" {
+		base := detail.HTMLURL
+		if base == "" {
+			base = fmt.Sprintf("https://github.com/%s/%s/commit/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), detail.SHA)
+		}
+		selector = base + "#commitcomment-" + strconv.FormatInt(comment.ID, 10)
+	}
+	lines = append(lines, "", "Selector: "+selector, "")
+	return lines
+}
+
+func commitCommentCoordinate(comment githubCommitComment) string {
+	if comment.Path == "" {
+		return ""
+	}
+	coord := "`" + comment.Path + "`"
+	if comment.Line != nil {
+		coord += fmt.Sprintf(" line %d", *comment.Line)
+	}
+	return coord
+}
+
+func renderGitHubSelectedCommitComment(target *GitHubTarget, comment githubCommitComment) string {
+	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "commit: " + yamlScalar(comment.CommitID), fmt.Sprintf("comment_id: %d", comment.ID)}
+	if comment.HTMLURL != "" {
+		lines = append(lines, "url: "+yamlScalar(comment.HTMLURL))
+	}
+	lines = append(lines, "---", "", fmt.Sprintf("# Commit comment %d", comment.ID), "")
+	lines = append(lines, renderGitHubCommitComment(comment)...)
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func renderGitHubSelectedCommitFile(target *GitHubTarget, detail githubCommitDetail, file githubPullFile, selector githubDiffSelector) string {
+	lines := []string{"---", "repository: " + yamlScalar(target.Owner+"/"+target.Repo), "commit: " + yamlScalar(detail.SHA), "selector: " + yamlScalar(target.Fragment), "file: " + yamlScalar(file.Filename), "---", "", fmt.Sprintf("# Commit %s — selected diff", shortSHA(detail.SHA)), ""}
+	lines = append(lines, renderGitHubPullFile(file, selector, true)...)
+	lines = append(lines, "## Raw GitHub representations", "", "- Diff: "+commitRawURL(detail, target, ".diff"), "- Patch: "+commitRawURL(detail, target, ".patch"))
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func commitRawURL(detail githubCommitDetail, target *GitHubTarget, suffix string) string {
+	base := strings.TrimSpace(detail.HTMLURL)
+	if base == "" {
+		sha := detail.SHA
+		if sha == "" {
+			sha = target.Name
+		}
+		base = fmt.Sprintf("https://github.com/%s/%s/commit/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), sha)
+	}
+	return strings.TrimRight(base, "/") + suffix
 }
 
 func renderGitHubCommitComment(comment githubCommitComment) []string {
@@ -284,32 +588,17 @@ func readGitHubCompare(ctx context.Context, client *GitHubClient, target *GitHub
 		return "", err
 	}
 	endpoint := githubCompareEndpoint(target.Owner, target.Repo, base, head) + "?per_page=100"
-	pages, err := client.RESTPages(ctx, endpoint, "application/vnd.github+json")
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
 	if err != nil {
 		return "", err
 	}
-	if len(pages) == 0 {
-		return "", fmt.Errorf("GitHub returned no comparison pages")
-	}
 	var result githubCompareResult
-	commits := []githubPullCommit{}
-	files := []githubPullFile{}
-	for i, page := range pages {
-		var current githubCompareResult
-		if err := json.Unmarshal(page.Body, &current); err != nil {
-			return "", fmt.Errorf("decode GitHub comparison: %w", err)
-		}
-		if i == 0 {
-			result = current
-			files = append(files, current.Files...)
-		}
-		commits = append(commits, current.Commits...)
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
+		return "", fmt.Errorf("decode GitHub comparison: %w", err)
 	}
-	result.Commits = commits
-	result.Files = files
-	filesComplete := len(files) < githubCompareFilesMax
-	commitsComplete := result.TotalCommits <= len(commits)
-	return renderGitHubCompare(target, base, head, result, commitsComplete, filesComplete), nil
+	filesComplete := len(result.Files) < githubCompareFilesMax
+	availability := githubCompareAvailability{CommitsProviderMore: strings.TrimSpace(resp.Links()["next"]) != ""}
+	return renderGitHubCompare(target, base, head, result, availability, filesComplete), nil
 }
 
 func githubCompareRefs(target *GitHubTarget) (string, string, error) {
@@ -324,58 +613,122 @@ func githubCompareEndpoint(owner, repo, base, head string) string {
 	return fmt.Sprintf("/repos/%s/%s/compare/%s", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(basehead))
 }
 
-func renderGitHubCompare(target *GitHubTarget, base, head string, result githubCompareResult, commitsComplete, filesComplete bool) string {
+func renderGitHubCompare(target *GitHubTarget, base, head string, result githubCompareResult, availability githubCompareAvailability, filesComplete bool) string {
+	commitLimit := minInt(20, len(result.Commits))
+	fileLimit := minInt(14, len(result.Files))
+	for {
+		out := renderGitHubCompareWithLimits(target, base, head, result, availability, filesComplete, commitLimit, fileLimit)
+		if githubOverviewFits(out) {
+			return out
+		}
+		switch {
+		case fileLimit > 1:
+			fileLimit--
+		case commitLimit > 1:
+			commitLimit--
+		default:
+			return out
+		}
+	}
+}
+
+func renderGitHubCompareWithLimits(target *GitHubTarget, base, head string, result githubCompareResult, availability githubCompareAvailability, filesComplete bool, commitLimit, fileLimit int) string {
+	commitLimit = minInt(commitLimit, len(result.Commits))
+	fileLimit = minInt(fileLimit, len(result.Files))
+	commitsProviderComplete := !availability.CommitsProviderMore && result.TotalCommits <= len(result.Commits)
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
 		"base: " + yamlScalar(base),
 		"head: " + yamlScalar(head),
 		"status: " + yamlScalar(result.Status),
+		"overview: true",
 		fmt.Sprintf("ahead_by: %d", result.AheadBy),
 		fmt.Sprintf("behind_by: %d", result.BehindBy),
 		fmt.Sprintf("total_commits: %d", result.TotalCommits),
 		fmt.Sprintf("commits_returned: %d", len(result.Commits)),
-		fmt.Sprintf("commits_complete: %t", commitsComplete),
+		fmt.Sprintf("commits_indexed: %d", commitLimit),
+		fmt.Sprintf("commits_local_omitted: %d", len(result.Commits)-commitLimit),
+		fmt.Sprintf("commits_provider_complete: %t", commitsProviderComplete),
 		fmt.Sprintf("files_returned: %d", len(result.Files)),
+		fmt.Sprintf("files_indexed: %d", fileLimit),
+		fmt.Sprintf("files_local_omitted: %d", len(result.Files)-fileLimit),
 		fmt.Sprintf("files_complete: %t", filesComplete),
+		fmt.Sprintf("provider_file_ceiling: %d", githubCompareFilesMax),
+	}
+	if availability.CommitsProviderMore {
+		lines = append(lines, "commits_provider_more_available: true")
 	}
 	if result.HTMLURL != "" {
 		lines = append(lines, "url: "+yamlScalar(result.HTMLURL))
 	}
-	lines = append(lines, "---", "", fmt.Sprintf("# Compare %s...%s", base, head), "")
-	if !commitsComplete {
-		lines = append(lines, "> GitHub reported more comparison commits than were returned through pagination; commit history is incomplete.", "")
+	lines = append(lines, "---", "", fmt.Sprintf("# Compare %s...%s", base, head), "", "## Commit index", "")
+	if availability.CommitsProviderMore {
+		lines = append(lines, "> GitHub has more commits beyond the provider page fetched for this overview.", "")
+	} else if !commitsProviderComplete {
+		lines = append(lines, "> GitHub reported more commits than were returned by the fetched provider data; this provider-incomplete state is separate from local overview omission.", "")
 	}
-	if !filesComplete {
-		lines = append(lines, "> GitHub comparison JSON exposes changed files only on the first page and up to 300 files. This file list may be incomplete.", "")
-	}
-	lines = append(lines, "## Commits", "")
 	if len(result.Commits) == 0 {
 		lines = append(lines, "_No comparison commits returned by GitHub._")
 	}
-	for _, commit := range result.Commits {
-		message := firstLine(commit.Commit.Message)
+	for _, commit := range result.Commits[:commitLimit] {
+		message := actionsListLabel(firstLine(commit.Commit.Message))
 		label := "`" + shortSHA(commit.SHA) + "`"
 		if commit.HTMLURL != "" {
 			label = "[" + label + "](" + commit.HTMLURL + ")"
 		}
 		line := "- " + label
 		if message != "" {
-			line += " " + message
+			line += " — " + message
 		}
 		if commit.Commit.Author.Date != "" {
 			line += " — " + commit.Commit.Author.Date
 		}
 		lines = append(lines, line)
 	}
-	lines = append(lines, "", "## Changed files", "")
+	if note := githubLocalOmissionNote("commits returned on this provider page", len(result.Commits)-commitLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	lines = append(lines, "", "## Changed-file index", "")
+	if !filesComplete {
+		lines = append(lines, "> GitHub exposes comparison file metadata only on the first page and up to 300 files. Provider ceiling and local overview omission are separate facts.", "")
+	}
 	if len(result.Files) == 0 {
 		lines = append(lines, "_No changed files returned by GitHub._")
 	}
-	for _, file := range result.Files {
-		lines = append(lines, renderGitHubPullFile(file, githubDiffSelector{}, false)...)
+	for _, file := range result.Files[:fileLimit] {
+		lines = append(lines, renderCompareFileIndex(file)...)
 	}
+	if note := githubLocalOmissionNote("changed files returned by the comparison provider response", len(result.Files)-fileLimit); note != "" {
+		lines = append(lines, note)
+	}
+	lines = append(lines, "", "## Raw GitHub representations", "", "- Diff: "+compareRawURL(target, base, head, ".diff"), "- Patch: "+compareRawURL(target, base, head, ".patch"))
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func renderCompareFileIndex(file githubPullFile) []string {
+	lines := []string{"### `" + file.Filename + "`", ""}
+	meta := []string{}
+	if file.Status != "" {
+		meta = append(meta, "status "+file.Status)
+	}
+	meta = append(meta, fmt.Sprintf("+%d", file.Additions), fmt.Sprintf("-%d", file.Deletions), fmt.Sprintf("%d changes", file.Changes))
+	if file.PreviousFilename != "" {
+		meta = append(meta, "renamed from `"+file.PreviousFilename+"`")
+	}
+	lines = append(lines, "_"+strings.Join(meta, " · ")+"_")
+	if file.BlobURL != "" {
+		lines = append(lines, "Blob: "+file.BlobURL)
+	}
+	if file.RawURL != "" {
+		lines = append(lines, "Raw: "+file.RawURL)
+	}
+	lines = append(lines, "")
+	return lines
+}
+
+func compareRawURL(target *GitHubTarget, base, head, suffix string) string {
+	return fmt.Sprintf("https://github.com/%s/%s/compare/%s...%s%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), escapePathPreservingSlashes(base), escapePathPreservingSlashes(head), suffix)
 }
 
 func readGitHubCompareRawDiff(ctx context.Context, client *GitHubClient, target *GitHubTarget, patch bool) (string, error) {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseGitHubCommitCompareHistoryBlameTargets(t *testing.T) {
@@ -50,7 +52,7 @@ func TestParseGitHubCommitCompareHistoryBlameTargets(t *testing.T) {
 	}
 }
 
-func TestReadGitHubCommitPaginatesFilesAndComments(t *testing.T) {
+func TestReadGitHubCommitOverviewStopsAfterFirstFileAndCommentPages(t *testing.T) {
 	var commitPages, commentPages int32
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,8 +61,7 @@ func TestReadGitHubCommitPaginatesFilesAndComments(t *testing.T) {
 		case "/repos/o/r/commits/ref":
 			atomic.AddInt32(&commitPages, 1)
 			if r.URL.Query().Get("page") == "2" {
-				_, _ = io.WriteString(w, `{"sha":"fullsha","files":[{"filename":"b.go","status":"added","additions":1,"changes":1,"patch":"@@ -0,0 +1 @@\n+b"}]}`)
-				return
+				t.Fatal("plain commit overview followed file pagination")
 			}
 			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/commits/ref?per_page=100&page=2>; rel="next"`, server.URL))
 			_, _ = io.WriteString(w, `{
@@ -69,16 +70,15 @@ func TestReadGitHubCommitPaginatesFilesAndComments(t *testing.T) {
                     "commit":{"message":"Subject\n\nBody","author":{"name":"Alice","date":"2026-08-01T00:00:00Z"},"committer":{"name":"Bot","date":"2026-08-01T01:00:00Z"},"comment_count":2,"verification":{"verified":true,"reason":"valid","verified_at":"2026-08-01T01:00:01Z"}},
                     "stats":{"total":3,"additions":2,"deletions":1},
                     "parents":[{"sha":"parentparentparent","html_url":"https://github.com/o/r/commit/parent"}],
-                    "files":[{"filename":"a.go","status":"modified","additions":1,"deletions":1,"changes":2,"patch":"@@ -1 +1 @@\n-old\n+new"}]
+                    "files":[{"filename":"a.go","status":"modified","additions":1,"deletions":1,"changes":2,"blob_url":"https://github.com/o/r/blob/fullsha/a.go","raw_url":"https://raw.example/a.go","patch":"@@ -1 +1 @@\n-old\n+new"}]
                 }`)
 		case "/repos/o/r/commits/fullsha/comments":
 			atomic.AddInt32(&commentPages, 1)
 			if r.URL.Query().Get("page") == "2" {
-				_, _ = io.WriteString(w, `[{"id":2,"body":null,"user":{"login":"gone"},"created_at":"2026-08-03T00:00:00Z"}]`)
-				return
+				t.Fatal("plain commit overview followed comment pagination")
 			}
 			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/commits/fullsha/comments?per_page=100&page=2>; rel="next"`, server.URL))
-			_, _ = io.WriteString(w, `[{"id":1,"body":"Visible comment\n<!-- hidden marker -->\nkept","html_url":"https://github.com/o/r/commit/fullsha#commitcomment-1","user":{"login":"reviewer"},"author_association":"MEMBER","path":"a.go","line":1,"created_at":"2026-08-02T00:00:00Z"}]`)
+			_, _ = io.WriteString(w, `[{"id":1,"body":"Visible comment\n<!-- hidden marker -->\nkept","html_url":"https://github.com/o/r/commit/fullsha#commitcomment-1","user":{"login":"reviewer"},"author_association":"MEMBER","path":"a.go","line":1,"created_at":"2026-08-02T00:00:00Z","commit_id":"fullsha"}]`)
 		default:
 			t.Fatalf("unexpected commit request %s?%s", r.URL.Path, r.URL.RawQuery)
 		}
@@ -90,25 +90,157 @@ func TestReadGitHubCommitPaginatesFilesAndComments(t *testing.T) {
 	}
 	for _, want := range []string{
 		`sha: "fullsha"`, `author: "@alice"`, `committer: "@mergebot"`, `verified: true`, `verification_reason: "valid"`,
-		"Subject\n\nBody", "## a.go", "## b.go", "Comment by @reviewer", "Visible comment", "kept", "`a.go` line 1", "Commit comment body is unavailable or deleted",
+		"overview: true", "files_returned: 1", "files_provider_more_available: true", "comments_reported: 2", "comments_returned: 1", "comments_provider_more_available: true",
+		"Subject\n\nBody", "### `a.go`", "Selector: https://github.com/o/r/commit/fullsha#diff-", "Blob: https://github.com/o/r/blob/fullsha/a.go", "Raw: https://raw.example/a.go",
+		"Comment `1` by @reviewer", "Location: `a.go` line 1", "Visible comment", "kept", "Selector: https://github.com/o/r/commit/fullsha#commitcomment-1",
+		"Diff: https://github.com/o/r/commit/fullsha.diff", "Patch: https://github.com/o/r/commit/fullsha.patch",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("commit output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "hidden marker") {
+	if strings.Contains(out, "hidden marker") || strings.Contains(out, "```diff") || strings.Contains(out, "+new") {
 		t.Fatalf("commit comment HTML marker leaked:\n%s", out)
 	}
-	if atomic.LoadInt32(&commitPages) != 2 || atomic.LoadInt32(&commentPages) != 2 {
-		t.Fatalf("pagination incomplete: commit=%d comments=%d", commitPages, commentPages)
+	if atomic.LoadInt32(&commitPages) != 1 || atomic.LoadInt32(&commentPages) != 1 {
+		t.Fatalf("plain commit overview should fetch one file/comment page: commit=%d comments=%d", commitPages, commentPages)
 	}
 }
 
 func TestRenderGitHubCommitSurfacesThreeThousandFileCap(t *testing.T) {
-	detail := githubCommitDetail{SHA: "sha", Files: make([]githubPullFile, githubCommitFilesMax)}
-	out := renderGitHubCommit(&GitHubTarget{Owner: "o", Repo: "r"}, detail, nil, false, true)
-	if !strings.Contains(out, "files_complete: false") || !strings.Contains(out, "3,000-file maximum") {
+	detail := githubCommitDetail{SHA: "sha", HTMLURL: "https://github.com/o/r/commit/sha", Files: make([]githubPullFile, githubCommitFilesMax)}
+	for i := range detail.Files {
+		detail.Files[i].Filename = fmt.Sprintf("file-%04d.txt", i)
+	}
+	out := renderGitHubCommit(&GitHubTarget{Owner: "o", Repo: "r"}, detail, nil, githubCommitAvailability{FilesProviderMore: true})
+	if !strings.Contains(out, "provider_file_ceiling: 3000") || !strings.Contains(out, "files_provider_more_available: true") || !strings.Contains(out, "files_local_omitted:") {
 		t.Fatalf("commit provider cap missing")
+	}
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("3,000-file commit overview exceeded shared target: %d", got)
+	}
+}
+
+func TestCommitCommentSelectorUsesSingleCommentEndpointAndValidatesCommitIdentity(t *testing.T) {
+	const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	longBody := "Exact commit comment\n\n" + strings.Repeat("selected comment detail stays faithful. ", 220)
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		if r.URL.Path != "/repos/o/r/comments/99" {
+			t.Fatalf("commit-comment selector fetched unrelated endpoint: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": 99, "body": longBody + "\n<!-- hidden -->", "html_url": "https://github.com/o/r/commit/" + sha + "#commitcomment-99",
+			"user": map[string]any{"login": "reviewer"}, "path": "a.go", "line": 12, "created_at": "2026-08-01T00:00:00Z", "commit_id": sha,
+		})
+	}))
+	defer server.Close()
+
+	out, err := readGitHubCommit(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/commit/"+sha+"#commitcomment-99"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("exact commit-comment selector should use one provider request, got %d", got)
+	}
+	for _, want := range []string{"comment_id: 99", "commit: \"" + sha + "\"", "Comment by @reviewer", "`a.go` line 12", strings.TrimSpace(longBody)} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("selected commit comment missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "hidden") || strings.Contains(out, "Changed-file index") {
+		t.Fatalf("selected commit comment leaked hidden/parent context:\n%s", out)
+	}
+
+	atomic.StoreInt32(&requests, 0)
+	wrong := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	_, err = readGitHubCommit(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/commit/"+wrong+"#commitcomment-99"))
+	if err == nil || !strings.Contains(err.Error(), "belongs to commit") {
+		t.Fatalf("mismatched commit-comment identity was not rejected: %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("mismatched canonical commit-comment selector should reject after one provider request, got %d", got)
+	}
+}
+
+func TestCommitDiffSelectorsTraverseProviderPagesAndSupportLineRanges(t *testing.T) {
+	hash := githubDiffPathHash("b.go")
+	for _, tt := range []struct {
+		name      string
+		fragment  string
+		want      []string
+		forbidden []string
+	}{
+		{name: "file", fragment: "diff-" + hash, want: []string{"@@ -1 +1 @@", "+new1", "@@ -10 +10 @@", "+new10"}, forbidden: []string{"a.go", "+a"}},
+		{name: "line-range", fragment: "diff-" + hash + "R10-R10", want: []string{"@@ -10 +10 @@", "+new10"}, forbidden: []string{"@@ -1 +1 @@", "\n+new1\n", "a.go"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var pages int32
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&pages, 1)
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path != "/repos/o/r/commits/ref" {
+					t.Fatalf("unexpected exact commit diff endpoint: %s", r.URL.Path)
+				}
+				if r.URL.Query().Get("page") == "2" {
+					_, _ = io.WriteString(w, `{"sha":"fullsha","html_url":"https://github.com/o/r/commit/fullsha","files":[{"filename":"b.go","status":"modified","patch":"@@ -1 +1 @@\n-old1\n+new1\n@@ -10 +10 @@\n-old10\n+new10"}]}`)
+					return
+				}
+				w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/commits/ref?per_page=100&page=2>; rel="next"`, server.URL))
+				_, _ = io.WriteString(w, `{"sha":"fullsha","html_url":"https://github.com/o/r/commit/fullsha","files":[{"filename":"a.go","status":"modified","patch":"@@ -1 +1 @@\n-a\n+b"}]}`)
+			}))
+			defer server.Close()
+			out, err := readGitHubCommit(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/commit/ref#"+tt.fragment))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := atomic.LoadInt32(&pages); got != 2 {
+				t.Fatalf("exact commit diff selector should traverse provider pages, got %d", got)
+			}
+			for _, want := range append([]string{"file: \"b.go\"", "selector: \"" + tt.fragment + "\"", "Diff: https://github.com/o/r/commit/fullsha.diff", "Patch: https://github.com/o/r/commit/fullsha.patch"}, tt.want...) {
+				if !strings.Contains(out, want) {
+					t.Fatalf("exact commit diff missing %q:\n%s", want, out)
+				}
+			}
+			for _, forbidden := range tt.forbidden {
+				if strings.Contains(out, forbidden) {
+					t.Fatalf("exact commit diff leaked %q:\n%s", forbidden, out)
+				}
+			}
+		})
+	}
+}
+
+func TestLargeCommitOverviewBoundsFileAndCommentIndexesWithoutPatchBodies(t *testing.T) {
+	detail := githubCommitDetail{SHA: "fullsha", HTMLURL: "https://github.com/o/r/commit/fullsha"}
+	detail.Commit.Message = "Subject\n\nFull commit message body remains faithful."
+	detail.Commit.CommentCount = 120
+	detail.Stats.Total = 1000
+	detail.Stats.Additions = 700
+	detail.Stats.Deletions = 300
+	for i := 0; i < 100; i++ {
+		patch := fmt.Sprintf("@@ -1 +1 @@\n-old %03d\n+new %03d\nTAIL PATCH %03d MUST NOT APPEAR", i, i, i)
+		detail.Files = append(detail.Files, githubPullFile{Filename: fmt.Sprintf("pkg/file-%03d.go", i), Status: "modified", Additions: 7, Deletions: 3, Changes: 10, BlobURL: fmt.Sprintf("https://github.com/o/r/blob/fullsha/pkg/file-%03d.go", i), RawURL: fmt.Sprintf("https://raw.example/pkg/file-%03d.go", i), Patch: &patch})
+	}
+	comments := make([]githubCommitComment, 0, 100)
+	for i := 0; i < 100; i++ {
+		body := fmt.Sprintf("Comment %03d marker. %s TAIL COMMENT %03d MUST NOT APPEAR", i, strings.Repeat("comment detail. ", 50), i)
+		comments = append(comments, githubCommitComment{ID: int64(1000 + i), Body: &body, HTMLURL: fmt.Sprintf("https://github.com/o/r/commit/fullsha#commitcomment-%d", 1000+i), User: githubUser{Login: fmt.Sprintf("user-%03d", i)}, CommitID: "fullsha"})
+	}
+	out := renderGitHubCommit(&GitHubTarget{Owner: "o", Repo: "r"}, detail, comments, githubCommitAvailability{FilesProviderMore: true, CommentsProviderMore: true})
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("large commit overview exceeded shared target: %d runes\n%s", got, out)
+	}
+	for _, want := range []string{"Full commit message body remains faithful.", "files_local_omitted:", "comments_local_omitted:", "files_provider_more_available: true", "comments_provider_more_available: true", "Selector: https://github.com/o/r/commit/fullsha#diff-", "Selector: https://github.com/o/r/commit/fullsha#commitcomment-1000", "Diff: https://github.com/o/r/commit/fullsha.diff"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("large commit overview missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "TAIL PATCH 000 MUST NOT APPEAR") || strings.Contains(out, "TAIL COMMENT 000 MUST NOT APPEAR") || strings.Contains(out, "```diff") {
+		t.Fatalf("large commit overview leaked subordinate bodies:\n%s", out)
 	}
 }
 
@@ -135,16 +267,17 @@ func TestCommitRawDiffPatchPreserveMedia(t *testing.T) {
 	}
 }
 
-func TestReadGitHubComparePaginatesCommitsButKeepsFirstPageFiles(t *testing.T) {
+func TestReadGitHubCompareOverviewStopsAfterFirstProviderPage(t *testing.T) {
+	var requests int32
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
 		if !strings.Contains(r.RequestURI, "main...feature%2Ffoo") && !strings.Contains(r.RequestURI, "main...feature/foo") {
 			t.Errorf("slash-containing compare head was not preserved in endpoint: %s", r.RequestURI)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Query().Get("page") == "2" {
-			_, _ = io.WriteString(w, `{"status":"ahead","ahead_by":2,"behind_by":0,"total_commits":2,"commits":[{"sha":"b","html_url":"https://github.com/o/r/commit/b","commit":{"message":"Second","author":{"date":"2026-08-02T00:00:00Z"}}}]}`)
-			return
+			t.Fatal("plain compare overview followed provider pagination")
 		}
 		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/compare/main...feature%%2Ffoo?per_page=100&page=2>; rel="next"`, server.URL))
 		_, _ = io.WriteString(w, `{
@@ -158,21 +291,31 @@ func TestReadGitHubComparePaginatesCommitsButKeepsFirstPageFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`base: "main"`, `head: "feature/foo"`, "total_commits: 2", "commits_returned: 2", "commits_complete: true", "files_returned: 1", "files_complete: true", "First", "Second", "## a.go"} {
+	for _, want := range []string{
+		`base: "main"`, `head: "feature/foo"`, "overview: true", "total_commits: 2", "commits_returned: 1", "commits_provider_complete: false", "commits_provider_more_available: true",
+		"files_returned: 1", "files_complete: true", "First", "### `a.go`",
+		"Diff: https://github.com/o/r/compare/main...feature/foo.diff", "Patch: https://github.com/o/r/compare/main...feature/foo.patch",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("compare output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Count(out, "## a.go") != 1 {
-		t.Fatalf("files should only come from comparison first page:\n%s", out)
+	if strings.Contains(out, "Second") || strings.Contains(out, "```diff") || atomic.LoadInt32(&requests) != 1 {
+		t.Fatalf("compare overview expanded provider pages/patches (requests=%d):\n%s", requests, out)
 	}
 }
 
 func TestRenderGitHubCompareSurfacesThreeHundredFileCapAndCommitMismatch(t *testing.T) {
 	result := githubCompareResult{Status: "ahead", TotalCommits: 5, Files: make([]githubPullFile, githubCompareFilesMax), Commits: []githubPullCommit{{SHA: "a"}}}
-	out := renderGitHubCompare(&GitHubTarget{Owner: "o", Repo: "r"}, "main", "head", result, false, false)
-	if !strings.Contains(out, "commits_complete: false") || !strings.Contains(out, "files_complete: false") || !strings.Contains(out, "up to 300 files") || !strings.Contains(out, "commit history is incomplete") {
+	for i := range result.Files {
+		result.Files[i].Filename = fmt.Sprintf("file-%03d.txt", i)
+	}
+	out := renderGitHubCompare(&GitHubTarget{Owner: "o", Repo: "r"}, "main", "head", result, githubCompareAvailability{}, false)
+	if !strings.Contains(out, "commits_provider_complete: false") || !strings.Contains(out, "files_complete: false") || !strings.Contains(out, "provider_file_ceiling: 300") || !strings.Contains(out, "up to 300 files") || !strings.Contains(out, "provider-incomplete") {
 		t.Fatalf("compare completeness truth missing")
+	}
+	if got := utf8.RuneCountInString(out); got > githubOverviewRunes {
+		t.Fatalf("300-file compare overview exceeded shared target: %d", got)
 	}
 }
 
