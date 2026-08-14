@@ -136,6 +136,17 @@ func ReadLink(rawURL string) (string, error) {
 	case GitHubNativeSuccess:
 		return native.Markdown, nil
 	case GitHubNativeFailure:
+		if shouldBestEffortCrawlGitHubPackage(rawURL, native.Err) {
+			title, markdown, crawlErr := scrapeLinkWithFirecrawl(rawURL)
+			if crawlErr == nil && usefulGitHubPackageCrawl(title, markdown) {
+				notice := "> **Best-effort GitHub Package page crawl:** GitHub's structured Package API was unavailable for the current credential, so webctx crawled the public GitHub page with Firecrawl instead. This output may be incomplete or contain GitHub UI noise."
+				return formatReadLink(title, rawURL, notice+"\n\n"+markdown), nil
+			}
+			if crawlErr == nil {
+				crawlErr = fmt.Errorf("Firecrawl did not return a recognizable public GitHub Package page")
+			}
+			return "", fmt.Errorf("%v Best-effort public GitHub Package crawl also failed: %v", native.Err, crawlErr)
+		}
 		return "", native.Err
 	}
 
@@ -146,9 +157,41 @@ func ReadLink(rawURL string) (string, error) {
 		}
 	}
 
+	title, markdown, err := scrapeLinkWithFirecrawl(rawURL)
+	if err != nil {
+		return "", err
+	}
+	return formatReadLink(title, rawURL, markdown), nil
+}
+
+func shouldBestEffortCrawlGitHubPackage(rawURL string, nativeErr error) bool {
+	if strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY")) == "" {
+		return false
+	}
+	target := parseGitHubTarget(rawURL)
+	if target == nil || target.Kind != GitHubTargetPackage {
+		return false
+	}
+	ghErr, ok := nativeErr.(*GitHubError)
+	if !ok {
+		return false
+	}
+	return ghErr.Kind == GitHubErrorAuthentication || ghErr.Kind == GitHubErrorForbidden
+}
+
+func usefulGitHubPackageCrawl(title, markdown string) bool {
+	title = strings.ToLower(strings.TrimSpace(title))
+	markdown = strings.TrimSpace(markdown)
+	if markdown == "" || strings.Contains(title, "page not found") || strings.Contains(title, "404") {
+		return false
+	}
+	return strings.Contains(title, "package") && len(markdown) >= 100
+}
+
+func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
 	if apiKey == "" {
-		return "", missingCredentialsError("Error reading web page", []string{"FIRECRAWL_API_KEY"}, "for non-.md URLs")
+		return "", "", missingCredentialsError("Error reading web page", []string{"FIRECRAWL_API_KEY"}, "for non-.md URLs")
 	}
 
 	requestBody := map[string]any{
@@ -185,7 +228,7 @@ func ReadLink(rawURL string) (string, error) {
 		return parsed, nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("Error reading web page: %v", err)
+		return "", "", fmt.Errorf("Error reading web page: %v", err)
 	}
 
 	dataMap, _ := data["data"].(map[string]any)
@@ -195,7 +238,7 @@ func ReadLink(rawURL string) (string, error) {
 	if markdown == "" {
 		markdown = "No content extracted"
 	}
-	return formatReadLink(title, rawURL, markdown), nil
+	return title, markdown, nil
 }
 
 func MapSite(rawURL string) (string, error) {

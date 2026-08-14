@@ -774,3 +774,112 @@ func TestReadLinkUnsupportedGitHubFallsThroughToFirecrawlWithExistingSettings(t 
 		t.Fatal("Firecrawl excludeTags setting disappeared")
 	}
 }
+
+func TestReadLinkGitHubPackageAuthFailureUsesExplicitBestEffortFirecrawl(t *testing.T) {
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	var firecrawlCalled bool
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.URL.Host == "api.github.com" && req.URL.Path == "/orgs/acme/packages/container/widget":
+			return testHTTPResponse(req, http.StatusUnauthorized, `{"message":"Requires authentication"}`, map[string]string{"Content-Type": "application/json"}), nil
+		case req.Method == http.MethodPost && req.URL.String() == "https://api.firecrawl.dev/v2/scrape":
+			firecrawlCalled = true
+			body := `{"success":true,"data":{"metadata":{"title":"Package widget · GitHub"},"markdown":"# widget\n\nPublic Latest\n\n### Recent tagged image versions\n\n- v1\n\n$ docker pull ghcr.io/acme/widget:v1\n"}}`
+			return testHTTPResponse(req, http.StatusOK, body, map[string]string{"Content-Type": "application/json"}), nil
+		default:
+			return testHTTPResponse(req, http.StatusNotFound, "", nil), nil
+		}
+	})}
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("FIRECRAWL_API_KEY", "fake-firecrawl-key")
+
+	out, err := ReadLink("https://github.com/orgs/acme/packages/container/package/widget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !firecrawlCalled {
+		t.Fatal("expected GitHub Package auth failure to use best-effort Firecrawl")
+	}
+	for _, want := range []string{"Best-effort GitHub Package page crawl", "may be incomplete", "Recent tagged image versions", "ghcr.io/acme/widget:v1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Package fallback output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestReadLinkGitHubPackageRateLimitDoesNotUseFirecrawl(t *testing.T) {
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	var firecrawlCalled bool
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "api.github.com" {
+			return testHTTPResponse(req, http.StatusForbidden, `{"message":"API rate limit exceeded"}`, map[string]string{
+				"X-RateLimit-Remaining": "0",
+				"X-RateLimit-Resource":  "core",
+				"X-RateLimit-Reset":     "1893456000",
+			}), nil
+		}
+		if req.URL.Host == "api.firecrawl.dev" {
+			firecrawlCalled = true
+		}
+		return testHTTPResponse(req, http.StatusNotFound, "", nil), nil
+	})}
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("FIRECRAWL_API_KEY", "fake-firecrawl-key")
+
+	_, err := ReadLink("https://github.com/orgs/acme/packages/container/package/widget")
+	if err == nil || !strings.Contains(err.Error(), "rate limit") {
+		t.Fatalf("expected native rate-limit error, got %v", err)
+	}
+	if firecrawlCalled {
+		t.Fatal("Package rate limit must remain authoritative instead of falling back to Firecrawl")
+	}
+}
+
+func TestReadLinkGitHubPackageWithoutFirecrawlKeyKeepsNativeAuthError(t *testing.T) {
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "api.github.com" {
+			return testHTTPResponse(req, http.StatusUnauthorized, `{"message":"Requires authentication"}`, nil), nil
+		}
+		return testHTTPResponse(req, http.StatusNotFound, "", nil), nil
+	})}
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("FIRECRAWL_API_KEY", "")
+
+	_, err := ReadLink("https://github.com/orgs/acme/packages/container/package/widget")
+	if err == nil || !strings.Contains(err.Error(), "authentication is required") || strings.Contains(err.Error(), "Firecrawl") {
+		t.Fatalf("expected unchanged native auth error without Firecrawl key, got %v", err)
+	}
+}
+
+func TestReadLinkNonPackageNativeAuthFailureDoesNotUseFirecrawl(t *testing.T) {
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	var firecrawlCalled bool
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "api.github.com" {
+			return testHTTPResponse(req, http.StatusUnauthorized, `{"message":"Requires authentication"}`, nil), nil
+		}
+		if req.URL.Host == "api.firecrawl.dev" {
+			firecrawlCalled = true
+		}
+		return testHTTPResponse(req, http.StatusNotFound, "", nil), nil
+	})}
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("FIRECRAWL_API_KEY", "fake-firecrawl-key")
+
+	_, err := ReadLink("https://github.com/o/r/issues/1")
+	if err == nil || !strings.Contains(err.Error(), "authentication is required") {
+		t.Fatalf("expected native Issue auth error, got %v", err)
+	}
+	if firecrawlCalled {
+		t.Fatal("non-Package native auth failures must not fall back to Firecrawl")
+	}
+}
