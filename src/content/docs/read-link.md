@@ -123,6 +123,15 @@ webctx uses it to select the comment instead of expanding the whole Issue first.
 
 ## Review a Pull Request
 
+Browse a repository's Pull Requests without GitHub page chrome:
+
+```bash
+webctx read-link https://github.com/amxv/webctx/pulls
+webctx read-link 'https://github.com/vercel/next.js/pulls?q=is%3Apr+is%3Aopen'
+```
+
+Copied PR searches stay PR searches even when GitHub uses an `/issues?q=is:pr...` URL. Native list URLs preserve supported state/branch/sort/page intent and return compact rows with direct PR links.
+
 Read the conversation:
 
 ```bash

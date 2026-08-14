@@ -13,6 +13,17 @@ import (
 )
 
 func TestParseGitHubPullTargetsAndSelectors(t *testing.T) {
+	for _, raw := range []string{
+		"https://github.com/o/r/pulls",
+		"https://github.com/o/r/pulls?page=2",
+		"https://github.com/o/r/pulls?state=closed&base=main&sort=updated&direction=asc",
+		"https://github.com/o/r/pulls?q=is%3Apr+is%3Aopen",
+	} {
+		target := parseGitHubTarget(raw)
+		if target == nil || target.Kind != GitHubTargetPullList || target.Owner != "o" || target.Repo != "r" {
+			t.Fatalf("unexpected pull-list target for %s: %#v", raw, target)
+		}
+	}
 	for _, tt := range []struct {
 		raw      string
 		fragment string
@@ -30,10 +41,140 @@ func TestParseGitHubPullTargetsAndSelectors(t *testing.T) {
 	for _, raw := range []string{
 		"https://github.com/o/r/pull/nope",
 		"https://github.com/o/r/pull/42/unknown",
+		"https://github.com/o/r/pulls/42",
 	} {
 		if target := parseGitHubTarget(raw); target != nil {
 			t.Fatalf("unsupported PR route %s should remain unsupported, got %#v", raw, target)
 		}
+	}
+}
+
+func TestGitHubPullListUsesRESTFiltersDraftStateAndNavigation(t *testing.T) {
+	var calls int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		if r.URL.Path != "/repos/o/r/pulls" {
+			t.Fatalf("unexpected PR-list path: %s", r.URL.Path)
+		}
+		for key, want := range map[string]string{
+			"state": "all", "head": "alice:feature", "base": "main", "sort": "updated", "direction": "asc", "per_page": "30", "page": "2",
+		} {
+			if got := r.URL.Query().Get(key); got != want {
+				t.Errorf("PR-list query %s=%q want %q (%s)", key, got, want, r.URL.RawQuery)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/pulls?state=all&page=1>; rel="prev", <%s/repos/o/r/pulls?state=all&page=3>; rel="next"`, server.URL, server.URL))
+		_, _ = io.WriteString(w, `[
+			{"number":10,"state":"open","draft":false,"title":"Open PR","html_url":"https://github.com/o/r/pull/10","user":{"login":"alice"},"updated_at":"2026-08-10T00:00:00Z","head":{"label":"alice:feature"},"base":{"ref":"main"}},
+			{"number":11,"state":"open","draft":true,"title":"Draft PR","html_url":"https://github.com/o/r/pull/11","user":{"login":"bob"},"created_at":"2026-08-09T00:00:00Z","head":{"label":"bob:wip"},"base":{"ref":"main"}},
+			{"number":12,"state":"closed","draft":false,"title":"Closed PR","html_url":"https://github.com/o/r/pull/12","user":{"login":"carol"},"updated_at":"2026-08-08T00:00:00Z"}
+		]`)
+	}))
+	defer server.Close()
+
+	target := parseGitHubTarget("https://github.com/o/r/pulls?state=all&head=alice%3Afeature&base=main&sort=updated&direction=asc&page=2")
+	out, err := readGitHubPullList(context.Background(), testGitHubClient(server.URL, server.URL, ""), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`repository: "o/r"`, "view: pull_requests", `page: "2"`, "# Pull Requests",
+		"[#10 Open PR](https://github.com/o/r/pull/10) — open · @alice · updated 2026-08-10T00:00:00Z",
+		"[#11 Draft PR](https://github.com/o/r/pull/11) — draft · @bob · created 2026-08-09T00:00:00Z",
+		"[#12 Closed PR](https://github.com/o/r/pull/12) — closed · @carol",
+		"Previous: https://github.com/o/r/pulls?", "page=1", "Next: https://github.com/o/r/pulls?", "page=3",
+		"base=main", "head=alice%3Afeature", "sort=updated", "direction=asc",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("native PR list missing %q:\n%s", want, out)
+		}
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("PR list should use exactly one provider request, got %d", calls)
+	}
+}
+
+func TestGitHubPullSearchAndIssuesPRSearchShareTruthfulSemantics(t *testing.T) {
+	for _, raw := range []string{
+		"https://github.com/o/r/pulls?q=label%3Abug&page=2",
+		"https://github.com/o/r/issues?q=is%3Apr+label%3Abug&page=2",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			var calls int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&calls, 1)
+				if r.URL.Path != "/search/issues" {
+					t.Fatalf("PR search used wrong endpoint: %s", r.URL.Path)
+				}
+				q := r.URL.Query().Get("q")
+				if !strings.Contains(q, "repo:o/r") || !strings.Contains(q, "is:pr") || strings.Contains(q, "is:issue") || !strings.Contains(q, "label:bug") {
+					t.Fatalf("PR search provider query lost semantics: %q", q)
+				}
+				if r.URL.Query().Get("page") != "2" || r.URL.Query().Get("per_page") != "30" {
+					t.Fatalf("PR search pagination wrong: %s", r.URL.RawQuery)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"total_count":1201,"incomplete_results":false,"items":[
+					{"number":20,"state":"open","draft":true,"title":"PR result","html_url":"https://github.com/o/r/issues/20","pull_request":{"html_url":"https://github.com/o/r/pull/20"},"user":{"login":"alice"},"updated_at":"2026-08-12T00:00:00Z","labels":[{"name":"bug"}]}
+				]}`)
+			}))
+			defer server.Close()
+
+			target := parseGitHubTarget(raw)
+			var (
+				out string
+				err error
+			)
+			if target.Kind == GitHubTargetPullList {
+				out, err = readGitHubPullList(context.Background(), testGitHubClient(server.URL, server.URL, ""), target)
+			} else {
+				out, err = readGitHubIssueList(context.Background(), testGitHubClient(server.URL, server.URL, ""), target)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"view: pull_requests", "total_matches: 1201", "provider_result_ceiling: 1000", "[#20 PR result](https://github.com/o/r/pull/20)", "draft", "@alice", "labels: bug",
+			} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("PR search output missing %q:\n%s", want, out)
+				}
+			}
+			if atomic.LoadInt32(&calls) != 1 {
+				t.Fatalf("PR search should use one provider request, got %d", calls)
+			}
+		})
+	}
+}
+
+func TestGitHubPullListRejectsUnsupportedOrConflictingQueryBeforeProvider(t *testing.T) {
+	for _, raw := range []string{
+		"https://github.com/o/r/pulls?unknown=x",
+		"https://github.com/o/r/pulls?state=merged",
+		"https://github.com/o/r/pulls?page=zero",
+		"https://github.com/o/r/pulls?per_page=10",
+		"https://github.com/o/r/pulls?per_page=101",
+		"https://github.com/o/r/pulls?q=is%3Aissue",
+		"https://github.com/o/r/pulls?q=is%3Apr+is%3Aissue",
+		"https://github.com/o/r/pulls?q=is%3Apr&state=open",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			var calls int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&calls, 1)
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer server.Close()
+			_, err := readGitHubPullList(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget(raw))
+			if err == nil {
+				t.Fatalf("unsupported/conflicting PR query was accepted: %s", raw)
+			}
+			if atomic.LoadInt32(&calls) != 0 {
+				t.Fatalf("unsupported/conflicting PR query made %d provider calls: %s", calls, raw)
+			}
+		})
 	}
 }
 

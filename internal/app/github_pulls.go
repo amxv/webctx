@@ -91,6 +91,239 @@ type githubPullThread struct {
 	State   *githubPullThreadState
 }
 
+type githubPullListItem struct {
+	Number    int
+	State     string
+	Title     string
+	HTMLURL   string
+	User      githubUser
+	UpdatedAt string
+	CreatedAt string
+	Labels    []githubIssueLabel
+}
+
+func readGitHubPullList(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
+	if target.Fragment != "" {
+		return "", fmt.Errorf("GitHub Pull Request-list fragment %q is not a supported native selector", target.Fragment)
+	}
+	if strings.TrimSpace(target.Query.Get("q")) != "" {
+		return readGitHubPullSearch(ctx, client, target)
+	}
+	query, err := githubPullListProviderQuery(target.Query)
+	if err != nil {
+		return "", err
+	}
+	endpoint := fmt.Sprintf("/repos/%s/%s/pulls?%s", url.PathEscape(target.Owner), url.PathEscape(target.Repo), query.Encode())
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return "", err
+	}
+	var pulls []githubPullRequest
+	if err := json.Unmarshal(resp.Body, &pulls); err != nil {
+		return "", fmt.Errorf("decode GitHub Pull Request list: %w", err)
+	}
+	items := make([]githubPullListItem, 0, len(pulls))
+	for _, pr := range pulls {
+		items = append(items, githubPullListItem{
+			Number:    pr.Number,
+			State:     pullDisplayState(pr),
+			Title:     pr.Title,
+			HTMLURL:   pr.HTMLURL,
+			User:      pr.User,
+			UpdatedAt: pr.UpdatedAt,
+			CreatedAt: pr.CreatedAt,
+		})
+	}
+	return renderGitHubPullList(target, items, resp.Links(), -1, false), nil
+}
+
+func readGitHubPullSearch(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
+	provider, err := githubPullSearchProviderQuery(target.Query, target.Owner, target.Repo)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.REST(ctx, http.MethodGet, "/search/issues?"+provider.Encode(), "application/vnd.github+json")
+	if err != nil {
+		return "", err
+	}
+	var result githubIssueSearchResponse
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
+		return "", fmt.Errorf("decode GitHub Pull Request search: %w", err)
+	}
+	items := make([]githubPullListItem, 0, len(result.Items))
+	for _, item := range result.Items {
+		state := item.State
+		if item.Draft && item.State == "open" {
+			state = "draft"
+		}
+		href := item.HTMLURL
+		if item.PullRequest != nil && item.PullRequest.HTMLURL != "" {
+			href = item.PullRequest.HTMLURL
+		}
+		items = append(items, githubPullListItem{
+			Number:    item.Number,
+			State:     state,
+			Title:     item.Title,
+			HTMLURL:   href,
+			User:      item.User,
+			UpdatedAt: item.UpdatedAt,
+			CreatedAt: item.CreatedAt,
+			Labels:    item.Labels,
+		})
+	}
+	return renderGitHubPullList(target, items, resp.Links(), result.TotalCount, result.IncompleteResults), nil
+}
+
+func githubPullListProviderQuery(input url.Values) (url.Values, error) {
+	allowed := map[string]struct{}{
+		"state": {}, "head": {}, "base": {}, "sort": {}, "direction": {}, "page": {},
+	}
+	for key := range input {
+		if _, ok := allowed[key]; !ok {
+			return nil, fmt.Errorf("GitHub Pull Request list query parameter %q is not supported by this native view", key)
+		}
+	}
+	query := copySelectedQuery(input, []string{"state", "head", "base", "sort", "direction", "page"})
+	if state := query.Get("state"); state != "" && state != "open" && state != "closed" && state != "all" {
+		return nil, fmt.Errorf("invalid GitHub Pull Request list state %q", state)
+	}
+	if sortBy := query.Get("sort"); sortBy != "" && sortBy != "created" && sortBy != "updated" && sortBy != "popularity" && sortBy != "long-running" {
+		return nil, fmt.Errorf("invalid GitHub Pull Request list sort %q", sortBy)
+	}
+	if direction := query.Get("direction"); direction != "" && direction != "asc" && direction != "desc" {
+		return nil, fmt.Errorf("invalid GitHub Pull Request list direction %q", direction)
+	}
+	if err := validateGitHubPageSize(query); err != nil {
+		return nil, err
+	}
+	if query.Get("per_page") == "" {
+		query.Set("per_page", "30")
+	}
+	return query, nil
+}
+
+func githubPullSearchProviderQuery(input url.Values, owner, repo string) (url.Values, error) {
+	allowed := map[string]struct{}{"q": {}, "sort": {}, "order": {}, "page": {}}
+	for key := range input {
+		if _, ok := allowed[key]; !ok {
+			return nil, fmt.Errorf("GitHub Pull Request search query parameter %q is not supported by this native view", key)
+		}
+	}
+	q := strings.TrimSpace(input.Get("q"))
+	if q == "" {
+		return nil, fmt.Errorf("GitHub Pull Request search requires a non-empty q parameter")
+	}
+	resource, err := githubSearchResourceQualifier(q)
+	if err != nil {
+		return nil, err
+	}
+	if resource == "issue" {
+		return nil, fmt.Errorf("GitHub Pull Request search query cannot explicitly select is:issue")
+	}
+	if resource == "" {
+		q += " is:pr"
+	}
+	if !hasGitHubSearchQualifierPrefix(q, "repo:") {
+		q = "repo:" + owner + "/" + repo + " " + q
+	}
+	provider := url.Values{"q": []string{strings.TrimSpace(q)}}
+	for _, key := range []string{"sort", "order", "page"} {
+		if value := input.Get(key); value != "" {
+			provider.Set(key, value)
+		}
+	}
+	if order := provider.Get("order"); order != "" && order != "asc" && order != "desc" {
+		return nil, fmt.Errorf("invalid GitHub Pull Request search order %q", order)
+	}
+	if err := validateGitHubPageSize(provider); err != nil {
+		return nil, err
+	}
+	if provider.Get("per_page") == "" {
+		provider.Set("per_page", "30")
+	}
+	return provider, nil
+}
+
+func validateGitHubPageSize(query url.Values) error {
+	if rawPage := query.Get("page"); rawPage != "" {
+		page, err := strconv.Atoi(rawPage)
+		if err != nil || page <= 0 {
+			return fmt.Errorf("invalid GitHub list page %q", rawPage)
+		}
+	}
+	if rawSize := query.Get("per_page"); rawSize != "" {
+		size, err := strconv.Atoi(rawSize)
+		if err != nil || size <= 0 || size > 100 {
+			return fmt.Errorf("invalid GitHub list per_page %q", rawSize)
+		}
+	}
+	return nil
+}
+
+func renderGitHubPullList(target *GitHubTarget, pulls []githubPullListItem, links GitHubLinkRelations, total int, incomplete bool) string {
+	page := target.Query.Get("page")
+	if page == "" {
+		page = "1"
+	}
+	lines := []string{
+		"---",
+		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
+		"view: pull_requests",
+		"page: " + yamlScalar(page),
+		fmt.Sprintf("results: %d", len(pulls)),
+	}
+	if q := target.Query.Get("q"); q != "" {
+		lines = append(lines, "query: "+yamlScalar(q))
+	}
+	if total >= 0 {
+		lines = append(lines, fmt.Sprintf("total_matches: %d", total))
+		if total > 1000 {
+			lines = append(lines, "provider_result_ceiling: 1000")
+		}
+	}
+	if incomplete {
+		lines = append(lines, "complete: false")
+	}
+	lines = append(lines, "---", "", "# Pull Requests", "")
+	if incomplete {
+		lines = append(lines, "> GitHub marked this search result set as incomplete.", "")
+	}
+	if total > 1000 {
+		lines = append(lines, "> GitHub Search exposes at most 1,000 results for a query; this page does not imply access beyond that provider ceiling.", "")
+	}
+	if len(pulls) == 0 {
+		lines = append(lines, "_No Pull Requests on this page._")
+	}
+	for _, pr := range pulls {
+		href := pr.HTMLURL
+		if href == "" {
+			href = fmt.Sprintf("https://github.com/%s/%s/pull/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), pr.Number)
+		}
+		state := strings.TrimSpace(pr.State)
+		if state == "" {
+			state = "unknown"
+		}
+		meta := []string{state}
+		if pr.User.Login != "" {
+			meta = append(meta, "@"+pr.User.Login)
+		}
+		if pr.UpdatedAt != "" {
+			meta = append(meta, "updated "+pr.UpdatedAt)
+		} else if pr.CreatedAt != "" {
+			meta = append(meta, "created "+pr.CreatedAt)
+		}
+		if labels := issueLabelNames(pr.Labels); len(labels) > 0 {
+			meta = append(meta, "labels: "+strings.Join(labels, ", "))
+		}
+		lines = append(lines, fmt.Sprintf("- [#%d %s](%s) — %s", pr.Number, escapeMarkdownLinkText(pr.Title), href, strings.Join(meta, " · ")))
+	}
+	if nav := renderGitHubUIPageNavigation(target, links); len(nav) > 0 {
+		lines = append(lines, "", "## Navigation", "")
+		lines = append(lines, nav...)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
 func readGitHubPullRequest(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
 	if target == nil || target.Number <= 0 {
 		return "", fmt.Errorf("GitHub Pull Request URL is missing a number")

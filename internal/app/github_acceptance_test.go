@@ -32,7 +32,6 @@ func TestFinalRouteFidelityKeepsExcludedRepositorySurfacesGeneric(t *testing.T) 
 		"https://github.com/o/r/archive/refs/heads/main.zip",
 		"https://github.com/o/r/releases/download/v1/binary.zip",
 		"https://github.com/o/r/issues/new",
-		"https://github.com/o/r/pulls",
 	} {
 		if target := parseGitHubTarget(raw); target != nil {
 			t.Fatalf("excluded/unproven repository surface must stay generic: %s => %#v", raw, target)
@@ -46,6 +45,7 @@ func TestFinalNativeRouteCoverageRepresentativeMatrix(t *testing.T) {
 		"https://github.com/o/r/blob/main/README.md#L1-L2",
 		"https://github.com/o/r/tree/main/docs",
 		"https://github.com/o/r/issues/1",
+		"https://github.com/o/r/pulls",
 		"https://github.com/o/r/pull/1",
 		"https://github.com/o/r/pull/1/files",
 		"https://github.com/o/r/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

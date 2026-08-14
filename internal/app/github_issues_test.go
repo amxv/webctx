@@ -408,16 +408,53 @@ func TestIssueSearchUsesSearchResourceAndSurfacesIncompleteResults(t *testing.T)
         ]}`)
 	}))
 	defer server.Close()
-	target := parseGitHubTarget("https://github.com/o/r/issues?q=label%3Abug&page=2")
+	target := parseGitHubTarget("https://github.com/o/r/issues?q=is%3Aissue+label%3Abug&page=2")
 	out, err := readGitHubIssueList(context.Background(), testGitHubClient(server.URL, server.URL, ""), target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `query: "label:bug"`) || !strings.Contains(out, "total_matches: 90") || !strings.Contains(out, "complete: false") || !strings.Contains(out, "marked this search result set as incomplete") {
+	if !strings.Contains(out, `query: "is:issue label:bug"`) || !strings.Contains(out, "total_matches: 90") || !strings.Contains(out, "complete: false") || !strings.Contains(out, "marked this search result set as incomplete") {
 		t.Fatalf("search truth missing:\n%s", out)
 	}
 	if strings.Contains(out, "PR") {
 		t.Fatalf("search result leaked PR into Issues view:\n%s", out)
+	}
+}
+
+func TestGitHubSearchResourceQualifierIsTokenAwareAndRejectsConflict(t *testing.T) {
+	for _, tt := range []struct {
+		query string
+		want  string
+	}{
+		{query: "bug is:pr is:open", want: "pull_request"},
+		{query: "bug IS:ISSUE", want: "issue"},
+		{query: `"is:pr" bug`, want: ""},
+		{query: `label:"is:pr" bug`, want: ""},
+		{query: "this-is:pr bug", want: ""},
+	} {
+		got, err := githubSearchResourceQualifier(tt.query)
+		if err != nil || got != tt.want {
+			t.Fatalf("githubSearchResourceQualifier(%q)=%q,%v want %q,nil", tt.query, got, err, tt.want)
+		}
+	}
+	if _, err := githubSearchResourceQualifier("is:issue bug is:pr"); err == nil || !strings.Contains(err.Error(), "conflicting") {
+		t.Fatalf("conflicting explicit resource qualifiers were not rejected: %v", err)
+	}
+}
+
+func TestIssueSearchConflictingResourceQualifiersFailBeforeProvider(t *testing.T) {
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	_, err := readGitHubIssueList(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/issues?q=is%3Aissue+is%3Apr"))
+	if err == nil || !strings.Contains(err.Error(), "conflicting") {
+		t.Fatalf("conflicting Issue/PR search was not rejected truthfully: %v", err)
+	}
+	if atomic.LoadInt32(&calls) != 0 {
+		t.Fatalf("conflicting search made %d provider calls", calls)
 	}
 }
 

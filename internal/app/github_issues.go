@@ -61,6 +61,7 @@ type githubIssue struct {
 	Labels            []githubIssueLabel    `json:"labels"`
 	Assignees         []githubUser          `json:"assignees"`
 	Milestone         *githubIssueMilestone `json:"milestone"`
+	Draft             bool                  `json:"draft"`
 	Locked            bool                  `json:"locked"`
 	ActiveLockReason  string                `json:"active_lock_reason"`
 	Comments          int                   `json:"comments"`
@@ -1110,6 +1111,13 @@ func readGitHubIssueList(ctx context.Context, client *GitHubClient, target *GitH
 		return "", fmt.Errorf("GitHub Issue-list fragment %q is not a supported native selector", target.Fragment)
 	}
 	if strings.TrimSpace(target.Query.Get("q")) != "" {
+		resource, err := githubSearchResourceQualifier(target.Query.Get("q"))
+		if err != nil {
+			return "", err
+		}
+		if resource == "pull_request" {
+			return readGitHubPullSearch(ctx, client, target)
+		}
 		return readGitHubIssueSearch(ctx, client, target)
 	}
 	query := copySelectedQuery(target.Query, []string{"milestone", "state", "assignee", "type", "creator", "mentioned", "labels", "sort", "direction", "since", "per_page", "page"})
@@ -1131,10 +1139,17 @@ func readGitHubIssueList(ctx context.Context, client *GitHubClient, target *GitH
 
 func readGitHubIssueSearch(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
 	q := strings.TrimSpace(target.Query.Get("q"))
-	if !containsGitHubQualifier(q, "repo:") {
+	resource, err := githubSearchResourceQualifier(q)
+	if err != nil {
+		return "", err
+	}
+	if resource == "pull_request" {
+		return readGitHubPullSearch(ctx, client, target)
+	}
+	if !hasGitHubSearchQualifierPrefix(q, "repo:") {
 		q = "repo:" + target.Owner + "/" + target.Repo + " " + q
 	}
-	if !containsGitHubQualifier(q, "is:issue") {
+	if resource == "" {
 		q += " is:issue"
 	}
 	apiQuery := url.Values{"q": []string{strings.TrimSpace(q)}}
@@ -1159,8 +1174,75 @@ func readGitHubIssueSearch(ctx context.Context, client *GitHubClient, target *Gi
 	return renderGitHubIssueList(target, result.Items, resp.Links(), result.TotalCount, result.IncompleteResults), nil
 }
 
-func containsGitHubQualifier(query, qualifier string) bool {
-	return strings.Contains(strings.ToLower(query), strings.ToLower(qualifier))
+func githubSearchResourceQualifier(query string) (string, error) {
+	hasIssue := false
+	hasPR := false
+	for _, token := range githubSearchTokens(query) {
+		switch strings.ToLower(token) {
+		case "is:issue":
+			hasIssue = true
+		case "is:pr":
+			hasPR = true
+		}
+	}
+	if hasIssue && hasPR {
+		return "", fmt.Errorf("GitHub search query contains conflicting explicit is:issue and is:pr qualifiers")
+	}
+	if hasPR {
+		return "pull_request", nil
+	}
+	if hasIssue {
+		return "issue", nil
+	}
+	return "", nil
+}
+
+func hasGitHubSearchQualifierPrefix(query, prefix string) bool {
+	prefix = strings.ToLower(prefix)
+	for _, token := range githubSearchTokens(query) {
+		if strings.HasPrefix(strings.ToLower(token), prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func githubSearchTokens(query string) []string {
+	tokens := []string{}
+	var current strings.Builder
+	inQuote := false
+	escaped := false
+	flush := func() {
+		if current.Len() == 0 {
+			return
+		}
+		tokens = append(tokens, current.String())
+		current.Reset()
+	}
+	for _, r := range query {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if inQuote && r == '\\' {
+			current.WriteRune(r)
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			inQuote = !inQuote
+			current.WriteRune(r)
+			continue
+		}
+		if !inQuote && (r == ' ' || r == '\t' || r == '\n' || r == '\r') {
+			flush()
+			continue
+		}
+		current.WriteRune(r)
+	}
+	flush()
+	return tokens
 }
 
 func filterPullRequestsFromIssues(issues []githubIssue) []githubIssue {

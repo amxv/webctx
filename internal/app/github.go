@@ -38,6 +38,7 @@ const (
 	GitHubTargetTree                  GitHubTargetKind = "tree"
 	GitHubTargetIssue                 GitHubTargetKind = "issue"
 	GitHubTargetIssueList             GitHubTargetKind = "issue_list"
+	GitHubTargetPullList              GitHubTargetKind = "pull_list"
 	GitHubTargetLabel                 GitHubTargetKind = "label"
 	GitHubTargetLabelList             GitHubTargetKind = "label_list"
 	GitHubTargetMilestone             GitHubTargetKind = "milestone"
@@ -362,6 +363,12 @@ func parseGitHubTarget(raw string) *GitHubTarget {
 				target.Number = number
 				return target
 			}
+		}
+		return nil
+	case "pulls":
+		if len(parts) == 3 {
+			target.Kind = GitHubTargetPullList
+			return target
 		}
 		return nil
 	case "labels":
@@ -982,6 +989,8 @@ func readGitHubNativeWithClient(ctx context.Context, target *GitHubTarget, clien
 		markdown, err = readGitHubIssue(ctx, client, target)
 	case GitHubTargetIssueList:
 		markdown, err = readGitHubIssueList(ctx, client, target)
+	case GitHubTargetPullList:
+		markdown, err = readGitHubPullList(ctx, client, target)
 	case GitHubTargetLabel:
 		markdown, err = readGitHubLabel(ctx, client, target)
 	case GitHubTargetLabelList:
