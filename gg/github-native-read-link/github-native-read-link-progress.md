@@ -268,6 +268,18 @@
 - **Known defects/risks:** a best-effort Package crawl can still contain GitHub UI noise or miss dynamically loaded data; the output says so. No generic page crawl can guarantee the completeness of GitHub Package API data.
 - **Next handoff:** none; public docs and Package fallback should be rechecked as GitHub changes its Package UI/API permission behavior.
 
+### 2026-08-14 — Documentation refinement after user feedback — `complete`
+
+- **Agent/session:** GPT-5.6 Sol follow-up after the user reviewed the first simplified docs rewrite.
+- **Starting state:** `main` was clean at `b617c4f2b81c235a9c840fc8cbad5223507c750d`. The first rewrite successfully removed maintainer-heavy public pages, but it overcorrected by removing the useful technical explanation of read fast paths and federated search ranking, and `Read a URL` still led too heavily with GitHub examples.
+- **Ending commit(s):** `47128439e1d1cde2873632efb5bf0ef003e4b37f` — restored concise technical guides and rebalanced the read-link story.
+- **Outcome:** public docs now use four clear groups: Start, Guides, How it works, and Reference. `Read a URL` begins as a general-purpose URL reader, explains the automatic native/direct-markdown/Firecrawl ladder, then presents GitHub as the richest optimization rather than the definition of the command. Two technical pages are restored: `How URL reading works` explains the automatic fast-path architecture and GitHub/direct-markdown/Firecrawl tradeoff; `How search ranking works` explains URL normalization, position scoring, provider agreement, exclusions, and keyword mode with concrete examples.
+- **Documentation:** maintainer file maps, release plumbing, docs-site maintenance, and implementation-history prose remain outside public docs and live in `CONTRIBUTORS.md`/source. The technical guides explain design behavior without enumerating internal modules. README, landing-page docs discovery, docs index, and raw markdown docs index all link the restored How it works layer.
+- **Validation:** `npm run docs:check` passed with zero errors (seven existing Astro `z` deprecation hints), `npm run docs:build` passed with both restored pages indexed, `make check` passed, the public taxonomy/link audit passed, and `git diff --check` was clean before commit.
+- **Decisions made:** keep technical depth where it helps users understand why webctx is powerful, but separate it from the task-first workflow. Architecture docs should explain the cost/quality ladder and provider semantics, not source-file ownership; ranking docs can expose the real scoring model because it is useful product behavior.
+- **Known defects/risks:** none known from this docs refinement.
+- **Next handoff:** none; keep future public docs task-first, with concise How it works pages for durable technical concepts and maintainer mechanics in `CONTRIBUTORS.md`.
+
 When a phase is completed or blocked, append an entry in this exact shape:
 
 ```markdown
