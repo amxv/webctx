@@ -27,7 +27,7 @@ A phase is `complete` only after its observable outcome, phase-specific positive
 | 1 | Shared bounded-context contract and resilient Issues | complete | `68db77888bc136f97086aad62d4b844bb4d25159` | Large Issue roots are bounded/adaptive, `minimized` shape drift is tolerant, and exact `#issue-*` body reads are proven live. |
 | 2 | Native Pull Request lists and PR-qualified search correctness | complete | `8d85e3cdf5629fb36bc1f8eb48031282e2e8bf2b` | `/pulls` is native and bounded; PR-qualified `/issues?q=...` preserves PR semantics instead of being rewritten as Issues. |
 | 3 | Bounded PR root and complete selector discoverability | complete | `b34af6b9d61affb1ed6f0364a61f38cf443891a8` | PR roots are bounded maps with Issue-side body selectors and exact comment/review/thread drill-downs. |
-| 4 | PR Files and Checks bounded subviews | pending | — | Large patch/check fan-out becomes index-first; focused selectors remain exact. |
+| 4 | PR Files and Checks bounded subviews | complete | `714da077dac892b9eda358f31e1ef2637813d1d2` | Large patch/check fan-out is index-first; focused diff/check selectors remain scoped. |
 | 5 | Actions overview/run/job context safety and raw-log navigation | pending | — | Runs/jobs stop injecting huge child/log output and expose raw log navigation. |
 | 6 | Commit and compare overview/raw split plus commit selectors | pending | — | Plain commit/compare become bounded; raw diff/patch and exact commit selectors remain deep paths. |
 | 7 | Releases, trees, statistics, and deployment fan-out hardening | pending | — | Remaining high-fan-out repo containers use the shared overview contract. |
@@ -37,9 +37,9 @@ A phase is `complete` only after its observable outcome, phase-specific positive
 
 ## Current handoff
 
-- **Last completed phase:** Phase 3 — `Bounded PR root and complete selector discoverability`.
-- **Earliest incomplete phase:** Phase 4 — `PR Files and Checks bounded subviews`.
-- **Observable boundary:** PR roots now always render a bounded structured overview that preserves PR REST state/branch/stats truth, fetches the distinct Issue-side identity for the canonical full-description `#issue-<id>` selector, and indexes ordinary comments, reviews, and inline threads with exact existing GitHub anchors. Root child fetches stop after the first REST provider page and distinguish upstream-more/provider-incomplete state from local overview omission; exact body/comment/review/thread selectors stay scoped and full. PR `/files` and `/checks` still retain their current potentially large child expansion and are the next boundary.
+- **Last completed phase:** Phase 4 — `PR Files and Checks bounded subviews`.
+- **Earliest incomplete phase:** Phase 5 — `Actions overview/run/job context safety and raw-log navigation`.
+- **Observable boundary:** PR Files preserves naturally small complete patches, while large roots stop after one provider page and switch to a bounded selector-rich file index; exact `#diff-*` still performs the full lookup. Checks now render status/conclusion rollups and failure/active-first focused-run indexes without embedding every run summary; focused checks bound generated summary/raw-details/annotation output while keeping PR-head ownership, source coordinates, and provider Details links. Actions root/run/job fan-out and full selected-job logs are now the largest untouched boundary.
 - **Current blockers:** none known. GitHub/provider behavior listed as assumptions in the plan must be verified at the phase that depends on it.
 - **Plan Amendments affecting next phase:** none.
 - **Prompt to use now:** `subsequent-agent-prompt.md`.
@@ -130,6 +130,22 @@ Never place credentials, private live content, tokens, raw private provider payl
 - **Amendments:** none.
 - **Known defects/risks:** `/pull/<n>/files` can still render every returned patch up to GitHub's provider ceiling and `/checks` can still expand large check-run fan-out/annotation context. Those are intentional Phase 4 targets; `/commits` remains compact enough to preserve as-is unless Phase 4 evidence disproves that assumption.
 - **Next handoff:** Phase 4 — start from `subsequent-agent-prompt.md`, reconcile remote state, then inspect only the PR Files/Checks plan, sweep, source, tests, and current provider docs needed for their bounded overview/focused-selector contract.
+
+### 2026-08-14 — Phase 4 — `complete`
+
+- **Agent/session:** continuation in the same ChatGPT Atlas implementation session on `/workspace/repos/webctx`.
+- **Starting state:** clean synchronized `main` at `1d7e2ac680bb77d7ef0c4883fb6752f5bc33fee6` after Phase 3 remote verification.
+- **Ending commit(s):** `714da077dac892b9eda358f31e1ef2637813d1d2` (implementation/tests/public docs); this ledger handoff follows separately.
+- **Outcome:** unselected PR Files stops after one 100-file provider page; a naturally small complete set retains full patches, while larger/incomplete sets become bounded file indexes with status/change facts, SHA-256(path) selectors, blob/raw URLs, limited patch previews, and distinct local/provider/cap truth. Exact diff selectors still traverse complete provider pages to locate and return the selected patch/hunk. Checks retain complete run metadata so failures on later pages can be prioritized, but render only rollups plus a bounded failure/active-first index with `?check_run_id=` for every indexed run. Focused checks preserve head ownership and annotation coordinates while bounding generated summary/message/raw-details/annotation output and linking provider Details URLs.
+- **Files/areas changed:** `internal/app/github_pull_views.go`, Phase 4 fixtures in `internal/app/github_pull_views_test.go`, and PR Files/Checks guidance in `src/content/docs/read-link.md`.
+- **Positive evidence:** deterministic one-page Files evidence proves no eager overview pagination; small complete Files preserves full patches; synthetic 100-file/provider-more and 3,000-file ceiling fixtures remain <=5k runes while distinguishing provider-more/provider-ceiling from local omission. A synthetic 130-run Checks set remains <=5k, orders a hard failure before an active run before successes, exposes a focused URL for every indexed run, keeps combined statuses separately represented, and excludes machine summaries. A synthetic focused check with 40 huge annotations / reported 50 remains <=5k while preserving coordinates/message previews and separating summary/raw/local/provider truncation truth.
+- **Regression evidence:** PR `/commits`, raw `.diff`/`.patch`, diff hash identity, left/right hunk semantics, exact file selection, selected-check ownership mismatch, combined commit statuses, and small focused-check annotation rendering remain green. Current first-party GitHub Checks docs still specify up to 100 results per page for check-run/annotation lists under API version `2026-03-10`. citeturn299283search0 Final validation passed `go test ./...`, `go vet ./...`, `npm test`, `make build`, and `git diff --check`.
+- **Live evidence:** built `webctx` reduced `vercel/next.js#97343/checks` from the planning ~30.5k baseline to 4,893 runes / 133 lines while retaining metadata for all 132 runs, indexing 13 and locally omitting 119; all 13 indexed runs exposed focused URLs and the first three were current failures. The prescribed failing check `94639361056` rendered in 819 runes with its annotation and provider Details links. The same PR's two-file Files view retained the complete 3,481-rune patch form. The live `cli/cli#13250` `internal/ghcmd/cmd.go` exact diff selector returned one scoped full patch in 3,550 runes with `files_returned: 10`, `files_rendered: 1`, and no overview conversion.
+- **Documentation:** PR docs now explain small-vs-large Files behavior, exact diff narrowing, Checks rollups/priority, focused-run URLs, and bounded focused machine detail.
+- **Decisions made:** Files overview pagination is deliberately capped at the first provider page; exact diff selection is the escape hatch that may traverse all file pages. Checks deliberately retain complete run metadata pagination because otherwise a failure on a later page could be hidden behind routine successes; only rendered child count and generated text are budgeted.
+- **Amendments:** none.
+- **Known defects/risks:** Actions overview/run/job still enumerate large child collections and selected jobs can emit massive full raw logs; Phase 5 owns that boundary.
+- **Next handoff:** Phase 5 — reconcile remote state via `subsequent-agent-prompt.md`, then inspect only the Actions overview/run/job plan, sweep, source/tests/docs, and current provider log/redirect semantics.
 
 ## Execution rules
 
