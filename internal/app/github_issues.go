@@ -49,6 +49,7 @@ type githubPullMarker struct {
 }
 
 type githubIssue struct {
+	ID                int64                 `json:"id"`
 	Number            int                   `json:"number"`
 	State             string                `json:"state"`
 	StateReason       string                `json:"state_reason"`
@@ -83,6 +84,20 @@ type githubIssueComment struct {
 	IsPinned          bool       `json:"is_pinned"`
 	Minimized         bool       `json:"minimized"`
 	MinimizedReason   string     `json:"minimized_reason"`
+}
+
+func (comment *githubIssueComment) UnmarshalJSON(data []byte) error {
+	type alias githubIssueComment
+	aux := struct {
+		Minimized       json.RawMessage `json:"minimized"`
+		MinimizedReason json.RawMessage `json:"minimized_reason"`
+		*alias
+	}{alias: (*alias)(comment)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	comment.Minimized, comment.MinimizedReason = decodeGitHubMinimized(aux.Minimized, aux.MinimizedReason)
+	return nil
 }
 
 type githubIssueFieldValue struct {
@@ -135,6 +150,44 @@ type githubTimelineEvent struct {
 	MinimizedReason string `json:"minimized_reason"`
 }
 
+func (event *githubTimelineEvent) UnmarshalJSON(data []byte) error {
+	type alias githubTimelineEvent
+	aux := struct {
+		Minimized       json.RawMessage `json:"minimized"`
+		MinimizedReason json.RawMessage `json:"minimized_reason"`
+		*alias
+	}{alias: (*alias)(event)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	event.Minimized, event.MinimizedReason = decodeGitHubMinimized(aux.Minimized, aux.MinimizedReason)
+	return nil
+}
+
+func decodeGitHubMinimized(raw, reasonRaw json.RawMessage) (bool, string) {
+	minimized := false
+	reason := ""
+	trimmed := strings.TrimSpace(string(raw))
+	switch {
+	case trimmed == "", trimmed == "null":
+	case trimmed == "true":
+		minimized = true
+	case trimmed == "false":
+	default:
+		var object struct {
+			Reason json.RawMessage `json:"reason"`
+		}
+		if json.Unmarshal(raw, &object) == nil && len(object.Reason) > 0 {
+			minimized = true
+			_ = json.Unmarshal(object.Reason, &reason)
+		}
+	}
+	if strings.TrimSpace(reason) == "" {
+		_ = json.Unmarshal(reasonRaw, &reason)
+	}
+	return minimized, strings.TrimSpace(reason)
+}
+
 type githubIssueRelationships struct {
 	Parent    *githubIssue
 	SubIssues []githubIssue
@@ -150,6 +203,12 @@ type githubIssueSearchResponse struct {
 }
 
 func readGitHubIssue(ctx context.Context, client *GitHubClient, target *GitHubTarget) (string, error) {
+	if issueID, ok, err := parseIssueBodySelector(target.Fragment); ok {
+		if err != nil {
+			return "", err
+		}
+		return readGitHubIssueBody(ctx, client, target, issueID)
+	}
 	if commentID, ok, err := parseIssueCommentSelector(target.Fragment); ok {
 		if err != nil {
 			return "", err
@@ -160,14 +219,9 @@ func readGitHubIssue(ctx context.Context, client *GitHubClient, target *GitHubTa
 		return "", fmt.Errorf("GitHub Issue fragment %q is not a supported native selector", target.Fragment)
 	}
 
-	endpoint := fmt.Sprintf("/repos/%s/%s/issues/%d", url.PathEscape(target.Owner), url.PathEscape(target.Repo), target.Number)
-	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	issue, err := fetchGitHubIssue(ctx, client, target)
 	if err != nil {
 		return "", err
-	}
-	var issue githubIssue
-	if err := json.Unmarshal(resp.Body, &issue); err != nil {
-		return "", fmt.Errorf("decode GitHub Issue: %w", err)
 	}
 	if issue.PullRequest != nil {
 		canonical := issue.PullRequest.HTMLURL
@@ -186,6 +240,72 @@ func readGitHubIssue(ctx context.Context, client *GitHubClient, target *GitHubTa
 		return "", err
 	}
 	return renderGitHubIssue(target, issue, timeline, relationships), nil
+}
+
+func fetchGitHubIssue(ctx context.Context, client *GitHubClient, target *GitHubTarget) (githubIssue, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/issues/%d", url.PathEscape(target.Owner), url.PathEscape(target.Repo), target.Number)
+	resp, err := client.REST(ctx, http.MethodGet, endpoint, "application/vnd.github+json")
+	if err != nil {
+		return githubIssue{}, err
+	}
+	var issue githubIssue
+	if err := json.Unmarshal(resp.Body, &issue); err != nil {
+		return githubIssue{}, fmt.Errorf("decode GitHub Issue: %w", err)
+	}
+	return issue, nil
+}
+
+func parseIssueBodySelector(fragment string) (int64, bool, error) {
+	if !strings.HasPrefix(fragment, "issue-") || strings.HasPrefix(fragment, "issuecomment-") {
+		return 0, false, nil
+	}
+	raw := strings.TrimPrefix(fragment, "issue-")
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, true, fmt.Errorf("invalid GitHub Issue-body selector %q", fragment)
+	}
+	return id, true, nil
+}
+
+func readGitHubIssueBody(ctx context.Context, client *GitHubClient, target *GitHubTarget, issueID int64) (string, error) {
+	issue, err := fetchGitHubIssue(ctx, client, target)
+	if err != nil {
+		return "", err
+	}
+	if issue.PullRequest != nil {
+		canonical := issue.PullRequest.HTMLURL
+		if canonical == "" {
+			canonical = fmt.Sprintf("https://github.com/%s/%s/pull/%d", target.Owner, target.Repo, target.Number)
+		}
+		return "", fmt.Errorf("GitHub #%d is a pull request, not an Issue. Canonical URL: %s", target.Number, canonical)
+	}
+	if issue.ID != issueID {
+		return "", fmt.Errorf("GitHub Issue body selector issue-%d does not belong to %s/%s#%d (Issue id %d)", issueID, target.Owner, target.Repo, target.Number, issue.ID)
+	}
+	return renderGitHubIssueBody(target, issue), nil
+}
+
+func renderGitHubIssueBody(target *GitHubTarget, issue githubIssue) string {
+	lines := []string{
+		"---",
+		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
+		fmt.Sprintf("issue: %d", issue.Number),
+		fmt.Sprintf("issue_id: %d", issue.ID),
+		"title: " + yamlScalar(issue.Title),
+	}
+	if issue.User.Login != "" {
+		lines = append(lines, "author: "+yamlScalar("@"+issue.User.Login))
+	}
+	if issue.HTMLURL != "" {
+		lines = append(lines, "url: "+yamlScalar(issue.HTMLURL+"#issue-"+strconv.FormatInt(issue.ID, 10)))
+	}
+	lines = append(lines, "---", "", fmt.Sprintf("# Description of %s/%s#%d", target.Owner, target.Repo, issue.Number), "")
+	if issue.Body == nil || strings.TrimSpace(stripInvisibleHTMLComments(*issue.Body)) == "" {
+		lines = append(lines, "_No description provided._")
+	} else {
+		lines = append(lines, stripInvisibleHTMLComments(*issue.Body))
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func parseIssueCommentSelector(fragment string) (int64, bool, error) {
@@ -318,6 +438,14 @@ func fetchOptionalIssueFieldPages(ctx context.Context, client *GitHubClient, end
 }
 
 func renderGitHubIssue(target *GitHubTarget, issue githubIssue, timeline []githubTimelineEvent, rel githubIssueRelationships) string {
+	complete := renderGitHubIssueComplete(target, issue, timeline, rel)
+	if githubOverviewFits(complete) {
+		return complete
+	}
+	return renderGitHubIssueOverview(target, issue, timeline, rel)
+}
+
+func renderGitHubIssueComplete(target *GitHubTarget, issue githubIssue, timeline []githubTimelineEvent, rel githubIssueRelationships) string {
 	lines := []string{
 		"---",
 		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
@@ -424,6 +552,280 @@ func renderGitHubIssue(target *GitHubTarget, issue githubIssue, timeline []githu
 	base := fmt.Sprintf("https://github.com/%s/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo))
 	lines = append(lines, "", "## Useful GitHub URLs", "", "- Issue list: "+base+"/issues")
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func renderGitHubIssueOverview(target *GitHubTarget, issue githubIssue, timeline []githubTimelineEvent, rel githubIssueRelationships) string {
+	visible := substantiveIssueTimeline(timeline)
+	maxIndexed := len(visible)
+	if maxIndexed > 10 {
+		maxIndexed = 10
+	}
+	for indexed := maxIndexed; indexed >= 0; indexed-- {
+		out := renderGitHubIssueOverviewWithLimit(target, issue, timeline, visible, rel, indexed)
+		if githubOverviewFits(out) {
+			return out
+		}
+	}
+	// Mandatory metadata/navigation win over the soft target if an extreme
+	// provider title/relationship value alone consumes the whole budget.
+	return renderGitHubIssueOverviewWithLimit(target, issue, timeline, visible, rel, 0)
+}
+
+func renderGitHubIssueOverviewWithLimit(target *GitHubTarget, issue githubIssue, timeline, visible []githubTimelineEvent, rel githubIssueRelationships, indexedLimit int) string {
+	if indexedLimit < 0 {
+		indexedLimit = 0
+	}
+	if indexedLimit > len(visible) {
+		indexedLimit = len(visible)
+	}
+	commentReturned := 0
+	for _, event := range timeline {
+		if event.Event == "commented" {
+			commentReturned++
+		}
+	}
+	commentIndexed := 0
+	for _, event := range visible[:indexedLimit] {
+		if event.Event == "commented" {
+			commentIndexed++
+		}
+	}
+
+	lines := []string{
+		"---",
+		"repository: " + yamlScalar(target.Owner+"/"+target.Repo),
+		fmt.Sprintf("number: %d", issue.Number),
+	}
+	if issue.ID > 0 {
+		lines = append(lines, fmt.Sprintf("issue_id: %d", issue.ID))
+	}
+	lines = append(lines,
+		"state: "+yamlScalar(issue.State),
+		"title: "+yamlScalar(issue.Title),
+		"overview: true",
+	)
+	if issue.StateReason != "" {
+		lines = append(lines, "state_reason: "+yamlScalar(issue.StateReason))
+	}
+	if issue.User.Login != "" {
+		lines = append(lines, "author: "+yamlScalar("@"+issue.User.Login))
+	}
+	if issue.CreatedAt != "" {
+		lines = append(lines, "created: "+yamlScalar(issue.CreatedAt))
+	}
+	if issue.UpdatedAt != "" {
+		lines = append(lines, "updated: "+yamlScalar(issue.UpdatedAt))
+	}
+	if issue.ClosedAt != "" {
+		lines = append(lines, "closed: "+yamlScalar(issue.ClosedAt))
+	}
+	if issue.Locked {
+		lines = append(lines, "locked: true")
+		if issue.ActiveLockReason != "" {
+			lines = append(lines, "lock_reason: "+yamlScalar(issue.ActiveLockReason))
+		}
+	}
+	if labels := issueLabelNames(issue.Labels); len(labels) > 0 {
+		encoded, _ := json.Marshal(labels)
+		lines = append(lines, "labels: "+string(encoded))
+	}
+	if assignees := githubUserLogins(issue.Assignees); len(assignees) > 0 {
+		encoded, _ := json.Marshal(assignees)
+		lines = append(lines, "assignees: "+string(encoded))
+	}
+	if issue.Milestone != nil && issue.Milestone.Title != "" {
+		lines = append(lines, "milestone: "+yamlScalar(issue.Milestone.Title))
+	}
+	if issueType := githubIssueTypeName(issue.Type); issueType != "" {
+		lines = append(lines, "type: "+yamlScalar(issueType))
+	}
+	lines = append(lines,
+		fmt.Sprintf("comments_reported: %d", issue.Comments),
+		fmt.Sprintf("comments_returned: %d", commentReturned),
+		fmt.Sprintf("comments_indexed: %d", commentIndexed),
+		fmt.Sprintf("timeline_items_returned: %d", len(visible)),
+		fmt.Sprintf("timeline_items_indexed: %d", indexedLimit),
+		fmt.Sprintf("timeline_items_omitted: %d", len(visible)-indexedLimit),
+	)
+	if issue.Comments > commentReturned {
+		lines = append(lines, "comments_provider_complete: false")
+	}
+	if issue.HTMLURL != "" {
+		lines = append(lines, "url: "+yamlScalar(issue.HTMLURL))
+	}
+	lines = append(lines, "---", "", fmt.Sprintf("# #%d %s", issue.Number, issue.Title), "", "> Large Issue overview: subordinate conversation text is previewed/indexed so the default read stays near 5,000 characters.")
+
+	bodySelector := issueBodySelectorURL(target, issue)
+	lines = append(lines, "", "## Body preview", "")
+	if issue.Body == nil || strings.TrimSpace(stripInvisibleHTMLComments(*issue.Body)) == "" {
+		lines = append(lines, "_No description provided._")
+	} else {
+		body := stripInvisibleHTMLComments(*issue.Body)
+		preview, truncated := githubOverviewPreview(body, 1200)
+		lines = append(lines, preview)
+		if truncated {
+			lines = append(lines, "", "> Description preview locally truncated for this overview.")
+		}
+	}
+	if bodySelector != "" {
+		lines = append(lines, "> Full description: "+bodySelector)
+	}
+
+	relLines, relOmitted := renderIssueRelationshipsOverview(rel)
+	if len(relLines) > 0 {
+		lines = append(lines, "", "## Relationships", "")
+		lines = append(lines, relLines...)
+		if note := githubLocalOmissionNote("relationship entries", relOmitted); note != "" {
+			lines = append(lines, "", note)
+		}
+	}
+
+	pinned := decodePinnedIssueComment(issue.PinnedComment)
+	pinnedInTimeline := false
+	if pinned != nil {
+		for _, event := range timeline {
+			if event.Event == "commented" && event.ID == pinned.ID {
+				pinnedInTimeline = true
+				break
+			}
+		}
+	}
+	if pinned != nil && !pinnedInTimeline {
+		lines = append(lines, "", "## Pinned comment", "")
+		lines = append(lines, renderIssueCommentIndex(target, *pinned)...)
+	}
+
+	lines = append(lines, "", "## Timeline index", "")
+	if len(visible) == 0 {
+		lines = append(lines, "_No substantive timeline activity._")
+	}
+	for _, event := range visible[:indexedLimit] {
+		if event.Event == "commented" {
+			comment := githubIssueComment{
+				ID:                event.ID,
+				Body:              event.Body,
+				HTMLURL:           event.HTMLURL,
+				User:              event.User,
+				AuthorAssociation: event.AuthorAssociation,
+				CreatedAt:         event.CreatedAt,
+				UpdatedAt:         event.UpdatedAt,
+				IsPinned:          event.IsPinned || (pinned != nil && pinned.ID == event.ID),
+				Minimized:         event.Minimized,
+				MinimizedReason:   event.MinimizedReason,
+			}
+			lines = append(lines, renderIssueCommentIndex(target, comment)...)
+			continue
+		}
+		if rendered, ok := renderIssueTimelineState(event); ok {
+			lines = append(lines, rendered)
+		}
+	}
+	if note := githubLocalOmissionNote("substantive timeline items", len(visible)-indexedLimit); note != "" {
+		lines = append(lines, "", note)
+	}
+	if issue.Comments > commentReturned {
+		lines = append(lines, "", fmt.Sprintf("> Provider-incomplete comment data: GitHub reports %d comments, while the fully fetched timeline returned %d comment events. This is separate from local overview omission.", issue.Comments, commentReturned))
+	}
+
+	base := fmt.Sprintf("https://github.com/%s/%s", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo))
+	lines = append(lines, "", "## Useful GitHub URLs", "")
+	if bodySelector != "" {
+		lines = append(lines, "- Full Issue description: "+bodySelector)
+	}
+	lines = append(lines, "- Issue page: "+issuePageURL(target, issue), "- Issue list: "+base+"/issues")
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func substantiveIssueTimeline(timeline []githubTimelineEvent) []githubTimelineEvent {
+	visible := make([]githubTimelineEvent, 0, len(timeline))
+	for _, event := range timeline {
+		if event.Event == "commented" {
+			visible = append(visible, event)
+			continue
+		}
+		if _, ok := renderIssueTimelineState(event); ok {
+			visible = append(visible, event)
+		}
+	}
+	return visible
+}
+
+func renderIssueRelationshipsOverview(rel githubIssueRelationships) ([]string, int) {
+	lines := []string{}
+	omitted := 0
+	if rel.Parent != nil {
+		lines = append(lines, "- Parent: "+issueRelationshipLink(*rel.Parent))
+	}
+	appendIssues := func(label string, issues []githubIssue) {
+		limit := len(issues)
+		if limit > 3 {
+			limit = 3
+		}
+		for _, issue := range issues[:limit] {
+			lines = append(lines, "- "+label+": "+issueRelationshipLink(issue))
+		}
+		omitted += len(issues) - limit
+	}
+	appendIssues("Sub-issue", rel.SubIssues)
+	appendIssues("Blocked by", rel.BlockedBy)
+	appendIssues("Blocking", rel.Blocking)
+	fieldLimit := len(rel.Fields)
+	if fieldLimit > 4 {
+		fieldLimit = 4
+	}
+	for _, field := range rel.Fields[:fieldLimit] {
+		if strings.TrimSpace(field.IssueFieldName) == "" {
+			continue
+		}
+		lines = append(lines, "- "+field.IssueFieldName+": "+renderIssueFieldValue(field))
+	}
+	omitted += len(rel.Fields) - fieldLimit
+	return lines, omitted
+}
+
+func renderIssueCommentIndex(target *GitHubTarget, comment githubIssueComment) []string {
+	heading := fmt.Sprintf("### Comment `%d`", comment.ID)
+	if comment.User.Login != "" {
+		heading += " by @" + comment.User.Login
+	}
+	if comment.CreatedAt != "" {
+		heading += " — " + comment.CreatedAt
+	}
+	if comment.IsPinned {
+		heading += " · pinned"
+	}
+	body := strings.Join(renderIssueCommentBody(comment, comment.IsPinned), "\n")
+	preview, truncated := githubOverviewPreview(body, githubIndexPreviewRunes)
+	lines := []string{heading, ""}
+	for _, line := range strings.Split(preview, "\n") {
+		lines = append(lines, "> "+line)
+	}
+	if truncated {
+		lines = append(lines, "> _Preview locally truncated._")
+	}
+	lines = append(lines, "", "Selector: "+issueCommentSelectorURL(target, comment), "")
+	return lines
+}
+
+func issuePageURL(target *GitHubTarget, issue githubIssue) string {
+	if strings.TrimSpace(issue.HTMLURL) != "" {
+		return strings.TrimRight(issue.HTMLURL, "/")
+	}
+	return fmt.Sprintf("https://github.com/%s/%s/issues/%d", escapePathPreservingSlashes(target.Owner), escapePathPreservingSlashes(target.Repo), target.Number)
+}
+
+func issueBodySelectorURL(target *GitHubTarget, issue githubIssue) string {
+	if issue.ID <= 0 {
+		return ""
+	}
+	return issuePageURL(target, issue) + "#issue-" + strconv.FormatInt(issue.ID, 10)
+}
+
+func issueCommentSelectorURL(target *GitHubTarget, comment githubIssueComment) string {
+	if strings.TrimSpace(comment.HTMLURL) != "" {
+		return comment.HTMLURL
+	}
+	return issuePageURL(target, githubIssue{Number: target.Number}) + "#issuecomment-" + strconv.FormatInt(comment.ID, 10)
 }
 
 func renderGitHubIssueComment(target *GitHubTarget, comment githubIssueComment) string {

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestParseGitHubIssueTargets(t *testing.T) {
@@ -24,6 +25,7 @@ func TestParseGitHubIssueTargets(t *testing.T) {
 		{rawURL: "https://github.com/o/r/issues", kind: GitHubTargetIssueList},
 		{rawURL: "https://github.com/o/r/issues?q=is%3Aissue+state%3Aclosed", kind: GitHubTargetIssueList},
 		{rawURL: "https://github.com/o/r/issues/42", kind: GitHubTargetIssue, number: 42},
+		{rawURL: "https://github.com/o/r/issues/42#issue-987", kind: GitHubTargetIssue, number: 42, fragment: "issue-987"},
 		{rawURL: "https://github.com/o/r/issues/42#issuecomment-123", kind: GitHubTargetIssue, number: 42, fragment: "issuecomment-123"},
 		{rawURL: "https://github.com/o/r/labels", kind: GitHubTargetLabelList},
 		{rawURL: "https://github.com/o/r/labels/good%20first%20issue", kind: GitHubTargetLabel, name: "good first issue"},
@@ -128,11 +130,161 @@ func TestReadGitHubIssueCompleteConversationAndRelationships(t *testing.T) {
 	if strings.Count(out, "Pinned answer") != 1 {
 		t.Fatalf("pinned comment duplicated instead of being annotated in timeline:\n%s", out)
 	}
+	if strings.Contains(out, "overview: true") {
+		t.Fatalf("small Issue should retain the readable complete-conversation form:\n%s", out)
+	}
 	if got := atomic.LoadInt32(&timelinePages); got != 2 {
 		t.Fatalf("expected Link pagination to fetch 2 timeline pages, got %d", got)
 	}
 	if strings.Contains(out, "GH_TOKEN") {
 		t.Fatalf("successful anonymous Issue read nagged for auth:\n%s", out)
+	}
+}
+
+func TestIssueTimelineMinimizedShapeVariants(t *testing.T) {
+	var events []githubTimelineEvent
+	payload := `[
+		{"id":1,"event":"commented","minimized":false,"body":"visible"},
+		{"id":2,"event":"commented","minimized":null,"body":"visible"},
+		{"id":3,"event":"commented","minimized":true,"minimized_reason":"outdated","body":"hidden"},
+		{"id":4,"event":"commented","minimized":{"reason":"spam"},"minimized_reason":null,"body":"hidden"},
+		{"id":5,"event":"commented","minimized":{"reason":{"future":"shape"}},"body":"hidden"},
+		{"id":6,"event":"commented","minimized":"future-shape","body":"visible"}
+	]`
+	if err := json.Unmarshal([]byte(payload), &events); err != nil {
+		t.Fatalf("polymorphic minimized data must not erase the timeline: %v", err)
+	}
+	if len(events) != 6 {
+		t.Fatalf("unexpected event count: %d", len(events))
+	}
+	if events[0].Minimized || events[1].Minimized {
+		t.Fatal("false/null minimized states should remain visible")
+	}
+	if !events[2].Minimized || events[2].MinimizedReason != "outdated" {
+		t.Fatalf("boolean minimized state lost reason: %#v", events[2])
+	}
+	if !events[3].Minimized || events[3].MinimizedReason != "spam" {
+		t.Fatalf("object minimized state was not normalized: %#v", events[3])
+	}
+	if !events[4].Minimized || events[4].MinimizedReason != "" {
+		t.Fatalf("unknown object reason shape should remain minimized without inventing a reason: %#v", events[4])
+	}
+	if events[5].Minimized {
+		t.Fatalf("unknown scalar minimized shape should be tolerated without inventing minimized=true: %#v", events[5])
+	}
+}
+
+func TestIssueBodySelectorUsesOneProviderReadAndVerifiesIdentity(t *testing.T) {
+	longBody := "Full exact description\n\n" + strings.Repeat("selected body text stays faithful even when long\n", 220)
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		if r.URL.Path != "/repos/o/r/issues/42" {
+			t.Fatalf("body selector fetched unrelated Issue data: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": 987, "number": 42, "state": "open", "title": "Body selector", "body": longBody,
+			"html_url": "https://github.com/o/r/issues/42", "user": map[string]any{"login": "alice"},
+		})
+	}))
+	defer server.Close()
+
+	out, err := readGitHubIssue(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/issues/42#issue-987"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("exact Issue-body selector should use one provider read, got %d", got)
+	}
+	if !strings.Contains(out, strings.TrimSpace(longBody)) || strings.Contains(out, "Timeline") || strings.Contains(out, "preview truncated") {
+		t.Fatalf("exact Issue-body selector was not faithful/narrow:\n%s", out)
+	}
+
+	atomic.StoreInt32(&requests, 0)
+	_, err = readGitHubIssue(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/issues/42#issue-986"))
+	if err == nil || !strings.Contains(err.Error(), "does not belong") || !strings.Contains(err.Error(), "Issue id 987") {
+		t.Fatalf("mismatched Issue-body selector was not rejected truthfully: %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("mismatched Issue-body selector should stop after identity read, got %d", got)
+	}
+}
+
+func TestLargeIssueUsesBoundedOverviewWithSelectorsAndTruthfulOmission(t *testing.T) {
+	body := "Opening context that must survive.\n\n" + strings.Repeat("Body paragraph with enough detail to force a bounded preview.\n\n", 35) + "```go\n" + strings.Repeat("fmt.Println(\"inside body fence\")\n", 80) + "```\n\nTAIL BODY MUST NOT APPEAR"
+	comments := make([]map[string]any, 0, 30)
+	for i := 1; i <= 30; i++ {
+		commentBody := fmt.Sprintf("Comment %02d preview marker.\n\n%s\nTAIL COMMENT %02d MUST NOT APPEAR", i, strings.Repeat("long comment paragraph with deterministic context. ", 24), i)
+		if i == 2 {
+			commentBody = "Pinned answer marker.\n\n" + strings.Repeat("pinned detail. ", 80)
+		}
+		comments = append(comments, map[string]any{
+			"id": i, "event": "commented", "body": commentBody,
+			"html_url":   fmt.Sprintf("https://github.com/o/r/issues/42#issuecomment-%d", i),
+			"user":       map[string]any{"login": fmt.Sprintf("user-%02d", i)},
+			"created_at": fmt.Sprintf("2026-08-%02dT00:00:00Z", (i%28)+1),
+			"is_pinned":  i == 2,
+		})
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/o/r/issues/42":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 987, "number": 42, "state": "open", "title": "Very large Issue", "body": body,
+				"html_url": "https://github.com/o/r/issues/42", "user": map[string]any{"login": "alice"},
+				"comments":       35,
+				"pinned_comment": map[string]any{"id": 2, "body": "Pinned answer marker.", "html_url": "https://github.com/o/r/issues/42#issuecomment-2", "user": map[string]any{"login": "user-02"}},
+			})
+		case "/repos/o/r/issues/42/timeline":
+			_ = json.NewEncoder(w).Encode(comments)
+		case "/repos/o/r/issues/42/parent":
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": 10, "title": "Parent", "html_url": "https://github.com/o/r/issues/10"})
+		case "/repos/o/r/issues/42/sub_issues":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"number": 43, "title": "Child", "html_url": "https://github.com/o/r/issues/43"}})
+		case "/repos/o/r/issues/42/dependencies/blocked_by", "/repos/o/r/issues/42/dependencies/blocking", "/repos/o/r/issues/42/issue-field-values":
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	out, err := readGitHubIssue(context.Background(), testGitHubClient(server.URL, server.URL, ""), parseGitHubTarget("https://github.com/o/r/issues/42"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runes := utf8.RuneCountInString(out)
+	t.Logf("large Issue overview runes: %d", runes)
+	if runes > githubOverviewRunes {
+		t.Fatalf("large Issue overview exceeded shared target: %d runes\n%s", runes, out)
+	}
+	for _, want := range []string{
+		"overview: true", "Opening context that must survive.", "Description preview locally truncated",
+		"https://github.com/o/r/issues/42#issue-987", "Comment `1` by @user-01",
+		"https://github.com/o/r/issues/42#issuecomment-1", "Pinned answer marker", "Parent: [#10 Parent]", "Sub-issue: [#43 Child]",
+		"timeline_items_omitted:", "locally omitted from this overview", "comments_provider_complete: false", "Provider-incomplete comment data",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("bounded overview missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "TAIL BODY MUST NOT APPEAR") || strings.Contains(out, "TAIL COMMENT 01 MUST NOT APPEAR") {
+		t.Fatalf("overview leaked full subordinate bodies:\n%s", out)
+	}
+	bodyPreviewStart := strings.Index(out, "## Body preview\n\n")
+	if bodyPreviewStart < 0 {
+		t.Fatalf("could not locate body preview boundaries:\n%s", out)
+	}
+	bodyPreviewEnd := strings.Index(out[bodyPreviewStart:], "\n\n> Description preview locally truncated")
+	if bodyPreviewEnd < 0 {
+		t.Fatalf("could not locate body preview end:\n%s", out)
+	}
+	preview := out[bodyPreviewStart+len("## Body preview\n\n") : bodyPreviewStart+bodyPreviewEnd]
+	if strings.Count(preview, "```")%2 != 0 {
+		t.Fatalf("body preview ended inside a Markdown fence:\n%s", preview)
 	}
 }
 

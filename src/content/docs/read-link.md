@@ -103,7 +103,15 @@ webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#install'
 webctx read-link https://github.com/amxv/webctx/issues/6
 ```
 
-You get the useful Issue body, conversation, and state changes without GitHub navigation chrome.
+Small Issues stay in the useful full-conversation form: body, comments, relationships, and substantive state changes without GitHub navigation chrome. Large Issues automatically switch to a compact overview with a body preview, relationship facts, a bounded chronological timeline index, and explicit notes about anything omitted from the overview.
+
+To read the full Issue description without expanding the conversation, keep GitHub's Issue-body anchor:
+
+```bash
+webctx read-link 'https://github.com/<owner>/<repo>/issues/<number>#issue-<issue-id>'
+```
+
+Large Issue overviews include this exact URL when GitHub supplies the Issue database ID.
 
 If you copied a link to one comment, keep the anchor:
 

@@ -21,11 +21,13 @@ import (
 )
 
 const (
-	githubRESTAPIVersion   = "2026-03-10"
-	githubDefaultAPIBase   = "https://api.github.com"
-	githubDefaultRawBase   = "https://raw.githubusercontent.com"
-	githubRootPreviewRunes = 5000
-	githubBlobMaxBytes     = int64(100 * 1024 * 1024)
+	githubRESTAPIVersion    = "2026-03-10"
+	githubDefaultAPIBase    = "https://api.github.com"
+	githubDefaultRawBase    = "https://raw.githubusercontent.com"
+	githubOverviewRunes     = 5000
+	githubRootPreviewRunes  = githubOverviewRunes
+	githubIndexPreviewRunes = 240
+	githubBlobMaxBytes      = int64(100 * 1024 * 1024)
 )
 
 type GitHubTargetKind string
@@ -1838,6 +1840,27 @@ func truncateMarkdownSafe(markdown string, maxRunes int) (string, bool) {
 		return strings.TrimSpace(string(runes)), true
 	}
 	return strings.TrimSpace(markdown[:end]), true
+}
+
+// githubOverviewPreview is the shared native-GitHub preview primitive for
+// overview/container renderers. It intentionally reuses the Markdown-safe,
+// rune-aware truncation contract instead of introducing token/model coupling.
+func githubOverviewPreview(markdown string, maxRunes int) (string, bool) {
+	return truncateMarkdownSafe(strings.TrimSpace(markdown), maxRunes)
+}
+
+// githubOverviewFits reports whether a candidate overview stays within the
+// shared soft target. Mandatory metadata/navigation may still make a renderer
+// modestly exceed the target, but optional child indexes should use this gate.
+func githubOverviewFits(markdown string) bool {
+	return utf8.RuneCountInString(markdown) <= githubOverviewRunes
+}
+
+func githubLocalOmissionNote(kind string, omitted int) string {
+	if omitted <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("> %d %s locally omitted from this overview to keep the read bounded.", omitted, kind)
 }
 
 func markdownFenceMarker(trimmed string) (string, bool) {
