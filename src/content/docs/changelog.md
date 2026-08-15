@@ -8,6 +8,12 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.1 - 2026-08-15
+
+- Completed native GitHub context coverage across issues, pull requests, commits, Actions, releases, Discussions, Gists, packages, projects, search, profiles, activity, and deployments.
+- Bounded large GitHub roots and provider fan-out so broad reads remain useful without overwhelming the default context.
+- Closed the GitHub read-link review gaps and documented the cross-family acceptance coverage.
+
 ## 0.2.0 — 2026-08-14
 
 - Added native GitHub reads for repositories, issues, pull requests, commits, Actions, releases, Discussions, Gists, packages, projects, search, profiles, activity, and deployments.
