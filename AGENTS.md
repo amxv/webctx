@@ -74,7 +74,7 @@ Behavioral expectations:
 
 Release pipeline triggers on `v*` tags and expects:
 
-- The npm `webctx` package authorizes the `amxv/webctx` GitHub Actions `release.yml` trusted publisher for `npm publish` (OIDC).
+- The `NPM_TOKEN` GitHub Actions secret must contain a valid npm access token with publish rights for `webctx`; publishing uses `NODE_AUTH_TOKEN` (not OIDC trusted publishing).
 - npm package name in `package.json` is publishable under your account/org.
 - repository URL matches the release origin used by `scripts/postinstall.js`.
 
