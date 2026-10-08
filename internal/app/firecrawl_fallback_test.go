@@ -63,10 +63,10 @@ func TestScrapeEscalatesToBrowserWhenScrapeFails(t *testing.T) {
 			return testHTTPResponse(req, http.StatusOK, `{"success":true,"id":"abc123"}`, nil), nil
 		case "POST /v2/interact/abc123/execute":
 			body, _ := io.ReadAll(req.Body)
-			if !strings.Contains(string(body), "agent-browser scrape") {
+			if !strings.Contains(string(body), "agent-browser eval") || strings.Contains(string(body), "agent-browser scrape") {
 				t.Errorf("missing browser extraction command: %s", body)
 			}
-			return testHTTPResponse(req, http.StatusOK, `{"success":true,"stdout":"# Browser result\n\nReal page content from browser.","exitCode":0}`, nil), nil
+			return testHTTPResponse(req, http.StatusOK, `{"success":true,"stdout":"\"Real page content from browser.\\nNew paragraph.\"","exitCode":0}`, nil), nil
 		case "DELETE /v2/interact/abc123":
 			return testHTTPResponse(req, http.StatusOK, `{}`, nil), nil
 		}
@@ -74,7 +74,7 @@ func TestScrapeEscalatesToBrowserWhenScrapeFails(t *testing.T) {
 	})}
 	t.Setenv("FIRECRAWL_API_KEY", "test")
 	_, markdown, err := scrapeLinkWithFirecrawl("https://example.com/dynamic")
-	if err != nil || !strings.Contains(markdown, "Real page content") {
+	if err != nil || !strings.Contains(markdown, "Real page content") || !strings.Contains(markdown, "browser.\nNew paragraph.") {
 		t.Fatalf("expected browser fallback content, got %q: %v", markdown, err)
 	}
 	if strings.Join(calls, ",") != "POST /v2/scrape,POST /v2/interact,POST /v2/interact/abc123/execute,DELETE /v2/interact/abc123" {

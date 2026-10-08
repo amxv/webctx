@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -126,7 +127,10 @@ func firecrawlBrowserFallback(rawURL, apiKey string) (string, string, error) {
 	endpoint := "https://api.firecrawl.dev/v2/interact/" + url.PathEscape(sessionID)
 	defer stopFirecrawlBrowser(endpoint, apiKey)
 	result, err := firecrawlJSON(ctx, http.MethodPost, endpoint+"/execute", apiKey, map[string]any{
-		"code":     "agent-browser open " + quoteShellURL(rawURL) + " && agent-browser scrape",
+		// The sandbox's agent-browser does not expose a "scrape" subcommand
+		// even though Firecrawl's examples use it. DOM innerText is supported.
+		// Suppress navigation's banner so stdout contains only the evaluated text.
+		"code":     "agent-browser open " + quoteShellURL(rawURL) + " >/dev/null && agent-browser eval 'document.body.innerText'",
 		"language": "bash",
 		"timeout":  20,
 	})
@@ -142,6 +146,11 @@ func firecrawlBrowserFallback(rawURL, apiKey string) (string, string, error) {
 	}
 	if text == "" {
 		text = stringValue(result["result"])
+	}
+	// agent-browser eval serializes JS strings as JSON with surrounding quotes.
+	// Decode those escapes rather than handing the model a JSON string literal.
+	if parsed, err := strconv.Unquote(strings.TrimSpace(text)); err == nil {
+		text = parsed
 	}
 	return "Browser extraction", text, nil
 }
