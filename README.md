@@ -12,6 +12,14 @@ webctx map-site <url>
 
 The output is plain text or markdown, so it is easy to hand to ChatGPT, Codex, Claude Code, a shell script, or another tool.
 
+## Origo: hosted MCP access
+
+**Origo** is the MCP transport over the same WebCTX retrieval engine. Connect an MCP client to `https://api.origo.ashray.xyz/mcp?key=<your-private-key>` to access exactly two tools: `read_link` and `map_site`. Origo does not expose `search`; the CLI continues to provide all three commands.
+
+Both surfaces share native GitHub/Markdown readers and Firecrawl fallback behavior. Firecrawl's built-in cache is limited to **30 minutes**. Difficult pages automatically escalate through Firecrawl's proxy fallback and, if necessary, a temporary Browser Sandbox session. There is no Redis or additional cache database.
+
+Origo deploys independently through the `origo-api` Vercel project on pushes to `main`. CLI releases and npm publishing are unchanged. See the [Origo MCP guide](https://webctx.ashray.xyz/docs/origo) for architecture, setup, and security notes.
+
 ## Install
 
 ```bash

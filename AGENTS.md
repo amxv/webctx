@@ -4,7 +4,7 @@ Guidance for coding agents working in `webctx`.
 
 ## Purpose
 
-This repo contains the pure Go port of the `webctx` CLI.
+This repo contains the Go `webctx` CLI and its hosted Origo MCP transport, sharing one retrieval engine.
 
 It is no longer a generic starter template. Treat the current CLI behavior as the source of truth unless the user explicitly asks to change it.
 
@@ -14,6 +14,9 @@ It is no longer a generic starter template. Treat the current CLI behavior as th
 - `internal/app/app.go`: CLI parsing and top-level command routing.
 - `internal/app/tools.go`: search provider clients, ranking, formatting, and HTTP helpers.
 - `internal/app/scrape.go`: GitHub raw-content optimization, `.md` fetch path, Firecrawl queue, and env loading.
+- `pkg/retrieval/`: public adapter to `internal/app` for Vercel's Go packaging restrictions.
+- `pkg/origo/`: authenticated Streamable HTTP MCP with exactly `read_link` and `map_site`.
+- `api/mcp.go`: Go Function entrypoint for independent Origo deployment.
 - `internal/app/app_test.go`: unit tests for CLI behavior and core helpers.
 - `bin/webctx.js`: npm shim that invokes the packaged native binary.
 - `scripts/postinstall.js`: downloads release binary on install, falls back to `go build`.
@@ -51,7 +54,7 @@ Preserve these commands unless the user explicitly asks to change them:
 Behavioral expectations:
 
 - `search` combines Brave, Tavily, and Exa results, then re-ranks them with duplicate-aware scoring.
-- `read-link` keeps the current GitHub raw-content fast path, `.md` fast path, and Firecrawl fallback settings.
+- `read-link` keeps the current GitHub raw-content and `.md` fast paths. Firecrawl uses its built-in 30-minute cache, automatic and enhanced proxies, then browser extraction as a final fallback.
 - `map-site` keeps the current Firecrawl map request settings.
 - The CLI should remain agent-friendly and emit plain markdown/text output.
 
@@ -81,7 +84,9 @@ Release binaries should embed the tagged version into `internal/buildinfo.Versio
 
 - Prefer additive changes and keep the CLI output stable.
 - Do not silently change Firecrawl request settings unless the user explicitly wants behavioral changes.
-- Do not reintroduce MCP/server code unless requested; this repo is intentionally CLI-only.
+- Do not add search to Origo's MCP tool surface; only `read_link` and `map_site` are registered.
+- Keep `origo-api` deployment separate from the existing WebCTX docs Vercel project and tag-driven CLI releases.
+- Never introduce Redis, custom KV, or another caching service for Origo: the user explicitly chose Firecrawl's own 30-minute cache.
 
 ## Changelog Guidelines
 

@@ -759,11 +759,10 @@ func TestReadLinkUnsupportedGitHubFallsThroughToFirecrawlWithExistingSettings(t 
 		t.Fatalf("unsupported GitHub route was swallowed: %q", out)
 	}
 	for key, want := range map[string]any{
-		"onlyMainContent":     true,
-		"skipTlsVerification": true,
-		"blockAds":            true,
-		"removeBase64Images":  true,
-		"maxAge":              float64(600000),
+		"onlyMainContent":    true,
+		"blockAds":           true,
+		"removeBase64Images": true,
+		"maxAge":             float64(1800000),
 	} {
 		if got := firecrawlPayload[key]; got != want {
 			t.Errorf("Firecrawl setting %s changed: got %#v want %#v", key, got, want)

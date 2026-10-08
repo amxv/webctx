@@ -1,0 +1,83 @@
+package app
+
+import (
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+func TestSourceURLSafety(t *testing.T) {
+	for _, raw := range []string{"file:///etc/passwd", "http://localhost:9999", "http://127.0.0.1:80", "http://[::1]", "http://user:pass@example.com", "http://192.168.0.1", "http://169.254.169.254"} {
+		if validateSourceURL(raw) == nil {
+			t.Fatalf("allowed unsafe URL %q", raw)
+		}
+	}
+	if err := validateSourceURL("https://example.com/guide"); err != nil {
+		t.Fatalf("rejected public URL: %v", err)
+	}
+}
+
+func TestScrapeEscalatesToEnhancedOnBlockedBody(t *testing.T) {
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	var proxies []string
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method == http.MethodPost && req.URL.String() == "https://api.firecrawl.dev/v2/scrape" {
+			body, _ := io.ReadAll(req.Body)
+			if strings.Contains(string(body), `"proxy":"enhanced"`) {
+				proxies = append(proxies, "enhanced")
+				if !strings.Contains(string(body), `"maxAge":0`) {
+					t.Errorf("enhanced retry must bypass blocked cached results: %s", body)
+				}
+				return testHTTPResponse(req, http.StatusOK, `{"success":true,"data":{"metadata":{"title":"Article"},"markdown":"# Article\n\nLonger useful body from enhanced proxy."}}`, nil), nil
+			}
+			proxies = append(proxies, "auto")
+			if !strings.Contains(string(body), `"maxAge":1800000`) {
+				t.Errorf("Firecrawl cache age not 30 minutes: %s", body)
+			}
+			return testHTTPResponse(req, http.StatusOK, `{"success":true,"data":{"markdown":"Just a moment... checking your browser"}}`, nil), nil
+		}
+		return testHTTPResponse(req, http.StatusNotFound, "", nil), nil
+	})}
+	t.Setenv("FIRECRAWL_API_KEY", "test")
+	_, markdown, err := scrapeLinkWithFirecrawl("https://example.com/article")
+	if err != nil || !strings.Contains(markdown, "Longer useful body") {
+		t.Fatalf("expected enhanced proxy content, got %q: %v", markdown, err)
+	}
+	if strings.Join(proxies, ",") != "auto,enhanced" {
+		t.Fatalf("unexpected proxy stages %v", proxies)
+	}
+}
+
+func TestScrapeEscalatesToBrowserWhenScrapeFails(t *testing.T) {
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	var calls []string
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, req.Method+" "+req.URL.Path)
+		switch req.Method + " " + req.URL.Path {
+		case "POST /v2/scrape":
+			return testHTTPResponse(req, http.StatusOK, `{"success":false,"error":"blocked"}`, nil), nil
+		case "POST /v2/interact":
+			return testHTTPResponse(req, http.StatusOK, `{"success":true,"id":"abc123"}`, nil), nil
+		case "POST /v2/interact/abc123/execute":
+			body, _ := io.ReadAll(req.Body)
+			if !strings.Contains(string(body), "agent-browser scrape") {
+				t.Errorf("missing browser extraction command: %s", body)
+			}
+			return testHTTPResponse(req, http.StatusOK, `{"success":true,"stdout":"# Browser result\n\nReal page content from browser.","exitCode":0}`, nil), nil
+		case "DELETE /v2/interact/abc123":
+			return testHTTPResponse(req, http.StatusOK, `{}`, nil), nil
+		}
+		return testHTTPResponse(req, http.StatusNotFound, "", nil), nil
+	})}
+	t.Setenv("FIRECRAWL_API_KEY", "test")
+	_, markdown, err := scrapeLinkWithFirecrawl("https://example.com/dynamic")
+	if err != nil || !strings.Contains(markdown, "Real page content") {
+		t.Fatalf("expected browser fallback content, got %q: %v", markdown, err)
+	}
+	if strings.Join(calls, ",") != "POST /v2/scrape,POST /v2/interact,POST /v2/interact/abc123/execute,DELETE /v2/interact/abc123" {
+		t.Fatalf("unexpected browser lifecycle: %v", calls)
+	}
+}

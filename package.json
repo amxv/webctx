@@ -24,6 +24,8 @@
     "cmd",
     "internal",
     "go.mod",
+    "go.sum",
+    "pkg",
     "README.md",
     "docs",
     "LICENSE",

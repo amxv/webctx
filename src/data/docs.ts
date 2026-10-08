@@ -30,5 +30,6 @@ export const docCategories = ["Start", "Guides", "How it works", "Reference"] as
 
 export const primaryNav = [
   { href: "/docs", label: "Docs" },
+  { href: "/docs/origo", label: "Origo MCP" },
   { href: siteConfig.repoUrl, label: "GitHub", external: true }
 ];

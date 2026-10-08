@@ -131,6 +131,9 @@ func Search(params SearchParams) (string, error) {
 }
 
 func ReadLink(rawURL string) (string, error) {
+	if err := validateSourceURL(rawURL); err != nil {
+		return "", err
+	}
 	native := readGitHubNative(rawURL)
 	switch native.Outcome {
 	case GitHubNativeSuccess:
@@ -193,55 +196,38 @@ func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 	if apiKey == "" {
 		return "", "", missingCredentialsError("Error reading web page", []string{"FIRECRAWL_API_KEY"}, "for non-.md URLs")
 	}
-
-	requestBody := map[string]any{
-		"url":                 rawURL,
-		"formats":             []string{"markdown"},
-		"onlyMainContent":     true,
-		"skipTlsVerification": true,
-		"blockAds":            true,
-		"removeBase64Images":  true,
-		"maxAge":              600000,
-		"excludeTags":         []string{"script", "style", "meta", "noscript", "svg", "img", "nav", "footer", "header", "aside", ".advertisement", "#ad"},
+	// Firecrawl's default auto proxy already tries basic then enhanced when the
+	// transport fails. A second explicit enhanced attempt is only useful when a
+	// scrape responds successfully but returns a challenge/empty document.
+	first, err := firecrawlScrape(rawURL, apiKey, "")
+	if err == nil && usableScrapedMarkdown(first.Markdown) {
+		return first.Title, first.Markdown, nil
 	}
-	if strings.HasSuffix(strings.ToLower(rawURL), ".pdf") {
-		requestBody["parsers"] = []string{"pdf"}
-	}
-
-	data, err := getFirecrawlQueue().enqueue(rawURL, func() (map[string]any, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		body, err := doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/scrape", map[string]string{
-			"Authorization": "Bearer " + apiKey,
-			"Content-Type":  "application/json",
-		}, requestBody)
-		if err != nil {
-			return nil, err
+	lastError := err
+	if err == nil {
+		lastError = fmt.Errorf("Firecrawl returned empty or blocked page content")
+		second, enhancedErr := firecrawlScrape(rawURL, apiKey, "enhanced")
+		if enhancedErr == nil && usableScrapedMarkdown(second.Markdown) {
+			return second.Title, second.Markdown, nil
 		}
-		var parsed map[string]any
-		if err := json.Unmarshal(body, &parsed); err != nil {
-			return nil, err
+		if enhancedErr != nil {
+			lastError = enhancedErr
 		}
-		if success, _ := parsed["success"].(bool); !success {
-			return nil, fmt.Errorf("Scraping failed for %s: %v", rawURL, parsed["error"])
-		}
-		return parsed, nil
-	})
-	if err != nil {
-		return "", "", fmt.Errorf("Error reading web page: %v", err)
 	}
-
-	dataMap, _ := data["data"].(map[string]any)
-	metadata, _ := dataMap["metadata"].(map[string]any)
-	title, _ := metadata["title"].(string)
-	markdown, _ := dataMap["markdown"].(string)
-	if markdown == "" {
-		markdown = "No content extracted"
+	title, markdown, browserErr := firecrawlBrowserFallback(rawURL, apiKey)
+	if browserErr == nil && usableScrapedMarkdown(markdown) {
+		return title, markdown, nil
 	}
-	return title, markdown, nil
+	if browserErr == nil {
+		browserErr = fmt.Errorf("browser produced no usable content")
+	}
+	return "", "", fmt.Errorf("Error reading web page: scrape: %v; browser fallback: %w", lastError, browserErr)
 }
 
 func MapSite(rawURL string) (string, error) {
+	if err := validateSourceURL(rawURL); err != nil {
+		return "", err
+	}
 	apiKey := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
 	if apiKey == "" {
 		return "", missingCredentialsError("Error mapping website", []string{"FIRECRAWL_API_KEY"}, "")

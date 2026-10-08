@@ -14,6 +14,22 @@ export const relevantPaths = [
   "tsconfig.json"
 ];
 
+// The Go MCP is deployed independently from the same root repository.
+// Keep source, dependency, transport, and Vercel config changes in its gate.
+export const origoPaths = [
+  "api",
+  "pkg",
+  "internal/app",
+  "go.mod",
+  "go.sum",
+  "vercel.mjs",
+  "scripts/should-build.mjs"
+];
+
+const isOrigoDeployment = env =>
+  env.ORIGO_DEPLOYMENT === "1" ||
+  env.VERCEL_PROJECT_ID === "prj_Jji2WKNFx1wpqCEKi35IMXVr7Wno";
+
 const runGit = (args, cwd) =>
   spawnSync("git", args, {
     cwd,
@@ -54,8 +70,9 @@ export const shouldBuild = ({ cwd = process.cwd(), env = process.env } = {}) => 
   if (mergeBaseResult.status !== 0) return true;
 
   const comparisonBase = mergeBaseResult.stdout.trim();
+  const watchedPaths = isOrigoDeployment(env) ? origoPaths : relevantPaths;
   const diffResult = runGit(
-    ["diff", "--quiet", comparisonBase, head, "--", ...relevantPaths],
+    ["diff", "--quiet", comparisonBase, head, "--", ...watchedPaths],
     root
   );
 

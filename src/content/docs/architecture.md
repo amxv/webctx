@@ -24,13 +24,18 @@ URL
  │
  ├─ clean markdown available? ─────→ fetch the markdown
  │
- └─ otherwise ─────────────────────→ crawl the rendered page with Firecrawl
+ ├─ otherwise ─────────────────────→ Firecrawl Scrape (30-minute cache)
+ │                                    ↳ automatic basic/enhanced proxy
+ │                                    ↳ explicit enhanced if content blocked
+ └─ still blocked ─────────────────→ disposable Firecrawl Browser Sandbox
 
                                    ↓
                            useful markdown/text
 ```
 
 The goal is simple: **do the cheapest faithful thing first, and only crawl a page when crawling is actually necessary.**
+
+The same retrieval engine powers the **WebCTX CLI** and the **Origo MCP** transport. Origo exposes `read_link` and `map_site` without search. Firecrawl's `maxAge` is 30 minutes for scraped pages; no extra caching service is used.
 
 ## Why this matters
 

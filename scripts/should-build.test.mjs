@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { relevantPaths, shouldBuild } from "./should-build.mjs";
+import { relevantPaths, origoPaths, shouldBuild } from "./should-build.mjs";
 
 const temporaryRepositories = [];
 
@@ -118,9 +118,18 @@ describe("Vercel docs ignore command", () => {
       "src",
       "tsconfig.json"
     ]);
-    const config = JSON.parse(
-      readFileSync(new URL("../vercel.json", import.meta.url), "utf8")
-    );
-    assert.equal(config.ignoreCommand, "node scripts/should-build.mjs");
+    assert.ok(readFileSync(new URL("../vercel.mjs", import.meta.url), "utf8").includes('ORIGO_DEPLOYMENT'));
+  });
+
+  it("watches shared retrieval and MCP code for Origo independently of docs", () => {
+    const cwd = createRepository();
+    const base = git(cwd, "rev-parse", "HEAD");
+    mkdirSync(join(cwd, "pkg"), { recursive: true });
+    writeFileSync(join(cwd, "pkg", "server.go"), "package server\n");
+    const head = commit(cwd, "change MCP package");
+    assert.equal(shouldBuild({ cwd, env: { VERCEL_GIT_PREVIOUS_SHA: base, VERCEL_GIT_COMMIT_SHA: head, ORIGO_DEPLOYMENT: "1" } }), true);
+    assert.equal(decision(cwd, base, head), false);
+    assert.ok(origoPaths.includes("internal/app"));
+    assert.ok(origoPaths.includes("api"));
   });
 });

@@ -2,6 +2,8 @@
 
 Maintainer notes for `webctx`.
 
+Origo is the separately deployed MCP transport in this same repository. The CLI, MCP, and ZueDocs share source code but have independent distribution pipelines.
+
 ## Prerequisites
 
 - Go `1.26+`
@@ -105,11 +107,21 @@ npm whoami
 
 - `cmd/webctx/main.go`: CLI entrypoint
 - `internal/app/`: CLI parsing, search, ranking, scrape, env loading, and Firecrawl queue logic
+- `pkg/retrieval/`: small public adapter to the shared read-link / site-map engine
+- `pkg/origo/`: authenticated, stateless MCP server with exactly two tools
+- `api/mcp.go`: Vercel Go Function entrypoint for Origo
+- `vercel.mjs`: project-specific Vercel settings for docs and Origo
 - `internal/buildinfo/`: build-time version plumbing for `--version`
 - `bin/webctx.js`: npm shim that invokes the packaged native binary
 - `scripts/postinstall.js`: downloads the release binary on install and falls back to local `go build`
 - `.github/workflows/release.yml`: tag-driven release pipeline
 - `AGENTS.md`: guidance for coding agents
+
+## Origo deployment
+
+The `origo-api` Vercel project is linked to this GitHub repo and uses `ORIGO_DEPLOYMENT=1` to select its Go Function configuration. It needs `ORIGO_API_KEY` and `FIRECRAWL_API_KEY` production environment variables; optionally add `GH_TOKEN` for native authenticated GitHub reads. The docs project remains `webctx-docs` and never receives the Origo connection key.
+
+Both projects deploy automatically from `main`. `scripts/should-build.mjs` gates docs and API builds independently, while `v*` GitHub tags still drive the CLI release workflow.
 
 ## Notes on package naming
 
