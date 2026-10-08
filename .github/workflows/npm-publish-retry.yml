@@ -1,0 +1,42 @@
+name: npm-publish-retry
+
+# Recover npm publication when a GitHub release exists but npm authentication
+# was not configured at the time. Use the already-published release tag.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing GitHub release version, e.g. 0.2.2"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v7
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Verify version and GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          node -e 'const p=require("./package.json"); if(p.version !== process.env.VERSION) { throw new Error("Version does not match released tag") }'
+          gh release view "v${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+
+      - name: Publish to npm via trusted publishing
+        run: npm publish --access public

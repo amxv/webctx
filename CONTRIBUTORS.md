@@ -80,27 +80,22 @@ make release-tag VERSION=x.y.z
 - GitHub release publish
 - npm publish
 
-## Required GitHub secret
+## Automatic npm trusted publishing
 
-- `NPM_TOKEN`: npm automation token with publish rights for your package.
+Configure the existing `webctx` npm package's **Trusted Publisher** in npmjs.com package settings:
 
-Set via GitHub CLI:
+- Provider: GitHub Actions
+- Owner: `amxv`
+- Repository: `webctx`
+- Workflow filename: `release.yml`
+- Allowed action: **npm publish**
 
-```bash
-gh secret set NPM_TOKEN --repo amxv/webctx
-```
+The release job uses GitHub OIDC (`id-token: write`) rather than long-lived `NPM_TOKEN` secrets. The npm package must authorize that exact workflow before the tag-triggered pipeline can publish automatically.
 
-## npm token setup
-
-Create token at npm:
-
-- Profile -> Access Tokens -> Create New Token
-- Use an automation/granular token scoped to required package/org
-
-Validate auth locally:
+For a release whose GitHub binaries were successfully published while npm authentication failed, configure an **additional trusted publisher** for `npm-publish-retry.yml`, also allowing **npm publish**, and dispatch the recovery workflow with the existing version. Do not create or move the release tag simply to retry npm publishing:
 
 ```bash
-npm whoami
+gh workflow run npm-publish-retry.yml --repo amxv/webctx --ref main -f version=0.2.2
 ```
 
 ## Project layout
