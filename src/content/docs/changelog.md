@@ -8,6 +8,14 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.2 - 2026-10-09
+
+- Added the Origo MCP transport to the shared Go retrieval engine, exposing `read_link` and `map_site` without changing the CLI's `search`, `read-link`, or `map-site` commands.
+- Improved Firecrawl read-link recovery with staged proxy escalation and a disposable browser fallback for inaccessible or blocked pages.
+- Enabled Firecrawl's built-in 30-minute scrape cache (`maxAge`) without adding an application-managed cache or database.
+- Hardened URL validation against local/private addresses, rejected empty or challenge-page extractions, and stopped bypassing TLS certificate verification during Firecrawl scrapes.
+- Fixed the browser fallback to use supported DOM text extraction and added MCP, proxy, browser, and URL-validation regression tests.
+
 ## 0.2.1 - 2026-08-15
 
 - Completed native GitHub context coverage across issues, pull requests, commits, Actions, releases, Discussions, Gists, packages, projects, search, profiles, activity, and deployments.
