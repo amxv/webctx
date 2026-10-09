@@ -60,4 +60,7 @@ func TestExactlyTwoToolsAndNoSearch(t *testing.T) {
 	if count := strings.Count(text, `"name":`); count != 2 {
 		t.Fatalf("expected exactly 2 tools, got %d: %s", count, text)
 	}
+	if count := strings.Count(text, `"readOnlyHint":true`); count != 2 {
+		t.Fatalf("expected both tools to declare read-only annotations, got %d: %s", count, text)
+	}
 }

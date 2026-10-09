@@ -24,6 +24,7 @@ func makeServer() *mcp.Server {
 		Name:        "read_link",
 		Title:       "Read link",
 		Description: "Read a specific web page as clean Markdown, preferring native GitHub or site Markdown and using Firecrawl proxies/browser fallback when needed. Does not search the web.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(_ context.Context, _ *mcp.CallToolRequest, input linkInput) (*mcp.CallToolResult, any, error) {
 		result, err := retrieval.ReadLink(input.URL)
 		if err != nil {
@@ -35,6 +36,7 @@ func makeServer() *mcp.Server {
 		Name:        "map_site",
 		Title:       "Map site",
 		Description: "Discover URLs on a site using Firecrawl's sitemap-based map API. Does not perform web search.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(_ context.Context, _ *mcp.CallToolRequest, input linkInput) (*mcp.CallToolResult, any, error) {
 		result, err := retrieval.MapSite(input.URL)
 		if err != nil {
