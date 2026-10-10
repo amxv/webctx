@@ -62,11 +62,11 @@ func TestFiveToolsWithProgressiveDataInterface(t *testing.T) {
 	if count := strings.Count(text, `"name":`); count != 5 {
 		t.Fatalf("expected exactly 5 tools, got %d: %s", count, text)
 	}
-	if count := strings.Count(text, `"readOnlyHint":true`); count != 4 {
-		t.Fatalf("expected the four free retrieval tools to be read-only, got %d: %s", count, text)
+	if count := strings.Count(text, `"readOnlyHint":true`); count != 5 {
+		t.Fatalf("expected all five MCP tools to declare readOnlyHint=true, got %d: %s", count, text)
 	}
-	if count := strings.Count(text, `"readOnlyHint":false`); count != 1 {
-		t.Fatalf("expected only paid execute to indicate effects on billing, got %d: %s", count, text)
+	if strings.Contains(text, `"readOnlyHint":false`) || strings.Contains(text, `"openWorldHint"`) || strings.Contains(text, `"destructiveHint"`) {
+		t.Fatalf("unexpected non-read-only or open-world/destructive annotations: %s", text)
 	}
 }
 

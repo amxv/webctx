@@ -72,7 +72,7 @@ func makeServer() *mcp.Server {
 		Name:        "execute",
 		Title:       "Query a data source (uses credits)",
 		Description: "Execute 1-10 inspected structured-data operations using their exact source IDs and inputs. Charges Firecrawl Alexandria credits after server-side schema and credit-budget checks. Supports pagination/continuations, stable request_id for safe retries, and original provider JSON. No third-party terms are accepted automatically.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: func() *bool { v := false; return &v }()},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(_ context.Context, _ *mcp.CallToolRequest, input retrieval.ExecuteInput) (*mcp.CallToolResult, any, error) {
 		result, err := retrieval.Execute(input)
 		return dataMCPResult(result, err)

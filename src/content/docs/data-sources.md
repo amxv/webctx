@@ -98,4 +98,4 @@ Use `--raw` or `"raw": true` to inspect the complete upstream Firecrawl response
 
 ## Origo MCP tools
 
-The hosted MCP server at `api.origo.ashray.xyz` uses the same Go data engine as the CLI. Its five tools are `read_link`, `map_site`, `research`, `inspect`, and `execute`. The first four are read-only; `execute` may incur paid Alexandria charges. Unlike the CLI's federated web `search`, MCP `research` browses structured data sources.
+The hosted MCP server at `api.origo.ashray.xyz` uses the same Go data engine as the CLI. Its five tools are `read_link`, `map_site`, `research`, `inspect`, and `execute`. All five advertise the MCP `readOnlyHint`; `execute` can nevertheless incur paid Alexandria charges. Unlike the CLI's federated web `search`, MCP `research` browses structured data sources.
