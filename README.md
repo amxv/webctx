@@ -10,13 +10,20 @@ webctx read-link <url>
 webctx map-site <url>
 ```
 
-The output is plain text or markdown, so it is easy to hand to ChatGPT, Codex, Claude Code, a shell script, or another tool.
+The output is plain text or markdown, so it is easy to hand to ChatGPT, Codex, Claude Code, a shell script, or another tool. Search now retrieves relevant source excerpts automatically instead of returning only URLs. For a specific URL, add an optional question to explore related documentation and surface exact code and API details.
+
+```bash
+webctx search "Go MCP SDK read-only tool annotations"
+webctx read-link https://docs.example.com/api --question "How do authentication and pagination work?"
+```
 
 ## Origo: hosted MCP access
 
-**Origo** is the MCP transport over the same WebCTX retrieval engine. Connect an MCP client to `https://api.origo.ashray.xyz/mcp?key=<your-private-key>` to access exactly two tools: `read_link` and `map_site`. Origo does not expose `search`; the CLI continues to provide all three commands.
+**Origo** is the MCP transport over the same WebCTX retrieval engine. Connect an MCP client to `https://api.origo.ashray.xyz/mcp?key=<your-private-key>` to access exactly two tools: `read_link` and `map_site`. Origo does not expose `search`; the CLI continues to provide all three commands. `read_link` accepts an optional `question` to retrieve focused source context while keeping ordinary URL-only reads intact.
 
 Both surfaces share native GitHub/Markdown readers and Firecrawl fallback behavior. Firecrawl's built-in cache is limited to **30 minutes**. Difficult pages automatically escalate through Firecrawl's proxy fallback and, if necessary, a temporary Browser Sandbox session. There is no Redis or additional cache database.
+
+Source-aware reading also prefers raw JSON, YAML, and OpenAPI files when the URL identifies one; question-focused reads can follow up to two relevant pages on the same host, including links found in `llms.txt`, and inspect embedded structured JSON. Firecrawl Alexandria tool matching and search discovery are automatic when supported, but **no paid Alexandria provider tools are executed**. The original source URLs remain explicit so an agent can verify facts.
 
 Origo deploys independently through the `origo-api` Vercel project on pushes to `main`. CLI releases and npm publishing are unchanged. See the [Origo MCP guide](https://webctx.ashray.xyz/docs/origo) for architecture, setup, and security notes.
 
@@ -71,7 +78,7 @@ Recognized native GitHub auth, private/not-found, and rate-limit failures stay a
 
 ## Search
 
-Normal search asks Brave, Tavily, and Exa, removes duplicate URLs, and returns one useful list.
+Normal search asks Brave, Tavily, and Exa, removes duplicate URLs, automatically reads three promising sources, follows up to two relevant links, and returns excerpts plus the ranked list. Alexandria tool discovery is included when available, without paid execution.
 
 ```bash
 webctx search "next.js server components"

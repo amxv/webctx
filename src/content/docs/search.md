@@ -1,9 +1,9 @@
 ---
 title: Search the web
-description: Search Brave, Tavily, and Exa together and get one clean list of useful pages.
+description: Search multiple providers and automatically retrieve relevant source documentation with the results.
 order: 10
 category: Guides
-summary: Find candidate pages without manually comparing three search engines.
+summary: Find candidate pages and get actual source context in the same call.
 ---
 
 ## Search normally
@@ -12,7 +12,7 @@ summary: Find candidate pages without manually comparing three search engines.
 webctx search "golang http client retries"
 ```
 
-webctx asks Brave, Tavily, and Exa, removes duplicate URLs, and returns one markdown list with short summaries.
+webctx asks Brave, Tavily, and Exa, removes duplicate URLs, and then automatically reads up to three strong results in parallel. It also follows up to two highly relevant same-host documentation links and selects concise, source-grounded excerpts. The original ranked URL list remains available for deeper navigation.
 
 When several providers independently surface the same page, that agreement helps the page rise in the final list.
 
@@ -32,7 +32,7 @@ webctx search "drizzle orm" --keyword "migration guide"
 
 `--keyword` uses Exa's include-text search when you care more about a phrase appearing on the page than broad provider agreement.
 
-## Use the results with `read-link`
+## Dig deeper with `read-link`
 
 A good research loop is:
 
@@ -41,7 +41,9 @@ webctx search "OpenAI Apps SDK MCP annotations"
 webctx read-link https://developers.openai.com/apps-sdk/reference
 ```
 
-Search is for discovery. `read-link` is for turning the promising result into context an agent can actually use.
+Search already returns relevant source material, so agents often need only one call. Use `read-link` if you need the entire original page or a narrower question-focused expansion of one URL.
+
+When Alexandria is available, Webctx discovers matching provider capabilities for free and lists their identity. Discovery does not execute paid provider calls or automatically accept third-party terms.
 
 If you want the exact scoring model behind the merged list, see [How search ranking works](/docs/ranking).
 
@@ -50,8 +52,15 @@ If you want the exact scoring model behind the merged list, see [How search rank
 ```markdown
 Total Results: 12
 
+## Retrieved source context
+
+### https://docs.example.com/reference
+<relevant Markdown, exact API examples, and source-backed excerpts>
+
+## Search results
+
 - [Result title](https://example.com/page)
     - Short summary of the page
 ```
 
-The final list is intentionally bounded so search does not flood an agent's context.
+Search uses bounded source counts and excerpt budgets. It returns supporting material rather than generating an answer or claiming to have semantically verified every source. Failed secondary fetches do not prevent the original result list from being returned.

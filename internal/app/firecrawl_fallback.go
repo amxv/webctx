@@ -12,8 +12,9 @@ import (
 )
 
 type scrapedPage struct {
-	Title    string
-	Markdown string
+	Title       string
+	Markdown    string
+	ToolSummary string
 }
 
 func usableScrapedMarkdown(markdown string) bool {
@@ -37,6 +38,7 @@ func firecrawlScrape(rawURL, apiKey, proxy string) (scrapedPage, error) {
 	requestBody := map[string]any{
 		"url":                rawURL,
 		"formats":            []string{"markdown"},
+		"domainTools":        true, // Alexandria discovery, not paid execution.
 		"onlyMainContent":    true,
 		"blockAds":           true,
 		"removeBase64Images": true,
@@ -58,6 +60,16 @@ func firecrawlScrape(rawURL, apiKey, proxy string) (scrapedPage, error) {
 			"Authorization": "Bearer " + apiKey,
 			"Content-Type":  "application/json",
 		}, requestBody)
+		// Alexandria is a separately enabled Firecrawl capability. A 403 from
+		// domain matching must never break ordinary page extraction for users that
+		// haven't enabled Alexandria or have zero-data-retention configured.
+		if err != nil && strings.Contains(err.Error(), "403") {
+			requestBody["domainTools"] = false
+			body, err = doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/scrape", map[string]string{
+				"Authorization": "Bearer " + apiKey,
+				"Content-Type":  "application/json",
+			}, requestBody)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -76,8 +88,9 @@ func firecrawlScrape(rawURL, apiKey, proxy string) (scrapedPage, error) {
 	pageData, _ := data["data"].(map[string]any)
 	metadata, _ := pageData["metadata"].(map[string]any)
 	page := scrapedPage{
-		Title:    stringValue(metadata["title"]),
-		Markdown: stringValue(pageData["markdown"]),
+		Title:       stringValue(metadata["title"]),
+		Markdown:    stringValue(pageData["markdown"]),
+		ToolSummary: formatAlexandriaTools(pageData["tools"]),
 	}
 	if status, ok := metadata["statusCode"].(float64); ok && status >= 400 {
 		return page, fmt.Errorf("source responded with HTTP %d", int(status))

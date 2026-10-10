@@ -51,6 +51,11 @@ func Search(params SearchParams) (string, error) {
 	allExcludedDomains := append(append([]string{}, defaultExcludedDomains...), params.ExcludeDomains...)
 	truncatedKeyword := truncateWords(params.IncludeKeyword, 5)
 
+	// Free Alexandria tool discovery proceeds alongside normal web search.
+	// It never executes a paid tool or replaces source-grounded web results.
+	alexandriaDone := make(chan string, 1)
+	go func() { alexandriaDone <- discoverAlexandria(params.Query) }()
+
 	type namedSearch struct {
 		name string
 		fn   func(context.Context) (SearchResult, error)
@@ -118,6 +123,15 @@ func Search(params SearchParams) (string, error) {
 	}
 
 	parts := []string{fmt.Sprintf("Total Results: %d\n", len(ranked))}
+	// The ranked index remains available, but agents also get useful source
+	// context without having to issue several follow-up read-link calls.
+	if context := enrichSearch(params.Query, ranked); context != "" {
+		parts = append(parts, context, "")
+	}
+	if tools := <-alexandriaDone; tools != "" {
+		parts = append(parts, "", "## Related data providers", tools, "")
+	}
+	parts = append(parts, "## Search results", "")
 	for _, doc := range ranked {
 		title := decodeHTML(doc.Title)
 		overview := decodeHTML(doc.Overview)
@@ -151,6 +165,10 @@ func ReadLink(rawURL string) (string, error) {
 			return "", fmt.Errorf("%v Best-effort public GitHub Package crawl also failed: %v", native.Err, crawlErr)
 		}
 		return "", native.Err
+	}
+
+	if direct, ok := readDirectSource(rawURL); ok {
+		return direct, nil
 	}
 
 	if ok, _ := checkMarkdownAvailable(rawURL); ok {
@@ -201,14 +219,14 @@ func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 	// scrape responds successfully but returns a challenge/empty document.
 	first, err := firecrawlScrape(rawURL, apiKey, "")
 	if err == nil && usableScrapedMarkdown(first.Markdown) {
-		return first.Title, first.Markdown, nil
+		return first.Title, withSourceTools(first.Markdown, first.ToolSummary), nil
 	}
 	lastError := err
 	if err == nil {
 		lastError = fmt.Errorf("Firecrawl returned empty or blocked page content")
 		second, enhancedErr := firecrawlScrape(rawURL, apiKey, "enhanced")
 		if enhancedErr == nil && usableScrapedMarkdown(second.Markdown) {
-			return second.Title, second.Markdown, nil
+			return second.Title, withSourceTools(second.Markdown, second.ToolSummary), nil
 		}
 		if enhancedErr != nil {
 			lastError = enhancedErr

@@ -51,10 +51,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "read-link":
 		if strings.TrimSpace(input) == "" {
 			_, _ = fmt.Fprintln(stderr, "Error: read-link requires a URL")
-			_, _ = fmt.Fprintln(stdout, "Usage: webctx read-link <url>")
+			_, _ = fmt.Fprintln(stdout, "Usage: webctx read-link <url> [--question 'what to find']")
 			return 1
 		}
-		text, err := ReadLink(input)
+		text, err := ReadLinkFocused(input, flags["question"])
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, err.Error())
 			return 1
@@ -86,7 +86,7 @@ func usageText() string {
 
 Usage:
   webctx search <query> [--exclude domain1,domain2] [--keyword phrase]
-  webctx read-link <url>
+  webctx read-link <url> [--question 'what to find']
   webctx map-site <url>
 
 Examples:
@@ -94,6 +94,7 @@ Examples:
   webctx search "react hooks" --exclude youtube.com,vimeo.com
   webctx search "drizzle orm" --keyword "migration guide"
   webctx read-link https://docs.example.com/guide
+  webctx read-link https://docs.example.com/api --question "How do auth and pagination work?"
   webctx map-site https://example.com`, version)
 }
 

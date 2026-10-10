@@ -18,15 +18,20 @@ type linkInput struct {
 	URL string `json:"url" jsonschema:"Absolute HTTP(S) URL to read as source-grounded Markdown"`
 }
 
+type readLinkInput struct {
+	URL      string `json:"url" jsonschema:"Absolute HTTP(S) URL to read as source-grounded Markdown"`
+	Question string `json:"question,omitempty" jsonschema:"Optional question or task. When set, automatically follows relevant source links and returns focused, cited context."`
+}
+
 func makeServer() *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "origo", Version: "0.1.0"}, nil)
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_link",
 		Title:       "Read link",
-		Description: "Read a specific web page as clean Markdown, preferring native GitHub or site Markdown and using Firecrawl proxies/browser fallback when needed. Does not search the web.",
+		Description: "Read a URL as source-grounded Markdown. Optionally provide a question to automatically explore related docs and return relevant API contracts, code examples and precise source URLs. No search query required; no paid Alexandria tool execution.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input linkInput) (*mcp.CallToolResult, any, error) {
-		result, err := retrieval.ReadLink(input.URL)
+	}, func(_ context.Context, _ *mcp.CallToolRequest, input readLinkInput) (*mcp.CallToolResult, any, error) {
+		result, err := retrieval.ReadLinkFocused(input.URL, input.Question)
 		if err != nil {
 			return nil, nil, err
 		}

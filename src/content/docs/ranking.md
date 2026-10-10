@@ -28,6 +28,8 @@ Exa ─────┘
 
 The final output is capped at 35 results so a research query does not flood an agent's context.
 
+After ranking, Webctx selects up to three promising source pages for automatic retrieval and can follow two relevant same-host documentation references. These excerpts are supplied with explicit source URLs before the original ranked list; they do not alter the underlying search scores or imply automatic semantic verification.
+
 ## 1. Normalize URLs
 
 Before deduplicating, webctx normalizes URLs so tracking differences do not make the same page look unique.

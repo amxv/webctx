@@ -12,7 +12,7 @@ summary: Commands, flags, keys, and output in one page.
 webctx --help
 webctx --version
 webctx search <query> [--exclude domains] [--keyword phrase]
-webctx read-link <url>
+webctx read-link <url> [--question "what to find"]
 webctx map-site <url>
 ```
 
@@ -34,6 +34,14 @@ Use Exa include-text search for a short phrase:
 webctx search "drizzle orm" --keyword "migration guide"
 ```
 
+## Question-focused reading
+
+`--question` asks Webctx to select relevant API/code sections and follow up to two matching same-host documentation links. Without it, `read-link` retains the full original source read.
+
+```bash
+webctx read-link https://docs.example.com/api --question "How does pagination work?"
+```
+
 ## Environment variables
 
 ```text
@@ -49,8 +57,8 @@ GITHUB_TOKEN
 
 ## Output
 
-- `search` → markdown links with short summaries
-- `read-link` → focused markdown/text for the selected URL
+- `search` → retrieved source excerpts, supporting documentation, and ranked markdown links
+- `read-link` → full source Markdown/text, or question-focused excerpts and related sources
 - `map-site` → discovered URLs with titles/descriptions when available
 
 Raw source, diffs, patches, and explicit job logs stay close to the original provider text. Structured GitHub pages use compact metadata plus the content that matters.

@@ -64,3 +64,15 @@ func TestExactlyTwoToolsAndNoSearch(t *testing.T) {
 		t.Fatalf("expected both tools to declare read-only annotations, got %d: %s", count, text)
 	}
 }
+
+func TestQuestionIsOptionalOnReadLinkOnly(t *testing.T) {
+	t.Setenv("ORIGO_API_KEY", "secret")
+	response := request(t, "secret", `{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("list tools: %s", response.Body.String())
+	}
+	text := response.Body.String()
+	if !strings.Contains(text, `"question"`) || !strings.Contains(text, `"required":["url"]`) {
+		t.Fatalf("question should be optional; URL remains required: %s", text)
+	}
+}

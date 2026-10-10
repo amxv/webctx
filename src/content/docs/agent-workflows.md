@@ -11,7 +11,7 @@ summary: Small command sequences that give an agent focused evidence instead of 
 webctx is most useful as a context feeder:
 
 ```text
-find useful URLs → read the exact thing you need → hand the text to an agent
+ask a question → automatically read relevant sources → hand the text to an agent
 ```
 
 The output is plain markdown, so there is no special integration step.
@@ -80,10 +80,10 @@ Use history to find candidate commits, open the relevant commit, then use blame 
 
 ```bash
 webctx search "OpenAI Apps SDK MCP annotations"
-webctx read-link https://developers.openai.com/apps-sdk/reference
+webctx read-link https://developers.openai.com/apps-sdk/reference --question "Where are MCP tool annotations defined?"
 ```
 
-Use search for discovery, not as the final context. Read the primary page once you find it.
+Search now returns source excerpts alongside ranked links, so an agent often needs only the first call. Use `read-link --question` when a particular URL needs deeper exploration.
 
 ## Audit a whole docs site
 

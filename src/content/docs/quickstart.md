@@ -35,6 +35,12 @@ webctx map-site https://docs.firecrawl.dev
 
 All three return plain text or markdown that can go straight into an agent, a file, a pipe, or your clipboard.
 
+Search automatically retrieves relevant source sections alongside the links. You can also ask a question about any URL, and Webctx will follow the most relevant documentation references automatically:
+
+```bash
+webctx read-link https://docs.example.com/api --question "How does pagination work?"
+```
+
 ## The part worth trying first
 
 `read-link` understands many GitHub URLs instead of scraping the whole GitHub page.
@@ -85,4 +91,4 @@ webctx read-link https://nextjs.org/docs/app/building-your-application/caching
 webctx read-link https://github.com/vercel/next.js/issues/<issue-number>
 ```
 
-Search finds candidates. `read-link` turns the useful candidates into focused context. Your agent gets evidence instead of browser UI.
+Search finds candidates **and retrieves evidence**. `read-link` lets your agent inspect exact URLs or dig deeper with an optional question. Your agent gets source-grounded context instead of browser UI.

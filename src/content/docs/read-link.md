@@ -27,17 +27,30 @@ webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
 
 You do not choose a parser. webctx chooses the cleanest available path automatically.
 
+## Ask a question about a URL
+
+```bash
+webctx read-link https://docs.example.com/api --question "How do I authenticate and paginate requests?"
+```
+
+With `--question`, Webctx reads the source, selects the relevant sections and code examples, and follows at most two same-host documentation links that match the question. Where useful, it checks the site's `llms.txt` index and extracts public JSON metadata embedded in the page. The result identifies every retrieved URL and says explicitly when a supporting page could not be read.
+
+Without `--question`, the command still returns its original page content, with no recursive research. This keeps copied GitHub source ranges and exact resources faithful.
+
 ## What happens automatically
 
 webctx prefers more direct and structured reads before paying for a full page crawl:
 
 ```text
 supported structured URL → native/direct provider read
+raw JSON, YAML, OpenAPI    → exact text fetch (no rendered HTML)
 clean markdown available → fetch markdown directly
 otherwise               → Firecrawl page extraction
 ```
 
 GitHub has the deepest optimization because its URLs often encode exactly what you want: a repository, source range, Issue, PR thread, CI job, commit, or other structured resource. Normal web pages are still first-class inputs; they simply use the direct-markdown or Firecrawl paths when there is no richer native interpretation.
+
+On a Firecrawl fallback, Webctx also requests free Alexandria domain-tool matching. Matching may be unavailable on some Firecrawl accounts; this never prevents ordinary scraping. Discovered capabilities are labeled clearly as **not executed** and do not imply the third-party provider has been verified.
 
 See [How URL reading works](/docs/architecture) for the short technical model.
 

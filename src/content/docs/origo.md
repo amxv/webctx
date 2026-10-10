@@ -8,6 +8,8 @@ summary: Origo is the hosted MCP transport over WebCTX's shared retrieval engine
 
 **Origo** is WebCTX's hosted MCP interface, not a separate retrieval implementation. It uses the same Go retrieval engine as the CLI and exposes only two tools: `read_link` and `map_site`.
 
+`read_link` now accepts an optional `question`. When supplied, it automatically follows up to two relevant same-host documentation references, selects focused API/code excerpts, and provides precise source URLs. The URL-only call keeps the previous full-page behavior. `map_site` remains unchanged; there are no additional tools to discover or learn.
+
 The CLI keeps `search`, `read-link`, and `map-site`. Origo deliberately excludes search, so it complements your agent's existing search capabilities without replacing them.
 
 ## Connect an MCP client
@@ -25,12 +27,15 @@ Treat the full URL as a credential. Query-string keys can be exposed in logs, cl
 Pass an absolute HTTP(S) URL. Origo uses the same retrieval ladder as `webctx read-link`:
 
 1. **GitHub-native** structured or raw sources, including precise source lines, Markdown heading selectors, issues, pull requests, changes, and Actions.
-2. **Native Markdown**, when a direct `.md` representation exists.
-3. **Firecrawl Scrape**, with clean main-content Markdown and an automatic proxy that tries the basic route before enhanced proxying.
-4. **Explicit enhanced proxy**, if Firecrawl technically succeeds but returns a blocked or empty page.
-5. **Firecrawl Browser Sandbox**, if scraping still fails, with a short-lived, read-only agent-browser extraction.
+2. **Raw structured documents**, such as JSON/OpenAPI, YAML, XML, and other supported public text sources.
+3. **Native Markdown**, when a direct `.md` representation exists.
+4. **Firecrawl Scrape**, with clean main-content Markdown, free Alexandria domain-tool matching where available, and an automatic proxy that tries the basic route before enhanced proxying.
+5. **Explicit enhanced proxy**, if Firecrawl technically succeeds but returns a blocked or empty page.
+6. **Firecrawl Browser Sandbox**, if scraping still fails, with a short-lived, read-only agent-browser extraction.
 
 Only the retrieval adapters are internal implementation details. There are no additional model-facing MCP tools.
+
+Alexandria tool discovery does not authorize paid data-provider calls or acceptance of third-party terms. Origo never executes those calls on a user's behalf. Source excerpts and embedded JSON are provided as evidence, not as a generated or independently verified answer.
 
 Firecrawl Scrape uses **Firecrawl's built-in 30-minute cache** (`maxAge: 1800000` milliseconds). No application database, custom KV namespace, Redis service, or separate cache layer is used. Native GitHub and direct Markdown reads remain direct source reads.
 

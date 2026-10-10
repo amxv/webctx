@@ -35,6 +35,8 @@ URL
 
 The goal is simple: **do the cheapest faithful thing first, and only crawl a page when crawling is actually necessary.**
 
+For question-focused reads, Webctx adds a bounded second step after the faithful initial read: score document sections against the question, follow up to two relevant same-host documentation links, consult `llms.txt` when useful, and extract public JSON metadata where available. A normal URL-only read stays a single exact-source request. Search independently fetches three ranked candidate sources and up to two supporting references so coding agents receive grounded context without extra tool calls.
+
 The same retrieval engine powers the **WebCTX CLI** and the **Origo MCP** transport. Origo exposes `read_link` and `map_site` without search. Firecrawl's `maxAge` is 30 minutes for scraped pages; no extra caching service is used.
 
 ## Why this matters
