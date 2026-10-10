@@ -1,6 +1,6 @@
 {
   "name": "webctx",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Pure Go web search and browsing CLI using Brave, Tavily, Exa, and Firecrawl",
   "license": "MIT",
   "author": "amxv",

@@ -8,6 +8,13 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.3 - 2026-10-10
+
+- Improved question-focused reads in Webctx CLI and Origo MCP: complete code, cURL, and API examples are retained rather than truncated in the middle of a fence.
+- Follow the published llms.txt index to the canonical OpenAPI specification for REST/API questions. Include exact method and path contracts, schema fields, and published request payloads, with authoritative source URLs.
+- Fixed the Alexandria case: discovery and execution examples stay intact, and the missing firecrawl/find-tools inspection REST example comes from Firecrawl's published OpenAPI specification.
+- Preserve existing URL-only behavior and Origo's two-tool MCP interface; no paid Alexandria provider execution is performed.
+
 ## 0.2.2 - 2026-10-09
 
 - Added the Origo MCP transport to the shared Go retrieval engine, exposing `read_link` and `map_site` without changing the CLI's `search`, `read-link`, or `map-site` commands.

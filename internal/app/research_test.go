@@ -47,7 +47,7 @@ func TestFocusedReadExpandsRelevantSameHostLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"next_cursor", "Authorization header", "https://docs.example.com/auth", "https://docs.example.com/pagination", "**Coverage:** 3 source page(s)"} {
+	for _, want := range []string{"next_cursor", "Authorization header", "https://docs.example.com/auth", "https://docs.example.com/pagination", "**Coverage:** 3 source document(s)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in result:\n%s", want, got)
 		}

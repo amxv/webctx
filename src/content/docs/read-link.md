@@ -39,6 +39,8 @@ Without `--question`, the command still returns its original page content, with 
 
 ## What happens automatically
 
+For REST/API questions, Webctx can inspect a published OpenAPI document discovered through llms.txt and include exact HTTP methods, request-schema fields, and published example payloads. It cites the specification URL separately from the guide. Long code examples remain complete when they fit; oversized examples are explicitly omitted rather than cut into invalid fragments. Generated cURL wrappers are assembled from published OpenAPI operations and request bodies, not represented as verbatim source quotations.
+
 webctx prefers more direct and structured reads before paying for a full page crawl:
 
 ```text

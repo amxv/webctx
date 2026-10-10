@@ -15,8 +15,10 @@ import (
 // coding agent gets exact excerpts and URLs it can independently inspect.
 // One follow-up level and fixed budgets prevent uncontrolled crawls.
 const (
-	focusedPrimaryBudget = 7600
-	focusedRelatedBudget = 3600
+	// Coding agents value complete code and request contracts more than tiny
+	// snippets. Keep ordinary documentation pages whole when reasonably sized.
+	focusedPrimaryBudget = 22000
+	focusedRelatedBudget = 6500
 	searchSourceBudget   = 4000
 	maxRelatedSources    = 2
 	maxSearchSources     = 3
@@ -64,6 +66,14 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 		return "", err
 	}
 	question = strings.TrimSpace(question)
+	// REST contract discovery is independent of the page scrape. Start it
+	// immediately so a slow Firecrawl read and a large OpenAPI download overlap
+	// instead of approaching the hosted MCP function timeout sequentially.
+	var openAPIDone chan openAPIContext
+	if asksForAPIContracts(question) {
+		openAPIDone = make(chan openAPIContext, 1)
+		go func() { openAPIDone <- discoverOpenAPIContract(rawURL, question) }()
+	}
 	primary, err := reader(rawURL)
 	if err != nil {
 		return "", err
@@ -107,10 +117,16 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 		successful++
 		parts = append(parts, "", "## Related source", "**Source:** "+source.url, "", focusExcerpt(source.content, question, focusedRelatedBudget))
 	}
+	if openAPIDone != nil {
+		if contract := <-openAPIDone; contract.Content != "" {
+			successful++
+			parts = append(parts, "", "## REST API contract", "**Source:** "+contract.URL, "", contract.Content)
+		}
+	}
 	if structured := <-structuredDone; structured != "" {
 		parts = append(parts, "", structured)
 	}
-	parts = append(parts, "", fmt.Sprintf("**Coverage:** %d source page(s) inspected. Excerpts are source text, not an independently verified synthesis.", successful))
+	parts = append(parts, "", fmt.Sprintf("**Coverage:** %d source document(s) inspected. Extracts are source-grounded, not an independently verified synthesis. REST commands assembled from an OpenAPI operation and its published example are labeled as such.", successful))
 	if failed := len(more) - (successful - 1); failed > 0 {
 		parts = append(parts, fmt.Sprintf("%d related page(s) could not be retrieved; the primary source is preserved.", failed))
 	}
@@ -468,7 +484,7 @@ func focusExcerpt(markdown, question string, budget int) string {
 		if allocation < 500 && remaining >= 500 {
 			allocation = 500
 		}
-		text := boundedMarkdown(section.body, allocation)
+		text := atomicFocusedSection(section.body, question, allocation)
 		parts = append(parts, text)
 		remaining -= len(text)
 	}

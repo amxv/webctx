@@ -24,6 +24,8 @@ Treat the full URL as a credential. Query-string keys can be exposed in logs, cl
 
 ## What `read_link` does
 
+For REST/API questions, Origo can also inspect the site's published OpenAPI document linked from llms.txt and return exact operations, request-schema fields, and published request bodies. Code and cURL examples are kept whole, not shortened into invalid fragments. This is read-only documentation retrieval; Origo does not execute an API just because it is documented by a source page.
+
 Pass an absolute HTTP(S) URL. Origo uses the same retrieval ladder as `webctx read-link`:
 
 1. **GitHub-native** structured or raw sources, including precise source lines, Markdown heading selectors, issues, pull requests, changes, and Actions.
