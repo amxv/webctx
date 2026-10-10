@@ -171,12 +171,12 @@ func ReadLink(rawURL string) (string, error) {
 		return direct, nil
 	}
 
-	if ok, _ := checkMarkdownAvailable(rawURL); ok {
-		result, err := fetchMarkdownContent(rawURL)
-		if err == nil {
-			return formatReadLink(result.Title, result.URL, result.Markdown), nil
-		}
+	nativeStarted := time.Now()
+	if result, err := readNativeMarkdown(rawURL); err == nil && result != nil {
+		traceRetrieval(rawURL, "native-markdown", "success", nativeStarted, nil)
+		return formatReadLink(result.Title, result.URL, "**Markdown source:** "+result.SourceURL+"\n\n"+result.Markdown), nil
 	}
+	traceRetrieval(rawURL, "native-markdown", "miss", nativeStarted, nil)
 
 	title, markdown, err := scrapeLinkWithFirecrawl(rawURL)
 	if err != nil {
@@ -217,28 +217,37 @@ func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 	// Firecrawl's default auto proxy already tries basic then enhanced when the
 	// transport fails. A second explicit enhanced attempt is only useful when a
 	// scrape responds successfully but returns a challenge/empty document.
+	started := time.Now()
 	first, err := firecrawlScrape(rawURL, apiKey, "")
 	if err == nil && usableScrapedMarkdown(first.Markdown) {
+		traceRetrieval(rawURL, "firecrawl-auto", "success", started, nil)
 		return first.Title, withSourceTools(first.Markdown, first.ToolSummary), nil
 	}
 	lastError := err
+	traceRetrieval(rawURL, "firecrawl-auto", "escalate", started, err)
 	if err == nil {
-		lastError = fmt.Errorf("Firecrawl returned empty or blocked page content")
+		lastError = fmt.Errorf("Firecrawl returned empty or blocked page content: %s", challengeReason(first.Markdown))
+		started = time.Now()
 		second, enhancedErr := firecrawlScrape(rawURL, apiKey, "enhanced")
 		if enhancedErr == nil && usableScrapedMarkdown(second.Markdown) {
+			traceRetrieval(rawURL, "firecrawl-enhanced", "success", started, nil)
 			return second.Title, withSourceTools(second.Markdown, second.ToolSummary), nil
 		}
+		traceRetrieval(rawURL, "firecrawl-enhanced", "escalate", started, enhancedErr)
 		if enhancedErr != nil {
 			lastError = enhancedErr
 		}
 	}
+	started = time.Now()
 	title, markdown, browserErr := firecrawlBrowserFallback(rawURL, apiKey)
 	if browserErr == nil && usableScrapedMarkdown(markdown) {
+		traceRetrieval(rawURL, "browser", "success", started, nil)
 		return title, markdown, nil
 	}
 	if browserErr == nil {
-		browserErr = fmt.Errorf("browser produced no usable content")
+		browserErr = fmt.Errorf("browser produced no usable content: %s", challengeReason(markdown))
 	}
+	traceRetrieval(rawURL, "browser", "blocked", started, browserErr)
 	return "", "", fmt.Errorf("Error reading web page: scrape: %v; browser fallback: %w", lastError, browserErr)
 }
 

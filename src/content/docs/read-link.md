@@ -33,7 +33,11 @@ You do not choose a parser. webctx chooses the cleanest available path automatic
 webctx read-link https://docs.example.com/api --question "How do I authenticate and paginate requests?"
 ```
 
-With `--question`, Webctx reads the source, selects the relevant sections and code examples, and follows at most two same-host documentation links that match the question. Where useful, it checks the site's `llms.txt` index and extracts public JSON metadata embedded in the page. The result identifies every retrieved URL and says explicitly when a supporting page could not be read.
+With `--question`, Webctx reads the source, selects the relevant sections and code examples, and follows a bounded set of same-host documentation links that match the question. Where useful, it checks the site's `llms.txt` index and extracts public JSON metadata embedded in the page. The result identifies every retrieved URL and says explicitly when a supporting page could not be read.
+
+Native Markdown retrieval now uses actual GET results rather than HEAD content-length heuristics. The resolver checks standard .md variants and directory index.md files, so canonical Stripe Checkout and Cloudflare Durable Objects URLs can return publisher-authored Markdown automatically. Source attribution includes both the original URL and the exact Markdown URL.
+
+For detailed implementation questions, Webctx may inspect up to five related pages and two follow-up references when requested fields remain missing. The selector favors current getting-started guides, authoritative APIs, and product-relevant docs over unrelated navigation. CAPTCHA challenge output is rejected even when it contains substantial text; if all retrieval paths fail, the access blocker is reported rather than returning CAPTCHA boilerplate.
 
 Without `--question`, the command still returns its original page content, with no recursive research. This keeps copied GitHub source ranges and exact resources faithful.
 

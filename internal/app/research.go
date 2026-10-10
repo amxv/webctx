@@ -20,9 +20,18 @@ const (
 	focusedPrimaryBudget = 22000
 	focusedRelatedBudget = 6500
 	searchSourceBudget   = 4000
-	maxRelatedSources    = 2
+	maxRelatedSources    = 5
+	maxFollowupSources   = 2
 	maxSearchSources     = 3
 )
+
+func relatedExcerptBudget(rawURL string) int {
+	lower := strings.ToLower(rawURL)
+	if strings.Contains(lower, "/get-started/") || strings.Contains(lower, "/quickstart") {
+		return 18000 // Preserve end-to-end runnable setup guides.
+	}
+	return focusedRelatedBudget
+}
 
 var (
 	mdLinkPattern     = regexp.MustCompile(`\[([^\]\n]{2,120})\]\(([^\s)]+)(?:\s+"[^"]*")?\)`)
@@ -79,25 +88,17 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 		return "", err
 	}
 
-	links := relatedSourceLinks(primary, rawURL, question, maxRelatedSources)
-	if len(links) < maxRelatedSources {
-		// Many doc systems publish llms.txt as their navigation index. It is a
-		// cheap way to find exact API reference pages not linked from this page.
-		for _, candidate := range linksFromDocsIndex(rawURL, question, maxRelatedSources) {
-			if len(links) == maxRelatedSources {
-				break
-			}
-			duplicate := candidate.url == rawURL
-			for _, chosen := range links {
-				duplicate = duplicate || chosen.url == candidate.url
-			}
-			if !duplicate {
-				links = append(links, candidate)
-			}
-		}
-	}
+	// Combine on-page links and authoritative Markdown index links instead of
+	// filling the entire budget from whichever links happen to appear first.
+	// In particular, an implementation question should prefer get-started,
+	// SQLite, webhook, and API references over incidental alarm/concept pages.
+	links := researchCandidates(rawURL, primary, question, maxRelatedSources)
 	structuredDone := make(chan string, 1)
-	go func() { structuredDone <- embeddedStructuredContext(rawURL, question) }()
+	if strings.Contains(primary, "**Markdown source:**") {
+		structuredDone <- ""
+	} else {
+		go func() { structuredDone <- embeddedStructuredContext(rawURL, question) }()
+	}
 	more := readSources(links, reader)
 	parts := []string{
 		"# Source-grounded context",
@@ -107,27 +108,91 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 		"## Primary source",
 		"**Source:** " + rawURL,
 		"",
-		focusExcerpt(primary, question, focusedPrimaryBudget),
 	}
+	primaryExcerpt := focusExcerpt(primary, question, focusedPrimaryBudget)
+	parts = append(parts, primaryExcerpt)
 	successful := 1
+	relatedSuccessful := 0
+	allRetrieved := primary
+	outputEvidence := primaryExcerpt
+	seenURLs := map[string]bool{rawURL: true}
 	for _, source := range more {
 		if source.err != nil {
 			continue
 		}
 		successful++
-		parts = append(parts, "", "## Related source", "**Source:** "+source.url, "", focusExcerpt(source.content, question, focusedRelatedBudget))
+		relatedSuccessful++
+		seenURLs[source.url] = true
+		allRetrieved += "\n" + source.content
+		excerpt := focusExcerpt(source.content, question, relatedExcerptBudget(source.url))
+		outputEvidence += "\n" + excerpt
+		parts = append(parts, "", "## Related source", "**Source:** "+source.url, "", excerpt)
+	}
+	// One additional bounded expansion if required code/API evidence remains
+	// missing. This follows references from the implementation pages we actually
+	// found, not arbitrary link hops across the entire site.
+	missing := missingResearchEvidence(question, allRetrieved)
+	if len(missing) > 0 {
+		var next []sourceCandidate
+		for _, source := range more {
+			if source.err != nil {
+				continue
+			}
+			if strings.Contains(strings.ToLower(source.content), "article has multiple variants") {
+				for _, candidate := range relatedSourceLinks(source.content, source.url, question, 8) {
+					if !seenURLs[candidate.url] {
+						seenURLs[candidate.url] = true
+						candidate.score += 50 // A published page variant is the actual documentation, not an index.
+						if strings.Contains(strings.ToLower(question), "hosted") &&
+							strings.Contains(strings.ToLower(candidate.url+" "+candidate.label), "hosted") {
+							candidate.score += 20
+						}
+						next = append(next, candidate)
+					}
+				}
+			}
+			for _, candidate := range relatedSourceLinks(source.content, source.url, strings.Join(missing, " "), 8) {
+				if !seenURLs[candidate.url] {
+					seenURLs[candidate.url] = true
+					candidate.score += implementationLinkBonus(candidate, question)
+					next = append(next, candidate)
+				}
+			}
+		}
+		sort.SliceStable(next, func(i, j int) bool { return next[i].score > next[j].score })
+		if len(next) > maxFollowupSources {
+			next = next[:maxFollowupSources]
+		}
+		followups := readSources(next, reader)
+		more = append(more, followups...)
+		for _, source := range followups {
+			if source.err != nil {
+				continue
+			}
+			successful++
+			relatedSuccessful++
+			allRetrieved += "\n" + source.content
+			excerpt := focusExcerpt(source.content, question, relatedExcerptBudget(source.url))
+			outputEvidence += "\n" + excerpt
+			parts = append(parts, "", "## Supporting implementation reference", "**Source:** "+source.url, "", excerpt)
+		}
 	}
 	if openAPIDone != nil {
 		if contract := <-openAPIDone; contract.Content != "" {
 			successful++
+			outputEvidence += "\n" + contract.Content
 			parts = append(parts, "", "## REST API contract", "**Source:** "+contract.URL, "", contract.Content)
 		}
 	}
 	if structured := <-structuredDone; structured != "" {
+		outputEvidence += "\n" + structured
 		parts = append(parts, "", structured)
 	}
+	if unmet := missingResearchEvidence(question, outputEvidence); len(unmet) > 0 {
+		parts = append(parts, "", "**Requested details not fully evidenced in returned excerpts:** "+strings.Join(unmet, ", ")+". Follow the cited source pages rather than assuming these details.")
+	}
 	parts = append(parts, "", fmt.Sprintf("**Coverage:** %d source document(s) inspected. Extracts are source-grounded, not an independently verified synthesis. REST commands assembled from an OpenAPI operation and its published example are labeled as such.", successful))
-	if failed := len(more) - (successful - 1); failed > 0 {
+	if failed := len(more) - relatedSuccessful; failed > 0 {
 		parts = append(parts, fmt.Sprintf("%d related page(s) could not be retrieved; the primary source is preserved.", failed))
 	}
 	return strings.Join(parts, "\n"), nil
@@ -184,24 +249,48 @@ func enrichSearchWithReader(query string, ranked []SearchDoc, reader func(string
 }
 
 func linksFromDocsIndex(rawURL, question string, limit int) []sourceCandidate {
+	return linksFromDocsIndexWithPrimary(rawURL, "", question, limit)
+}
+
+func linksFromDocsIndexWithPrimary(rawURL, primary, question string, limit int) []sourceCandidate {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Hostname() == "github.com" || directSourceLanguage(rawURL) != "" {
 		return nil
 	}
-	if !strings.HasPrefix(u.Hostname(), "docs.") && !strings.Contains(u.Path, "/docs/") && !strings.Contains(u.Path, "/reference/") {
+	if !strings.HasPrefix(u.Hostname(), "docs.") && !strings.Contains(u.Path, "/docs/") &&
+		!strings.Contains(u.Path, "/reference/") && !strings.Contains(primary, "llms.txt") {
 		return nil
 	}
-	indexURL := u.Scheme + "://" + u.Host + "/llms.txt"
-	if rawURL == indexURL {
-		return nil
+	indexURLs := documentIndexURLs(u, primary)
+	var candidates []sourceCandidate
+	seen := map[string]bool{}
+	for _, indexURL := range indexURLs {
+		if rawURL == indexURL {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		index, err := fetchPublicText(ctx, indexURL, 300000)
+		cancel()
+		if err != nil || !strings.Contains(index, "](") {
+			continue
+		}
+		for _, item := range relatedSourceLinks(index, indexURL, question, 300) {
+			item.score += implementationLinkBonus(item, question)
+			item.score += sourceScopeBonus(item, rawURL, question)
+			if !seen[item.url] {
+				seen[item.url] = true
+				candidates = append(candidates, item)
+			}
+		}
+		if len(candidates) >= limit {
+			break
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	index, err := fetchPublicText(ctx, indexURL, 300000)
-	if err != nil || !strings.Contains(index, "](") {
-		return nil
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
 	}
-	return relatedSourceLinks(index, indexURL, question, limit)
+	return candidates
 }
 
 func readSources(candidates []sourceCandidate, reader func(string) (string, error)) []sourceRead {
@@ -279,7 +368,7 @@ func relatedSourceLinks(markdown, baseURL, question string, limit int) []sourceC
 	terms := queryTerms(question)
 	seen := map[string]bool{canonicalSourceURL(base): true}
 	var links []sourceCandidate
-	for i, match := range mdLinkPattern.FindAllStringSubmatch(markdown, 300) {
+	for i, match := range mdLinkPattern.FindAllStringSubmatch(markdown, 1000) {
 		destination := strings.TrimSpace(match[2])
 		if strings.Contains(destination, "\\") { // malformed Markdown-escaped URLs
 			continue

@@ -18,20 +18,7 @@ type scrapedPage struct {
 }
 
 func usableScrapedMarkdown(markdown string) bool {
-	text := strings.ToLower(strings.TrimSpace(markdown))
-	if len(text) < 10 {
-		return false
-	}
-	for _, marker := range []string{
-		"just a moment...", "checking your browser", "verify you are human",
-		"enable javascript and cookies", "access denied | cloudflare",
-		"attention required! | cloudflare", "no content extracted",
-	} {
-		if strings.Contains(text, marker) && len(text) < 2000 {
-			return false
-		}
-	}
-	return true
+	return usableSourceContent(markdown)
 }
 
 func firecrawlScrape(rawURL, apiKey, proxy string) (scrapedPage, error) {
@@ -164,6 +151,9 @@ func firecrawlBrowserFallback(rawURL, apiKey string) (string, string, error) {
 	// Decode those escapes rather than handing the model a JSON string literal.
 	if parsed, err := strconv.Unquote(strings.TrimSpace(text)); err == nil {
 		text = parsed
+	}
+	if reason := challengeReason(text); reason != "" {
+		return "", "", fmt.Errorf("browser fallback returned %s rather than documentation", reason)
 	}
 	return "Browser extraction", text, nil
 }

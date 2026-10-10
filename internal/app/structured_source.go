@@ -228,8 +228,18 @@ func selectedJSONFields(raw any, question string, budget int) string {
 }
 
 func focusedRawJSON(markdown, question string, budget int) string {
+	// Raw JSON documents have one JSON fence just after the URL. Looking for
+	// JSON examples in a long Markdown guide previously allowed the entire
+	// preceding guide to escape the excerpt budget.
+	if !strings.HasPrefix(strings.TrimSpace(markdown), "**URL:**") {
+		return ""
+	}
 	begin := strings.Index(markdown, "```json\n")
 	if begin < 0 {
+		return ""
+	}
+	prefix := strings.TrimSpace(markdown[:begin])
+	if len(prefix) > 400 || strings.Contains(prefix, "\n#") {
 		return ""
 	}
 	jsonStart := begin + len("```json\n")

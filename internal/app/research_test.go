@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -35,8 +36,11 @@ func TestFocusedReadExpandsRelevantSameHostLinks(t *testing.T) {
 		"https://docs.example.com/pagination": "# Pagination\nPass next_cursor to read the next page.",
 	}
 	requested := make(map[string]int)
+	var requestedMu sync.Mutex
 	reader := func(url string) (string, error) {
+		requestedMu.Lock()
 		requested[url]++
+		requestedMu.Unlock()
 		value, ok := urls[url]
 		if !ok {
 			return "", errors.New("missing URL")

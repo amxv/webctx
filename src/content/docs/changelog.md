@@ -8,6 +8,14 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.4 - 2026-10-10
+
+- Fixed native Markdown retrieval for documentation sites: use bounded GET requests rather than positive HEAD content-length assumptions, and recognize directory index.md routes. Canonical Stripe and Cloudflare URLs now prefer publisher Markdown while retaining the original URL and precise Markdown source URL.
+- Hardened long CAPTCHA/challenge detection before accepting Firecrawl or browser fallback responses. Failed challenge resolution is reported instead of leaking hCaptcha boilerplate; optional WEBCTX_DEBUG=1 traces retrieval stage, outcome, and duration without URL query credentials.
+- Improved question-driven exploration with publisher llms.txt indices, same-topic prioritization, getting-started guides, REST documentation, webhook instructions, and follow-ups when explicit requested evidence is missing.
+- Preserved complete code fences and fixed excerpt-budget escape for JSON-rich Markdown. Legacy migration content is demoted for new-project questions, and missing requested fields are called out rather than implied.
+- Added regression tests based on live Origo MCP cases covering Stripe Checkout, Cloudflare Durable Objects, and Alexandria REST documentation. Origo continues exposing exactly two read-only tools and sharing the Webctx Go backend.
+
 ## 0.2.3 - 2026-10-10
 
 - Improved question-focused reads in Webctx CLI and Origo MCP: complete code, cURL, and API examples are retained rather than truncated in the middle of a fence.

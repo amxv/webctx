@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -15,6 +16,43 @@ func TestSourceURLSafety(t *testing.T) {
 	}
 	if err := validateSourceURL("https://example.com/guide"); err != nil {
 		t.Fatalf("rejected public URL: %v", err)
+	}
+}
+
+func TestLongBrowserCAPTCHAFallbackFailsClearly(t *testing.T) {
+	original := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = original })
+	challenge := "hCaptcha Please verify you are human. " +
+		strings.Repeat("French Deutsch Español English 日本語 中文 ", 150)
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.Method + " " + req.URL.Path {
+		case "POST /v2/scrape":
+			content, _ := json.Marshal(map[string]any{
+				"success": true,
+				"data":    map[string]any{"markdown": challenge},
+			})
+			return testHTTPResponse(req, http.StatusOK, string(content), nil), nil
+		case "POST /v2/interact":
+			return testHTTPResponse(req, http.StatusOK, `{"success":true,"id":"test-captcha"}`, nil), nil
+		case "POST /v2/interact/test-captcha/execute":
+			body, _ := json.Marshal(map[string]any{
+				"success": true, "stdout": challenge, "exitCode": 0,
+			})
+			return testHTTPResponse(req, http.StatusOK, string(body), nil), nil
+		case "DELETE /v2/interact/test-captcha":
+			return testHTTPResponse(req, http.StatusOK, `{"success":true}`, nil), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL)
+			return nil, nil
+		}
+	})}
+	t.Setenv("FIRECRAWL_API_KEY", "unit-test")
+	_, returned, err := scrapeLinkWithFirecrawl("https://docs.example.com/challenged")
+	if err == nil || returned != "" || !strings.Contains(err.Error(), "challenge") {
+		t.Fatalf("long browser challenge leaked into result or lacked clear failure: %q %v", returned, err)
+	}
+	if strings.Contains(err.Error(), "French Deutsch") {
+		t.Fatalf("challenge payload should not be logged verbatim in errors: %s", err)
 	}
 }
 

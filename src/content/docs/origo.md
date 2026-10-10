@@ -26,6 +26,8 @@ Treat the full URL as a credential. Query-string keys can be exposed in logs, cl
 
 For REST/API questions, Origo can also inspect the site's published OpenAPI document linked from llms.txt and return exact operations, request-schema fields, and published request bodies. Code and cURL examples are kept whole, not shortened into invalid fragments. This is read-only documentation retrieval; Origo does not execute an API just because it is documented by a source page.
 
+Origo and the CLI share the same improved native Markdown reader and challenge-screening logic. A canonical documentation URL can resolve to official directory index.md or page .md files without requiring the agent to rewrite it. Question-focused retrieval expands relevant links, rejects CAPTCHA boilerplate, and reports request fields whose support remains incomplete. In development, WEBCTX_DEBUG=1 traces retrieval stages and durations without exposing URL queries or keys.
+
 Pass an absolute HTTP(S) URL. Origo uses the same retrieval ladder as `webctx read-link`:
 
 1. **GitHub-native** structured or raw sources, including precise source lines, Markdown heading selectors, issues, pull requests, changes, and Actions.

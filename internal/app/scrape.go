@@ -2,9 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,9 +12,10 @@ import (
 )
 
 type MarkdownResult struct {
-	URL      string
-	Title    string
-	Markdown string
+	URL       string
+	SourceURL string
+	Title     string
+	Markdown  string
 }
 
 const keychainServiceName = "webctx"
@@ -28,65 +26,6 @@ var (
 	executableFunc    = os.Executable
 	keychainLookup    = lookupKeychainSecret
 )
-
-func checkMarkdownAvailable(raw string) (bool, error) {
-	mdURL := raw
-	if !strings.HasSuffix(strings.ToLower(mdURL), ".md") {
-		mdURL += ".md"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, mdURL, nil)
-	if err != nil {
-		return false, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return false, nil
-	}
-	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
-	contentLength := resp.ContentLength
-	return (strings.Contains(contentType, "markdown") || strings.Contains(contentType, "text/plain")) && contentLength > 50, nil
-}
-
-func fetchMarkdownContent(raw string) (*MarkdownResult, error) {
-	mdURL := raw
-	if !strings.HasSuffix(strings.ToLower(mdURL), ".md") {
-		mdURL += ".md"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	content, status, err := fetchText(ctx, mdURL)
-	if err != nil {
-		return nil, err
-	}
-	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("Failed to fetch markdown: %d", status)
-	}
-	title := firstHeadingOrFallback(content, filepath.Base(raw))
-	return &MarkdownResult{URL: raw, Title: title, Markdown: content}, nil
-}
-
-func fetchText(ctx context.Context, rawURL string) (string, int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return "", 0, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", 0, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", resp.StatusCode, err
-	}
-	return string(body), resp.StatusCode, nil
-}
 
 func firstHeadingOrFallback(markdown, fallback string) string {
 	for _, line := range strings.Split(markdown, "\n") {
