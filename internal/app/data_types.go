@@ -33,8 +33,7 @@ type DataCall struct {
 // ExecuteDataInput supports up to ten calls in a single provider request.
 // It validates each call against the free catalogue before using credits.
 type ExecuteDataInput struct {
-	Calls      []DataCall `json:"calls" jsonschema:"One to ten operation calls; inspect each operation to discover exact input field names"`
-	MaxCredits int        `json:"max_credits,omitempty" jsonschema:"Maximum predicted credits for this request; defaults to WEBCTX_ALEXANDRIA_MAX_CREDITS or 100"`
-	RequestID  string     `json:"request_id,omitempty" jsonschema:"Optional stable idempotency identifier for retrying a paid request; reuse unchanged if retrying"`
-	Raw        bool       `json:"raw,omitempty" jsonschema:"Include the complete original provider response"`
+	Calls     []DataCall `json:"calls" jsonschema:"One to ten operation calls; inspect each operation to discover exact input field names"`
+	RequestID string     `json:"request_id,omitempty" jsonschema:"Optional stable idempotency identifier for retrying a paid request; reuse unchanged if retrying"`
+	Raw       bool       `json:"raw,omitempty" jsonschema:"Include the complete original provider response"`
 }

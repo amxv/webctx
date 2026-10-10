@@ -59,6 +59,18 @@ func (d *dataTestTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		return testHTTPResponse(req, status, string(b), nil), nil
 	}
 	if req.URL.Path == "/v2/search" {
+		if strings.Contains(stringField(payload["query"]), "relevance ordering") {
+			low := dataTestContract()
+			low["id"] = "particle/podcasts/episodes/list"
+			low["similarity"] = 0.1
+			high := dataTestContract()
+			high["id"] = "particle/podcasts/episodes/search"
+			high["similarity"] = 0.97
+			middle := dataTestContract()
+			middle["id"] = "particle/podcasts/episode"
+			middle["similarity"] = 0.8
+			return write(200, map[string]any{"success": true, "data": map[string]any{"tools": []any{low, high, middle}}})
+		}
 		return write(200, map[string]any{"success": true, "data": map[string]any{
 			"tools": []any{dataTestContract()},
 		}})
@@ -115,6 +127,20 @@ func (d *dataTestTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return write(400, map[string]any{"success": false, "error": "Bad test request."})
 }
 
+func TestResearchSortsMatchesByActualSimilarity(t *testing.T) {
+	installDataTestTransport(t)
+	results, err := ResearchData(ResearchDataInput{Query: "relevance ordering", Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := results["results"].([]map[string]any)
+	if found[0]["id"] != "particle/podcasts/episodes/search" ||
+		found[1]["id"] != "particle/podcasts/episode" ||
+		found[2]["id"] != "particle/podcasts/episodes/list" {
+		t.Fatalf("results were not ordered by reported relevance: %#v", found)
+	}
+}
+
 func installDataTestTransport(t *testing.T) *dataTestTransport {
 	t.Helper()
 	old := http.DefaultClient
@@ -122,7 +148,6 @@ func installDataTestTransport(t *testing.T) *dataTestTransport {
 	d := &dataTestTransport{}
 	http.DefaultClient = &http.Client{Transport: d}
 	t.Setenv("FIRECRAWL_API_KEY", "test-key")
-	t.Setenv("WEBCTX_ALEXANDRIA_PAID", "true")
 	t.Setenv("WEBCTX_ALEXANDRIA_MAX_CREDITS", "100")
 	return d
 }
@@ -155,6 +180,10 @@ func TestProgressiveDataDiscoveryAndExecution(t *testing.T) {
 	if len(listField(mapField(details["inputs"])["fields"])) != 4 {
 		t.Fatalf("missing upstream contract fields: %#v", details["inputs"])
 	}
+	generated := listField(details["examples"])
+	if len(generated) == 0 || mapField(generated[0])["valid_input_shape"] != true {
+		t.Fatalf("inspection must generate an explicitly labeled, schema-valid example: %#v", details["examples"])
+	}
 	continued := mapField(details["next"])
 	if continued["tool"] != "execute" {
 		t.Fatalf("no next execution: %#v", continued)
@@ -169,8 +198,7 @@ func TestProgressiveDataDiscoveryAndExecution(t *testing.T) {
 		t.Fatalf("invalid template: %#v", skeleton)
 	}
 	got, err := ExecuteData(ExecuteDataInput{
-		Calls:      []DataCall{{ID: id, Inputs: map[string]any{"semantic_search": "AI agents", "limit": float64(2)}}},
-		MaxCredits: 20,
+		Calls: []DataCall{{ID: id, Inputs: map[string]any{"semantic_search": "AI agents", "limit": float64(2)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -222,20 +250,18 @@ func TestCatalogueBrowsingReturnsExactPaginationCall(t *testing.T) {
 	}
 }
 
-func TestExecutionValidationAndBudgetRejectBeforePaidCall(t *testing.T) {
+func TestExecutionValidationAndServerLimitRejectBeforePaidCall(t *testing.T) {
 	mock := installDataTestTransport(t)
 	id := "particle/podcasts/episodes/search"
 	for _, testCase := range []struct {
-		inputs  map[string]any
-		credits int
-		code    string
+		inputs map[string]any
+		code   string
 	}{
-		{map[string]any{}, 20, "invalid_inputs"},
-		{map[string]any{"semantic_search": "AI agents", "limit": 101}, 20, "invalid_inputs"},
-		{map[string]any{"semantic_search": "AI agents", "unknown_field": 123}, 20, "invalid_inputs"},
-		{map[string]any{"semantic_search": "AI agents", "limit": 5}, 5, "credit_budget_exceeded"},
+		{map[string]any{}, "invalid_inputs"},
+		{map[string]any{"semantic_search": "AI agents", "limit": 101}, "invalid_inputs"},
+		{map[string]any{"semantic_search": "AI agents", "unknown_field": 123}, "invalid_inputs"},
 	} {
-		_, err := ExecuteData(ExecuteDataInput{Calls: []DataCall{{ID: id, Inputs: testCase.inputs}}, MaxCredits: testCase.credits})
+		_, err := ExecuteData(ExecuteDataInput{Calls: []DataCall{{ID: id, Inputs: testCase.inputs}}})
 		typed, ok := err.(*DataError)
 		if !ok || typed.Code != testCase.code {
 			t.Fatalf("wanted %s, got %v", testCase.code, err)
@@ -279,7 +305,7 @@ func TestCLIResearchAndInspectJSON(t *testing.T) {
 	if code := Run([]string{"inspect", "particle/podcasts/episodes/search"}, &out, &errBuf); code != 0 {
 		t.Fatalf("CLI inspect failed: %s", errBuf.String())
 	}
-	if !strings.Contains(out.String(), "semantic_search") || !strings.Contains(out.String(), "max_credits") {
+	if !strings.Contains(out.String(), "semantic_search") || strings.Contains(out.String(), "max_credits") {
 		t.Fatalf("CLI inspect omitted exact execute syntax: %s", out.String())
 	}
 }
@@ -287,7 +313,7 @@ func TestCLIResearchAndInspectJSON(t *testing.T) {
 func TestProviderNextOffsetCreatesCopyReadyContinuation(t *testing.T) {
 	id := "fred-stlouisfed-org/economic-data/series_observations"
 	inputs := map[string]any{"series_id": "CPIAUCSL", "limit": 2.0, "offset": 0.0}
-	next := continuationForDataResult(id, inputs, map[string]any{"next_offset": 2.0, "count": 956.0}, 15)
+	next := continuationForDataResult(id, inputs, map[string]any{"next_offset": 2.0, "count": 956.0})
 	if mapField(next)["tool"] != "execute" {
 		t.Fatalf("expected executable pagination: %+v", next)
 	}
@@ -332,5 +358,87 @@ func TestInspectOnlyOutputStillHasExecuteInputTemplate(t *testing.T) {
 	}
 	if mapField(details["input_template"])["semantic_search"] != nil || len(listField(mapField(details["inputs"])["fields"])) != 4 {
 		t.Fatalf("missing necessary next-call schema after include=output: %+v", details)
+	}
+}
+
+func TestServerManagedCreditCeilingCannotBeOverridden(t *testing.T) {
+	mock := installDataTestTransport(t)
+	// The ceiling defaults to 200 and an invalidly high environment value
+	// cannot silently widen it beyond 200.
+	t.Setenv("WEBCTX_ALEXANDRIA_MAX_CREDITS", "200")
+	if got := dataCreditCap(); got != 200 {
+		t.Fatalf("bad production cap: %d", got)
+	}
+	t.Setenv("WEBCTX_ALEXANDRIA_MAX_CREDITS", "2000")
+	if got := dataCreditCap(); got != 200 {
+		t.Fatalf("server cap exceeded 200: %d", got)
+	}
+	t.Setenv("WEBCTX_ALEXANDRIA_MAX_CREDITS", "120")
+	if got := dataCreditCap(); got != 120 {
+		t.Fatalf("server environment not respected: %d", got)
+	}
+	id := "particle/podcasts/episodes/search"
+	validInputs := map[string]any{"semantic_search": "AI agents"}
+	// 9*15=135: reject before ANY provider is queried.
+	batch := make([]DataCall, 9)
+	for i := range batch {
+		batch[i] = DataCall{ID: id, Inputs: validInputs}
+	}
+	_, err := ExecuteData(ExecuteDataInput{Calls: batch})
+	typed, ok := err.(*DataError)
+	if !ok || typed.Code != "server_credit_limit_exceeded" ||
+		mapField(typed.Details)["estimated_credits"] != 135 {
+		t.Fatalf("expected server-only limit, got %#v", err)
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if mock.executions != 0 {
+		t.Fatalf("server limit failed to prevent execution, calls=%d", mock.executions)
+	}
+}
+
+func TestClientCreditControlIsNotAvailableInCLI(t *testing.T) {
+	installDataTestTransport(t)
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"execute", "particle/podcasts/episodes/search", "--inputs", `{"semantic_search":"AI agents"}`, "--max-credits", "1"}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), `"code": "unsupported_flag"`) {
+		t.Fatalf("old client credit option should fail clearly, status=%d error=%s", code, stderr.String())
+	}
+}
+
+func TestCPIInterpretationDoesNotConfuseIndexWithInflation(t *testing.T) {
+	levels := dataMeasurementNote(map[string]any{"series_id": "CPIAUCSL", "units": "lin"})
+	if !strings.Contains(levels, "index levels") || !strings.Contains(levels, "not annual inflation percentages") {
+		t.Fatalf("CPI level explanation missing: %s", levels)
+	}
+	percentage := dataMeasurementNote(map[string]any{"series_id": "CPIAUCSL", "units": "pc1"})
+	if !strings.Contains(percentage, "percent change from one year ago") {
+		t.Fatalf("transformation note missing: %s", percentage)
+	}
+	if dataMeasurementNote(map[string]any{"series_id": "UNRATE", "units": "lin"}) != "" {
+		t.Fatal("unemployment must not get CPI-specific semantics")
+	}
+}
+
+func TestGeneratedFREDExampleUsesDocumentedSeries(t *testing.T) {
+	c := map[string]any{
+		"id": "fred-stlouisfed-org/economic-data/series_observations",
+		"options": []any{
+			map[string]any{"name": "series_id", "type": "string", "required": true, "about": "FRED series id, e.g. GDP, UNRATE and CPIAUCSL"},
+			map[string]any{"name": "limit", "type": "number", "default": 1000, "min": 1, "max": 10000},
+		},
+	}
+	examples := listField(contractExamples(c))
+	if len(examples) != 1 {
+		t.Fatalf("no fallback example: %#v", examples)
+	}
+	example := mapField(examples[0])
+	inputs := mapField(example["inputs"])
+	if example["kind"] != "generated_from_inspected_schema" || example["valid_input_shape"] != true ||
+		inputs["series_id"] != "CPIAUCSL" || inputs["limit"] != 5 {
+		t.Fatalf("unexpected generated FRED sample: %#v", examples)
+	}
+	if mapField(example["next"])["tool"] != "execute" {
+		t.Fatalf("generated example cannot be copied into execute: %#v", example)
 	}
 }

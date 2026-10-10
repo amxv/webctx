@@ -144,10 +144,8 @@ func InspectData(input InspectDataInput) (map[string]any, error) {
 	}
 	provider, _, _ := parseOperationID(id)
 	inputs, missing := nativeInputTemplate(item)
-	budget := dataCreditCap()
 	execArguments := map[string]any{
-		"calls":       []any{map[string]any{"id": id, "inputs": inputs}},
-		"max_credits": budget,
+		"calls": []any{map[string]any{"id": id, "inputs": inputs}},
 	}
 	response := map[string]any{
 		"id":           id,
@@ -161,7 +159,7 @@ func InspectData(input InspectDataInput) (map[string]any, error) {
 		},
 		"inputs":         map[string]any{"fields": item["options"], "requires_one_of": item["requiresOneOf"]},
 		"output":         item["response"],
-		"examples":       item["examples"],
+		"examples":       contractExamples(item),
 		"input_template": inputs,
 		"next":           map[string]any{"tool": "execute", "arguments": execArguments},
 		"guidance":       "Copy next.arguments into execute, fill any blank required inputs and adjust values according to inputs.fields. Execute uses credits.",

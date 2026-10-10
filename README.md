@@ -10,7 +10,7 @@ webctx read-link <url>
 webctx map-site <url>
 webctx research "podcast conversations about AI agents"
 webctx inspect particle/podcasts/episodes/search
-webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}' --max-credits 20
+webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}'
 ```
 
 The output is plain text or markdown, so it is easy to hand to ChatGPT, Codex, Claude Code, a shell script, or another tool. Search now retrieves relevant source excerpts automatically instead of returning only URLs. For a specific URL, add an optional question to explore related documentation and surface exact code and API details.
@@ -37,10 +37,10 @@ webctx research "podcast conversations about AI agents" --limit 5
 webctx research --view sources --limit 5
 webctx research --mode catalogue --view operations --sources particle --limit 10
 webctx inspect particle/podcasts/episodes/search
-webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}' --max-credits 20
+webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}'
 ```
 
-Browse [the structured-data guide](https://webctx.ashray.xyz/docs/data-sources) for filters, paging, batches, full upstream responses, validation, and credit handling. Discovery/inspection is free; `execute` uses paid Alexandria credits. The per-request default preflight cap is 100 credits (configurable via `WEBCTX_ALEXANDRIA_MAX_CREDITS`). Third-party provider terms require separate human acceptance; Origo never accepts them automatically.
+Browse [the structured-data guide](https://webctx.ashray.xyz/docs/data-sources) for filters, paging, batches, full upstream responses, validation, and credit handling. Discovery/inspection is free; `execute` uses paid Alexandria credits. The hosted Origo server enforces a 200-credit limit per request, with no user-facing budget controls. Estimated and actual credits are shown in responses. Third-party provider terms require separate human acceptance; Origo never accepts them automatically.
 
 Origo deploys independently through the `origo-api` Vercel project on pushes to `main`. CLI releases and npm publishing are unchanged. See the [Origo MCP guide](https://webctx.ashray.xyz/docs/origo) for architecture, setup, and security notes.
 

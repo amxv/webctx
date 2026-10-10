@@ -87,6 +87,7 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 	if err != nil {
 		return "", err
 	}
+	primary = copyableCurlExamples(primary)
 
 	// Combine on-page links and authoritative Markdown index links instead of
 	// filling the entire budget from whichever links happen to appear first.
@@ -109,7 +110,11 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 		"**Source:** " + rawURL,
 		"",
 	}
-	primaryExcerpt := focusExcerpt(primary, question, focusedPrimaryBudget)
+	primaryBudget := focusedPrimaryBudget
+	if asksForAPIContracts(question) {
+		primaryBudget = 5300
+	}
+	primaryExcerpt := focusExcerpt(primary, question, primaryBudget)
 	parts = append(parts, primaryExcerpt)
 	successful := 1
 	relatedSuccessful := 0
@@ -124,7 +129,11 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 		relatedSuccessful++
 		seenURLs[source.url] = true
 		allRetrieved += "\n" + source.content
-		excerpt := focusExcerpt(source.content, question, relatedExcerptBudget(source.url))
+		relatedBudget := relatedExcerptBudget(source.url)
+		if asksForAPIContracts(question) && relatedBudget > 3000 {
+			relatedBudget = 3000
+		}
+		excerpt := focusExcerpt(copyableCurlExamples(source.content), question, relatedBudget)
 		outputEvidence += "\n" + excerpt
 		parts = append(parts, "", "## Related source", "**Source:** "+source.url, "", excerpt)
 	}
@@ -172,7 +181,11 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 			successful++
 			relatedSuccessful++
 			allRetrieved += "\n" + source.content
-			excerpt := focusExcerpt(source.content, question, relatedExcerptBudget(source.url))
+			followupBudget := relatedExcerptBudget(source.url)
+			if asksForAPIContracts(question) && followupBudget > 3000 {
+				followupBudget = 3000
+			}
+			excerpt := focusExcerpt(copyableCurlExamples(source.content), question, followupBudget)
 			outputEvidence += "\n" + excerpt
 			parts = append(parts, "", "## Supporting implementation reference", "**Source:** "+source.url, "", excerpt)
 		}
@@ -181,7 +194,10 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 		if contract := <-openAPIDone; contract.Content != "" {
 			successful++
 			outputEvidence += "\n" + contract.Content
-			parts = append(parts, "", "## REST API contract", "**Source:** "+contract.URL, "", contract.Content)
+			// Put exact REST contracts first so coding agents encounter the
+			// implementation-ready operations before lengthy source excerpts.
+			front := []string{"## REST API contract", "**Source:** " + contract.URL, "", contract.Content, ""}
+			parts = append(append(append([]string(nil), parts[:4]...), front...), parts[4:]...)
 		}
 	}
 	if structured := <-structuredDone; structured != "" {

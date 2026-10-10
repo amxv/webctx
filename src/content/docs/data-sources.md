@@ -48,8 +48,7 @@ Origo will return the upstream field names, types, required constraints, allowed
           "semantic_search": null,
           "limit": 25
         }
-      }],
-      "max_credits": 100
+      }]
     }
   },
   "fill_before_execution": ["semantic_search"]
@@ -62,8 +61,7 @@ Origo will return the upstream field names, types, required constraints, allowed
 
 ```bash
 webctx execute particle/podcasts/episodes/search \
-  --inputs '{"semantic_search":"AI agents","limit":2}' \
-  --max-credits 20
+  --inputs '{"semantic_search":"AI agents","limit":2}'
 ```
 
 Batch multiple data operations through one call (up to ten):
@@ -72,27 +70,24 @@ Batch multiple data operations through one call (up to ten):
 webctx execute --calls '[
   {"id":"fred-stlouisfed-org/economic-data/series_observations","inputs":{"series_id":"CPIAUCSL","limit":2}},
   {"id":"fred-stlouisfed-org/economic-data/series_observations","inputs":{"series_id":"UNRATE","limit":2}}
-]' --max-credits 15
+]'
 ```
 
 For large JSON arguments use `--calls @requests.json` or `--inputs @inputs.json`.
 
 The response contains untouched provider-native `data`, the operation ID, the data receipt ID, credits charged, and the `request_id`. If the provider supplies a continuation cursor, next-page offset, or an executable continuation, Origo returns a copy-ready `next` execute call. Call again using the next arguments; do not reuse the previous page's `request_id`.
 
-## Budgeting, retries, and terms
+## Credits, retries, and terms
 
-You have enabled paid Alexandria queries. Origo validates inputs against the freely inspected schema, including required fields and enumerated values, and checks the expected credits **before** submitting a paid request. The default per-request cap is 100 credits; `max_credits` can lower it.
+Paid Alexandria queries execute automatically. Origo validates inputs against the inspected schema and checks estimated credits **before** submitting them. The hosted server enforces a **200-credit per-request limit in its Vercel environment**, with no user-facing budget toggle or parameter.
 
-```bash
-WEBCTX_ALEXANDRIA_MAX_CREDITS=200
-WEBCTX_ALEXANDRIA_PAID=off
-```
-
-These are **preflight estimates**, not a guaranteed billing ceiling for tools with per-record pricing. Firecrawl's team/account-level credit controls are authoritative. Tools that charge per record require a known upper bound, such as a `limit`. Price and errors are returned with source attribution.
+Responses show `estimated_credits` before execution and provider-reported `credits_used` afterward, including per-operation charges. Estimates are not audited billing totals; Firecrawl team/account limits remain authoritative. Per-record tools require a known upper bound, such as a `limit`.
 
 Every paid request has an idempotency `request_id`. If the network fails and you need to retry the *same* request, reuse that ID. A different page or different query requires a new ID. The system does not automatically retry a potentially charged request.
 
 If a provider requires third-party data terms, Origo returns the upstream acceptance URL and stops. It does not accept the terms or create an account on your behalf.
+
+When a source publishes no examples, `inspect` generates a clearly labelled, schema-validated example when enough concrete inputs are available. It does not claim that generated examples came from the provider or were executed. FRED CPI observations include a note distinguishing price-index levels from year-over-year inflation percentages.
 
 Use `--raw` or `"raw": true` to inspect the complete upstream Firecrawl response instead of the agent-friendly projection. This makes advanced provider features and their exact contracts available without requiring additional MCP tools.
 

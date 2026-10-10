@@ -215,7 +215,7 @@ func expectedCallCredits(contract map[string]any, inputs map[string]any) (int, e
 	return int(math.Ceil(estimated)), nil
 }
 
-func continuationForDataResult(id string, originalInputs map[string]any, data any, maxCredits int) map[string]any {
+func continuationForDataResult(id string, originalInputs map[string]any, data any) map[string]any {
 	value := mapField(data)
 	if value == nil {
 		return nil
@@ -224,8 +224,7 @@ func continuationForDataResult(id string, originalInputs map[string]any, data an
 		if provider := stringField(next["provider"]); provider != "" {
 			if capability := stringField(next["capability"]); capability != "" {
 				return map[string]any{"tool": "execute", "arguments": map[string]any{
-					"calls":       []any{map[string]any{"id": provider + "/" + capability, "inputs": mapField(next["options"])}},
-					"max_credits": maxCredits,
+					"calls": []any{map[string]any{"id": provider + "/" + capability, "inputs": mapField(next["options"])}},
 				}}
 			}
 		}
@@ -245,16 +244,14 @@ func continuationForDataResult(id string, originalInputs map[string]any, data an
 			next["cursor"] = cursor
 		}
 		return map[string]any{"tool": "execute", "arguments": map[string]any{
-			"calls":       []any{map[string]any{"id": id, "inputs": next}},
-			"max_credits": maxCredits,
+			"calls": []any{map[string]any{"id": id, "inputs": next}},
 		}}
 	}
 	if page, ok := numberField(value["next_page"]); ok && page > 0 {
 		next := copyInputs(originalInputs)
 		next["page"] = int(page)
 		return map[string]any{"tool": "execute", "arguments": map[string]any{
-			"calls":       []any{map[string]any{"id": id, "inputs": next}},
-			"max_credits": maxCredits,
+			"calls": []any{map[string]any{"id": id, "inputs": next}},
 		}}
 	}
 	if offset, ok := numberField(value["next_offset"]); ok && offset >= 0 {
@@ -263,8 +260,7 @@ func continuationForDataResult(id string, originalInputs map[string]any, data an
 		if offset > previous {
 			next["offset"] = int(offset)
 			return map[string]any{"tool": "execute", "arguments": map[string]any{
-				"calls":       []any{map[string]any{"id": id, "inputs": next}},
-				"max_credits": maxCredits,
+				"calls": []any{map[string]any{"id": id, "inputs": next}},
 			}}
 		}
 	}
@@ -285,16 +281,7 @@ func ExecuteData(input ExecuteDataInput) (map[string]any, error) {
 	if len(input.Calls) == 0 || len(input.Calls) > 10 {
 		return nil, dataError("invalid_calls", "Provide 1-10 operation calls with id and inputs.")
 	}
-	if !paidDataEnabled() {
-		return nil, dataError("paid_data_disabled", "Paid data queries are disabled by WEBCTX_ALEXANDRIA_PAID=off.")
-	}
 	cap := dataCreditCap()
-	if input.MaxCredits > 0 && input.MaxCredits < cap {
-		cap = input.MaxCredits
-	}
-	if input.MaxCredits < 0 || input.MaxCredits > dataCreditCap() {
-		return nil, dataError("invalid_budget", fmt.Sprintf("max_credits must be between 1 and the configured maximum of %d.", dataCreditCap()))
-	}
 	if input.RequestID != "" && !safeRequestID.MatchString(input.RequestID) {
 		return nil, dataError("invalid_request_id", "request_id must have 8-128 letters, digits, hyphens or underscores.")
 	}
@@ -334,9 +321,9 @@ func ExecuteData(input ExecuteDataInput) (map[string]any, error) {
 		}
 		estimated += cost
 		if estimated > cap {
-			return nil, &DataError{Code: "credit_budget_exceeded",
-				Message: fmt.Sprintf("Preflight estimate %d credits exceeds the %d-credit request cap. Reduce calls/record limits, or configure WEBCTX_ALEXANDRIA_MAX_CREDITS.", estimated, cap),
-				Details: map[string]any{"estimated_credits": estimated, "max_credits": cap},
+			return nil, &DataError{Code: "server_credit_limit_exceeded",
+				Message: fmt.Sprintf("This request is estimated at %d credits, above Origo's %d-credit server limit. Reduce the number of operations or requested records.", estimated, cap),
+				Details: map[string]any{"estimated_credits": estimated, "server_credit_limit": cap},
 			}
 		}
 		provider, capability, _ := parseOperationID(call.ID)
@@ -360,7 +347,7 @@ func ExecuteData(input ExecuteDataInput) (map[string]any, error) {
 		if errorsAsData(err, &typed) {
 			typed.Details = map[string]any{"request_id": requestID,
 				"retry": map[string]any{"tool": "execute", "arguments": ExecuteDataInput{
-					Calls: input.Calls, MaxCredits: cap, RequestID: requestID, Raw: input.Raw,
+					Calls: input.Calls, RequestID: requestID, Raw: input.Raw,
 				}},
 			}
 		}
@@ -384,6 +371,9 @@ func ExecuteData(input ExecuteDataInput) (map[string]any, error) {
 			"data":         entry["data"],
 			"credits_used": entry["creditsCost"],
 		}
+		if explanation := dataMeasurementNote(entry["data"]); explanation != "" {
+			item["measurement_note"] = explanation
+		}
 		if token := entry["alexandriaId"]; token != nil {
 			item["data_id"] = token
 		}
@@ -391,7 +381,7 @@ func ExecuteData(input ExecuteDataInput) (map[string]any, error) {
 			item["error"] = errValue
 		}
 		if i < len(input.Calls) {
-			if next := continuationForDataResult(id, input.Calls[i].Inputs, entry["data"], cap); next != nil {
+			if next := continuationForDataResult(id, input.Calls[i].Inputs, entry["data"]); next != nil {
 				item["next"] = next
 			}
 		}
@@ -401,7 +391,7 @@ func ExecuteData(input ExecuteDataInput) (map[string]any, error) {
 		"results":           results,
 		"request_id":        requestID,
 		"estimated_credits": estimated,
-		"pricing_note":      "max_credits is a preflight estimate; actual per-record charges are determined by the upstream provider and the account's Firecrawl limits.",
+		"pricing_note":      "Estimated credits are calculated before execution; the upstream provider reports actual charges. Origo enforces a server-managed per-request credit limit.",
 		"guidance":          "Use next to fetch additional pages where available. Reuse request_id when retrying the same paid request, but generate a new ID for the next page.",
 	}
 	if cost := payload["creditsCost"]; cost != nil {
@@ -421,4 +411,25 @@ func errorsAsData(err error, into **DataError) bool {
 		*into = e
 	}
 	return ok
+}
+
+// Interpret only well-defined provider unit codes, and distinguish CPI index
+// levels from annual inflation rates without transforming source values.
+func dataMeasurementNote(raw any) string {
+	data := mapField(raw)
+	if data == nil {
+		return ""
+	}
+	series := strings.ToUpper(stringField(data["series_id"]))
+	if !strings.HasPrefix(series, "CPI") {
+		return ""
+	}
+	switch strings.ToLower(stringField(data["units"])) {
+	case "lin", "":
+		return "CPI observations are price-index levels, not annual inflation percentages. Do not label them as inflation rates; a year-over-year percentage requires a 12-month comparison or an appropriate FRED transformation."
+	case "pc1":
+		return "FRED units=pc1 represents the percent change from one year ago, not an index level."
+	default:
+		return "CPI observations use the requested FRED units transformation; inspect the units field before interpreting values as percentages."
+	}
 }

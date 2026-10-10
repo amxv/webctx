@@ -18,7 +18,10 @@ import (
 )
 
 const dataAPIBase = "https://api.firecrawl.dev/v2"
-const defaultDataCreditBudget = 100
+
+// The server, not a client-provided tool parameter, controls this preflight ceiling.
+// A production override is configured on the Origo Vercel project.
+const defaultDataCreditBudget = 200
 const maxDataResponseBytes int64 = 12 << 20
 
 type DataError struct {
@@ -43,19 +46,10 @@ func dataAPIKey() (string, error) {
 
 func dataCreditCap() int {
 	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv("WEBCTX_ALEXANDRIA_MAX_CREDITS")))
-	if err != nil || value < 1 || value > 100000 {
+	if err != nil || value < 1 || value > defaultDataCreditBudget {
 		return defaultDataCreditBudget
 	}
 	return value
-}
-
-func paidDataEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("WEBCTX_ALEXANDRIA_PAID"))) {
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return true
-	}
 }
 
 var safeRequestID = regexp.MustCompile("^[A-Za-z0-9_-]{8,128}$")

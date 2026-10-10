@@ -16,8 +16,8 @@ webctx read-link <url> [--question "what to find"]
 webctx map-site <url>
 webctx research [question] [--mode ranked|catalogue] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
 webctx inspect <operation-or-source-id> [--raw]
-webctx execute <operation-id> --inputs '{"field":"value"}' [--max-credits N] [--request-id ID]
-webctx execute --calls '[{"id":"source/operation","inputs":{}}]' [--max-credits N]
+webctx execute <operation-id> --inputs '{"field":"value"}' [--request-id ID]
+webctx execute --calls '[{"id":"source/operation","inputs":{}}]'
 ```
 
 ## Search flags
@@ -53,8 +53,6 @@ BRAVE_API_KEY
 TAVILY_API_KEY
 EXA_API_KEY
 FIRECRAWL_API_KEY
-WEBCTX_ALEXANDRIA_MAX_CREDITS
-WEBCTX_ALEXANDRIA_PAID
 GH_TOKEN
 GITHUB_TOKEN
 ```

@@ -125,12 +125,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "execute":
 		request := ExecuteDataInput{Raw: flags["raw"] == "true", RequestID: flags["request-id"]}
-		if flag := flags["max-credits"]; flag != "" {
-			n, e := strconv.Atoi(flag)
-			if e != nil {
-				return cliDataError(stderr, dataError("invalid_budget", "--max-credits requires an integer."))
-			}
-			request.MaxCredits = n
+		if _, supplied := flags["max-credits"]; supplied {
+			return cliDataError(stderr, dataError("unsupported_flag", "Credit limits are managed by the server; remove --max-credits."))
 		}
 		if jsonCalls := flags["calls"]; jsonCalls != "" {
 			data, e := cliJSONString(jsonCalls)
@@ -153,7 +149,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			}
 			request.Calls = []DataCall{{ID: input, Inputs: inputs}}
 		} else {
-			return cliDataError(stderr, dataError("missing_calls", "Usage: webctx execute <operation-id> --inputs JSON [--max-credits N] or --calls JSON."))
+			return cliDataError(stderr, dataError("missing_calls", "Usage: webctx execute <operation-id> --inputs JSON or --calls JSON."))
 		}
 		result, e := ExecuteData(request)
 		if e != nil {
@@ -177,8 +173,8 @@ Usage:
   webctx map-site <url>
   webctx research [question] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
   webctx inspect <operation-or-source-id> [--raw]
-  webctx execute <operation-id> --inputs '{"field":"value"}' [--max-credits N] [--request-id ID]
-  webctx execute --calls '[{"id":"source/operation","inputs":{}}]' [--max-credits N]
+  webctx execute <operation-id> --inputs '{"field":"value"}' [--request-id ID]
+  webctx execute --calls '[{"id":"source/operation","inputs":{}}]'
 
 Examples:
   webctx search "next.js server components"
@@ -187,7 +183,7 @@ Examples:
   webctx research "podcast conversations about AI agents"
   webctx research --view sources --limit 5
   webctx inspect particle/podcasts/episodes/search
-  webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}' --max-credits 20
+  webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}'
   webctx read-link https://docs.example.com/guide
   webctx read-link https://docs.example.com/api --question "How do auth and pagination work?"
   webctx map-site https://example.com`, version)

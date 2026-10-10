@@ -3,6 +3,7 @@
 package origo
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/amxv/webctx/pkg/retrieval"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -50,34 +52,98 @@ func makeServer() *mcp.Server {
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: result}}}, nil, nil
 	})
-	mcp.AddTool(s, &mcp.Tool{
+	s.AddTool(&mcp.Tool{
 		Name:        "research",
 		Title:       "Find data sources",
 		Description: "Discover real-world information sources and their available operations. Search semantically, browse all sources, groups or operations, filter by websites/source IDs/categories, and paginate. Free; returns IDs and copy-ready inspect calls. Use read_link for regular documentation.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input retrieval.ResearchInput) (*mcp.CallToolResult, any, error) {
-		result, err := retrieval.Research(input)
-		return dataMCPResult(result, err)
-	})
-	mcp.AddTool(s, &mcp.Tool{
+		InputSchema: researchDataSchema(),
+	}, dataHandler(retrieval.Research))
+	s.AddTool(&mcp.Tool{
 		Name:        "inspect",
 		Title:       "Inspect a data source or operation",
 		Description: "Explore operations in a source, or inspect one operation's EXACT input types, required fields, constraints, output contract, pricing, and examples. Returns the next execute call with the exact input keys to fill. Free.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input retrieval.InspectInput) (*mcp.CallToolResult, any, error) {
-		result, err := retrieval.Inspect(input)
-		return dataMCPResult(result, err)
-	})
-	mcp.AddTool(s, &mcp.Tool{
+		InputSchema: inspectDataSchema(),
+	}, dataHandler(retrieval.Inspect))
+	s.AddTool(&mcp.Tool{
 		Name:        "execute",
 		Title:       "Query a data source (uses credits)",
-		Description: "Execute 1-10 inspected structured-data operations using their exact source IDs and inputs. Charges Firecrawl Alexandria credits after server-side schema and credit-budget checks. Supports pagination/continuations, stable request_id for safe retries, and original provider JSON. No third-party terms are accepted automatically.",
+		Description: "Execute 1-10 inspected structured-data operations using exact operation IDs and inputs. Alexandria credits are charged automatically; the server enforces its configured 200-credit per-request ceiling. Actual credits are reported. Supports pagination, safe request_id retries and provider-native JSON. Does not accept third-party terms.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input retrieval.ExecuteInput) (*mcp.CallToolResult, any, error) {
-		result, err := retrieval.Execute(input)
-		return dataMCPResult(result, err)
-	})
+		InputSchema: executeDataSchema(),
+	}, dataHandler(retrieval.Execute))
 	return s
+}
+
+// Keep client-facing types narrow and self-describing. The SDK's default
+// reflection makes optional slices nullable and string enums unconstrained;
+// the catalogue operations support neither ambiguity.
+func researchDataSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[retrieval.ResearchInput](nil)
+	if err != nil {
+		panic(err)
+	}
+	schema.Properties["mode"].Enum = []any{"ranked", "catalogue"}
+	schema.Properties["view"].Enum = []any{"sources", "groups", "operations"}
+	for _, key := range []string{"mode", "view"} {
+		schema.Properties[key].Type = "string"
+		schema.Properties[key].Types = nil
+	}
+	for _, key := range []string{"urls", "sources", "categories", "groups", "operations", "include"} {
+		p := schema.Properties[key]
+		p.Type = "array"
+		p.Types = nil
+	}
+	schema.Properties["include"].Items.Enum = []any{"inputs", "output", "examples"}
+	return schema
+}
+
+func inspectDataSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[retrieval.InspectInput](nil)
+	if err != nil {
+		panic(err)
+	}
+	p := schema.Properties["include"]
+	p.Type = "array"
+	p.Types = nil
+	p.Items.Enum = []any{"inputs", "output", "examples"}
+	return schema
+}
+
+func executeDataSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[retrieval.ExecuteInput](nil)
+	if err != nil {
+		panic(err)
+	}
+	countMin, countMax := 1, 10
+	p := schema.Properties["calls"]
+	p.Type = "array"
+	p.Types = nil
+	p.MinItems = &countMin
+	p.MaxItems = &countMax
+	return schema
+}
+
+// Manual validation keeps data errors in successful MCP tool responses rather
+// than surfacing them as client-side INVALID_ARGUMENT tool exceptions.
+func dataHandler[In any](fn func(In) (map[string]any, error)) mcp.ToolHandler {
+	return func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var input In
+		args := req.Params.Arguments
+		if len(args) == 0 {
+			args = []byte("{}")
+		}
+		decoder := json.NewDecoder(bytes.NewReader(args))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			response, _, e := dataMCPResult(nil, &retrieval.DataError{Code: "invalid_arguments", Message: err.Error()})
+			return response, e
+		}
+		result, err := fn(input)
+		response, _, e := dataMCPResult(result, err)
+		return response, e
+	}
 }
 
 func dataMCPResult(result map[string]any, err error) (*mcp.CallToolResult, any, error) {
@@ -86,6 +152,9 @@ func dataMCPResult(result map[string]any, err error) (*mcp.CallToolResult, any, 
 		// Use the shared error serializer to preserve codes, corrective details
 		// and provider-term acceptance URLs as structured tool output.
 		result = retrieval.DataErrorResult(err)
+		result["ok"] = false
+	} else {
+		result["ok"] = true
 	}
 	bytes, marshalErr := json.MarshalIndent(result, "", "  ")
 	if marshalErr != nil {
@@ -94,7 +163,9 @@ func dataMCPResult(result map[string]any, err error) (*mcp.CallToolResult, any, 
 	return &mcp.CallToolResult{
 		Content:           []mcp.Content{&mcp.TextContent{Text: string(bytes)}},
 		StructuredContent: result,
-		IsError:           failed,
+		// Keep validation/provider failures in the structured result. Clients
+		// commonly convert isError=true to opaque INVALID_ARGUMENT exceptions.
+		IsError: false,
 	}, nil, nil
 }
 

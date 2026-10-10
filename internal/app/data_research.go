@@ -1,6 +1,9 @@
 package app
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 func researchView(view, query string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(view)) {
@@ -165,6 +168,20 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		}
 		data := mapField(raw["data"])
 		items = listField(data["tools"])
+		// Some upstream ranked matches arrive out of order despite including a
+		// similarity score. Present the highest-scoring candidate first, retaining
+		// upstream order for exact ties or missing scores.
+		sort.SliceStable(items, func(i, j int) bool {
+			a, aok := numberField(mapField(items[i])["similarity"])
+			b, bok := numberField(mapField(items[j])["similarity"])
+			if aok != bok {
+				return aok
+			}
+			if !aok {
+				return false
+			}
+			return a > b
+		})
 		// Ranked search has no native cursor. Expose the free, complete
 		// catalogue with matching semantic query as an optional expansion.
 		next = map[string]any{"tool": "research", "arguments": map[string]any{

@@ -49,17 +49,18 @@ func TestDataToolErrorsAreActionableStructuredMCPResults(t *testing.T) {
 		{"research", map[string]any{"view": "invalid"}, "invalid_view"},
 		{"inspect", map[string]any{"id": "not-a-valid-operation/"}, "invalid_operation"},
 		{"execute", map[string]any{"calls": []any{}}, "invalid_calls"},
+		{"execute", map[string]any{"calls": []any{map[string]any{"id": "example/data/list"}}, "max_credits": 1}, "invalid_arguments"},
 	} {
 		response := toolResponse(t, tc.name, tc.input, 11)
-		if response["isError"] != true {
-			t.Fatalf("%s should return isError: %#v", tc.name, response)
+		if response["isError"] == true {
+			t.Fatalf("%s should return normal structured response, not an MCP error: %#v", tc.name, response)
 		}
 		output, ok := response["structuredContent"].(map[string]any)
 		if !ok {
 			t.Fatalf("%s did not preserve structuredContent: %#v", tc.name, response)
 		}
 		errorResult, ok := output["error"].(map[string]any)
-		if !ok || errorResult["code"] != tc.code {
+		if !ok || errorResult["code"] != tc.code || output["ok"] != false {
 			t.Fatalf("%s error should be %s: %#v", tc.name, tc.code, response)
 		}
 	}
@@ -68,7 +69,6 @@ func TestDataToolErrorsAreActionableStructuredMCPResults(t *testing.T) {
 func TestDataToolResearchInspectExecuteOverHTTP(t *testing.T) {
 	t.Setenv("ORIGO_API_KEY", "secret")
 	t.Setenv("FIRECRAWL_API_KEY", "test")
-	t.Setenv("WEBCTX_ALEXANDRIA_PAID", "true")
 	original := http.DefaultClient
 	t.Cleanup(func() { http.DefaultClient = original })
 	var paidCount int
@@ -126,7 +126,7 @@ func TestDataToolResearchInspectExecuteOverHTTP(t *testing.T) {
 	}
 	result := toolResponse(t, "execute", map[string]any{"calls": []any{
 		map[string]any{"id": "example/data/list", "inputs": map[string]any{"query": "forty two"}},
-	}, "max_credits": 3}, 14)
+	}}, 14)
 	final := result["structuredContent"].(map[string]any)
 	if result["isError"] == true || final["credits_used"] != float64(2) || paidCount != 1 {
 		t.Fatalf("paid query failed: %#v calls=%d", final, paidCount)

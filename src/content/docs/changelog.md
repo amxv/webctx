@@ -8,6 +8,14 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.6 - 2026-10-10
+
+- Removed user-controlled credit budgets and the paid-mode toggle from Webctx/Origo execution. The server enforces its own 200-credit per-request preflight ceiling, configured in Origo's Vercel production environment, while returning both estimated and provider-reported actual credits.
+- Completed the v0.2.5 ChatGPT MCP test-report improvements: sort discovery by reported similarity, generate clearly labelled schema-valid illustrative examples when a provider offers none, use typed discovery enums and non-null bounded call arrays, and return actionable validation errors as ordinary structured MCP responses.
+- Made focused API documentation responses shorter and placed source-grounded REST contracts first; repaired copy-breaking line-continuation slashes inside JSON cURL payloads only when the corrected payload parses as valid JSON, and clearly annotated the correction.
+- Added CPI observation measurement notes distinguishing index levels from year-over-year inflation percentages. Preserved exact provider observations, dates and provenance.
+- Expanded regression coverage for server-enforced credit limits, absence of client budgets, generated examples, relevance, tool schemas, error envelopes and copyable REST examples.
+
 ## 0.2.5 - 2026-10-10
 
 - Added three agent-friendly structured-data commands to both the Webctx CLI and Origo MCP: `research` (semantic source and operation discovery, filters, browse and pagination), `inspect` (exact operation inputs, output contract, allowed values, examples and pricing), and `execute` (paid provider-native data queries).
