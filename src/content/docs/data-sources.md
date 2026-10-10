@@ -14,7 +14,7 @@ Webctx and Origo expose three progressively more powerful tools for Firecrawl Al
 webctx research "podcast conversations about AI agents" --limit 5
 ```
 
-The response lists human-readable operations, a stable ID (e.g. `particle/podcasts/episodes/search`), description, price, and a `next` object with the exact arguments for `inspect`.
+Discovery returns source-operation IDs, names, prices and an exact `next` inspection call. Task-oriented reranking prefers operations that directly retrieve the requested data. Filtered discovery first selects source/category candidates, then ranks them locally; exact IDs always take precedence over keyword restrictions.
 
 To browse rather than search:
 
@@ -75,7 +75,9 @@ webctx execute --calls '[
 
 For large JSON arguments use `--calls @requests.json` or `--inputs @inputs.json`.
 
-The response contains untouched provider-native `data`, the operation ID, the data receipt ID, credits charged, and the `request_id`. If the provider supplies a continuation cursor, next-page offset, or an executable continuation, Origo returns a copy-ready `next` execute call. Call again using the next arguments; do not reuse the previous page's `request_id`.
+The response contains untouched provider-native `data`, the operation ID, the data receipt ID, credits charged, and the `request_id`. If the provider supplies a continuation cursor, next-page offset, page token, `search_after`, a pagination link or an executable continuation, Origo returns a copy-ready `next` execute call. Call again using the next arguments; do not reuse the previous page's `request_id`.
+
+Mixed-provider batches execute each operation independently, preserving successful results alongside provider-specific errors (including terms requirements). Operation receipts and Firecrawl credits are labelled separately from any provider-native fields named `credits`.
 
 ## Credits, retries, and terms
 
@@ -83,11 +85,13 @@ Paid Alexandria queries execute automatically. Origo validates inputs against th
 
 Responses show `estimated_credits` before execution and provider-reported `credits_used` afterward, including per-operation charges. Estimates are not audited billing totals; Firecrawl team/account limits remain authoritative. Per-record tools require a known upper bound, such as a `limit`.
 
-Every paid request has an idempotency `request_id`. If the network fails and you need to retry the *same* request, reuse that ID. A different page or different query requires a new ID. The system does not automatically retry a potentially charged request.
+Every paid request has an idempotency `request_id`. If the network fails and you need to retry the *same* request, reuse that ID. A different page or different query requires a new ID. A successful identical replay on the same warm worker uses a 15-minute cache without a second provider call and reports `replayed: true` and `credits_charged_this_request: 0`. Across separate workers, actual incremental charges remain unverified without a durable ledger. The system does not automatically replay potentially charged calls.
 
-If a provider requires third-party data terms, Origo returns the upstream acceptance URL and stops. It does not accept the terms or create an account on your behalf.
+Rate-limit errors include `retry_after_seconds`, `retry_at` and `retryable`. The server caches free catalogue lookups briefly and throttles local concurrency; Firecrawl account quotas still apply across workers.
 
-When a source publishes no examples, `inspect` generates a clearly labelled, schema-validated example when enough concrete inputs are available. It does not claim that generated examples came from the provider or were executed. FRED CPI observations include a note distinguishing price-index levels from year-over-year inflation percentages.
+If a provider requires third-party data terms, Origo returns the upstream acceptance URL and stops for that operation. It does not accept the terms or create an account on your behalf.
+
+When a source publishes no examples, `inspect` generates a clearly labelled illustration, with `valid_input_shape` distinct from `ready_to_execute`. Unknown high-credit profile URLs remain unfilled rather than inventing actionable inputs. It does not claim that generated examples came from the provider or were executed. FRED CPI observations include a note distinguishing price-index levels from year-over-year inflation percentages.
 
 Use `--raw` or `"raw": true` to inspect the complete upstream Firecrawl response instead of the agent-friendly projection. This makes advanced provider features and their exact contracts available without requiring additional MCP tools.
 

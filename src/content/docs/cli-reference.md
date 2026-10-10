@@ -13,7 +13,7 @@ webctx --help
 webctx --version
 webctx search <query> [--exclude domains] [--keyword phrase]
 webctx read-link <url> [--question "what to find"]
-webctx map-site <url>
+webctx map-site <url> [--query topic] [--limit 30] [--offset 0] [--path-prefix /api] [--language en|all]
 webctx research [question] [--mode ranked|catalogue] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
 webctx inspect <operation-or-source-id> [--raw]
 webctx execute <operation-id> --inputs '{"field":"value"}' [--request-id ID]

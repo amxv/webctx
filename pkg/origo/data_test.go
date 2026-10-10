@@ -66,6 +66,32 @@ func TestDataToolErrorsAreActionableStructuredMCPResults(t *testing.T) {
 	}
 }
 
+func TestAuditMCPRejectsZeroLimitAndInvalidSourceURLsWithoutExceptions(t *testing.T) {
+	t.Setenv("ORIGO_API_KEY", "secret")
+	for _, tt := range []struct {
+		name string
+		args map[string]any
+		code string
+	}{
+		{"research", map[string]any{"mode": "catalogue", "view": "sources", "limit": 0}, "invalid_limit"},
+		{"read_link", map[string]any{"url": "file:///etc/passwd", "question": "summarize"}, "invalid_url"},
+		{"map_site", map[string]any{"url": "file:///etc/passwd"}, "invalid_url"},
+	} {
+		reply := toolResponse(t, tt.name, tt.args, 990)
+		if reply["isError"] == true {
+			t.Fatalf("%s surfaced a host error: %+v", tt.name, reply)
+		}
+		data, ok := reply["structuredContent"].(map[string]any)
+		if !ok || data["ok"] != false {
+			t.Fatalf("%s did not return a structured error: %+v", tt.name, reply)
+		}
+		failure := data["error"].(map[string]any)
+		if failure["code"] != tt.code {
+			t.Fatalf("%s expected %s, got %+v", tt.name, tt.code, failure)
+		}
+	}
+}
+
 func TestDataToolResearchInspectExecuteOverHTTP(t *testing.T) {
 	t.Setenv("ORIGO_API_KEY", "secret")
 	t.Setenv("FIRECRAWL_API_KEY", "test")

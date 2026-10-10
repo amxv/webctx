@@ -8,6 +8,17 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.7 - 2026-10-10
+
+- Audited the complete Origo MCP data workflow against the extended v0.2.6 quality report. Repaired filtered discovery (exact ID, source-domain lookup, transparent filtered ranking, task-oriented reranking, strict explicit zero limits) and made catalogue per-operation continuations consistently point to `inspect`.
+- Improved execution safety: cost bounds recognize `k`, page sizes, array counts and single-record lookups; operations above the server's configured maximum are marked unavailable; multi-provider calls execute independently so one provider's terms rejection no longer aborts unrelated data.
+- Added machine-readable rate-limit reset times, per-worker read throttling and free catalogue caching. Upstream quotas across independent serverless workers still depend on Firecrawl's account limits.
+- Added provider-specific pagination continuations for Treasury next-page links, ClinicalTrials.gov page tokens, Semantic Scholar continuation cursors, and FullEnrich `search_after`. Reuses exact original query filters.
+- Made generated examples more conservative: clearly indicate alternative required inputs, distinguish structural validation from practical executability, avoid fake high-cost profile URLs, and include normalized integer, dependency and nullable-output contract hints without losing native schema fields.
+- Clarified batch and operation receipts, different credit units, partial-result accounting and idempotent retries. Repeat requests handled by the same warm worker can be served from an in-memory replay cache with zero new upstream calls; cold-worker replay billing is explicitly unverified. Request-ID collisions no longer suggest repeating the conflicting payload.
+- Replaced massive `map_site` dumps with a bounded 30-page default, filters for topic, path prefix and language, structured metadata and paginated `next` calls. Existing URL-only CLI mapping remains available but bounded.
+- Improved focused GitHub license questions with concise source-grounded answers and returned structured `invalid_url` errors for unsupported URL schemes. Added regression tests for each issue family.
+
 ## 0.2.6 - 2026-10-10
 
 - Removed user-controlled credit budgets and the paid-mode toggle from Webctx/Origo execution. The server enforces its own 200-credit per-request preflight ceiling, configured in Origo's Vercel production environment, while returning both estimated and provider-reported actual credits.

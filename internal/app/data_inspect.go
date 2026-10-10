@@ -72,33 +72,6 @@ func nativeInputTemplate(contract map[string]any) (map[string]any, []string) {
 			seen[name] = true
 		}
 	}
-	for _, group := range listField(contract["requiresOneOf"]) {
-		var matched bool
-		for _, field := range listField(group) {
-			name := stringField(field)
-			if _, already := template[name]; already && template[name] != nil {
-				matched = true
-				break
-			}
-		}
-		if matched {
-			continue
-		}
-		// Show one candidate with a blank value rather than guessing user
-		// intent or silently filling provider-specific search terms.
-		for _, field := range listField(group) {
-			name := stringField(field)
-			if name == "" {
-				continue
-			}
-			template[name] = nil
-			if !seen[name] {
-				need = append(need, name)
-				seen[name] = true
-			}
-			break
-		}
-	}
 	return template, need
 }
 
@@ -125,10 +98,9 @@ func InspectData(input InspectDataInput) (map[string]any, error) {
 			return nil, dataError("invalid_source", "Use an exact source ID returned by research.")
 		}
 		include := input.Include
-		if len(include) == 0 {
-			include = []string{"inputs", "output", "examples"}
-		}
-		list, err := ResearchData(ResearchDataInput{Sources: []string{id}, View: "operations", Include: include, Limit: 25, Raw: input.Raw})
+		// Provider-level discovery is intentionally lightweight: inspect a
+		// particular operation for full field-by-field contracts.
+		list, err := ResearchData(ResearchDataInput{Sources: []string{id}, View: "operations", Include: include, Limit: 12, Raw: input.Raw})
 		if err != nil {
 			return nil, err
 		}
@@ -157,12 +129,23 @@ func InspectData(input InspectDataInput) (map[string]any, error) {
 			"credits_per_call": item["creditsCost"],
 			"per_record":       item["perRecord"],
 		},
-		"inputs":         map[string]any{"fields": item["options"], "requires_one_of": item["requiresOneOf"]},
-		"output":         item["response"],
-		"examples":       contractExamples(item),
-		"input_template": inputs,
-		"next":           map[string]any{"tool": "execute", "arguments": execArguments},
-		"guidance":       "Copy next.arguments into execute, fill any blank required inputs and adjust values according to inputs.fields. Execute uses credits.",
+		"inputs":                   map[string]any{"fields": item["options"], "normalized_fields": normalizedDataInputFields(item), "requires_one_of": item["requiresOneOf"]},
+		"output":                   item["response"],
+		"normalized_output_fields": normalizedDataOutputFields(item),
+		"examples":                 contractExamples(item),
+		"input_template":           inputs,
+		"fill_one_of":              item["requiresOneOf"],
+		"next":                     map[string]any{"tool": "execute", "arguments": execArguments},
+		"guidance":                 "Copy next.arguments into execute, fill any blank required inputs and adjust values according to inputs.fields. Execute uses credits.",
+	}
+	if cost, ok := numberField(item["creditsCost"]); ok && cost > float64(dataCreditCap()) {
+		response["availability"] = "exceeds_server_credit_limit"
+		response["executable"] = false
+		response["server_credit_limit"] = dataCreditCap()
+		delete(response, "next")
+		response["guidance"] = fmt.Sprintf("This operation costs %v credits per call and exceeds Origo's %d-credit request ceiling. It cannot execute under this server configuration.", cost, dataCreditCap())
+	} else {
+		response["executable"] = true
 	}
 	if len(missing) > 0 {
 		response["fill_before_execution"] = missing

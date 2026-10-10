@@ -36,22 +36,21 @@ func makeServer() *mcp.Server {
 	}, func(_ context.Context, _ *mcp.CallToolRequest, input readLinkInput) (*mcp.CallToolResult, any, error) {
 		result, err := retrieval.ReadLinkFocused(input.URL, input.Question)
 		if err != nil {
-			return nil, nil, err
+			code := "read_failed"
+			if strings.Contains(err.Error(), "absolute HTTP(S)") || strings.Contains(err.Error(), "readable URL") {
+				code = "invalid_url"
+			}
+			return dataMCPResult(nil, &retrieval.DataError{Code: code, Message: err.Error()})
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: result}}}, nil, nil
 	})
-	mcp.AddTool(s, &mcp.Tool{
+	s.AddTool(&mcp.Tool{
 		Name:        "map_site",
 		Title:       "Map site",
-		Description: "Discover URLs on a site using Firecrawl's sitemap-based map API. Does not perform web search.",
+		Description: "Discover website pages in bounded, paginated groups (30 by default). Filter by topic, path prefix and language (en by default, all for translations). Returns structured titles, descriptions, counts, and copy-ready next-page arguments.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input linkInput) (*mcp.CallToolResult, any, error) {
-		result, err := retrieval.MapSite(input.URL)
-		if err != nil {
-			return nil, nil, err
-		}
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: result}}}, nil, nil
-	})
+		InputSchema: mapSiteSchema(),
+	}, dataHandler(retrieval.MapSitePage))
 	s.AddTool(&mcp.Tool{
 		Name:        "research",
 		Title:       "Find data sources",
@@ -122,6 +121,14 @@ func executeDataSchema() *jsonschema.Schema {
 	p.Types = nil
 	p.MinItems = &countMin
 	p.MaxItems = &countMax
+	return schema
+}
+
+func mapSiteSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[retrieval.MapInput](nil)
+	if err != nil {
+		panic(err)
+	}
 	return schema
 }
 

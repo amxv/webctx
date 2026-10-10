@@ -286,8 +286,8 @@ func TestExecuteHandlesProviderTermsWithoutAccepting(t *testing.T) {
 		mapField(typed.RequiresAction)["url"] != "https://firecrawl.dev/app/settings?tab=data-sources" {
 		t.Fatalf("terms condition lost: %+v", err)
 	}
-	if mapField(typed.Details)["request_id"] == nil {
-		t.Fatalf("lost retriable request identifier: %+v", typed)
+	if mapField(typed.Details)["retry"] != nil {
+		t.Fatalf("terms rejection must not recommend automatic paid retry: %+v", typed)
 	}
 }
 

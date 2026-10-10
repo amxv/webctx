@@ -70,6 +70,32 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintln(stdout, "Usage: webctx map-site <url>")
 			return 1
 		}
+		if len(flags) > 0 {
+			limit, offset := 0, 0
+			if raw := flags["limit"]; raw != "" {
+				value, e := strconv.Atoi(raw)
+				if e != nil {
+					return cliDataError(stderr, dataError("invalid_limit", "--limit must be an integer"))
+				}
+				limit = value
+			}
+			if raw := flags["offset"]; raw != "" {
+				value, e := strconv.Atoi(raw)
+				if e != nil {
+					return cliDataError(stderr, dataError("invalid_offset", "--offset must be an integer"))
+				}
+				offset = value
+			}
+			result, e := MapSitePage(MapSiteInput{
+				URL: input, Limit: limit, Offset: offset, Query: flags["query"],
+				PathPrefix: flags["path-prefix"], Language: flags["language"],
+			})
+			if e != nil {
+				return cliDataError(stderr, e)
+			}
+			writeDataJSON(stdout, result)
+			return 0
+		}
 		text, err := MapSite(input)
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, err.Error())
@@ -99,6 +125,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				return cliDataError(stderr, dataError("invalid_limit", "--limit requires an integer."))
 			}
 			research.Limit = n
+			research.limitProvided = true
 		}
 		if flag := flags["offset"]; flag != "" {
 			n, e := strconv.Atoi(flag)
@@ -170,7 +197,7 @@ func usageText() string {
 Usage:
   webctx search <query> [--exclude domain1,domain2] [--keyword phrase]
   webctx read-link <url> [--question 'what to find']
-  webctx map-site <url>
+  webctx map-site <url> [--query topic] [--limit 30] [--offset 0] [--path-prefix /api] [--language en|all]
   webctx research [question] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
   webctx inspect <operation-or-source-id> [--raw]
   webctx execute <operation-id> --inputs '{"field":"value"}' [--request-id ID]

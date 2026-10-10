@@ -32,6 +32,32 @@ func contractExamples(contract map[string]any) any {
 			input[name] = value
 		}
 	}
+	var chooseOne []any
+	for _, v := range listField(contract["requiresOneOf"]) {
+		alternatives := listField(v)
+		satisfied := false
+		for _, candidate := range alternatives {
+			name := stringField(candidate)
+			if input[name] != nil && input[name] != "" {
+				satisfied = true
+				break
+			}
+		}
+		if satisfied {
+			continue
+		}
+		for _, candidate := range alternatives {
+			name := stringField(candidate)
+			if value, ok := sampleFieldValue(name, fieldInfo[name]); ok {
+				input[name] = value
+				satisfied = true
+				break
+			}
+		}
+		if !satisfied {
+			chooseOne = append(chooseOne, alternatives)
+		}
+	}
 	// An illustrative example should not accidentally fetch huge datasets
 	// when copied verbatim. Users may adjust the inputs freely.
 	for _, name := range []string{"limit", "per_page", "page_size", "max_results", "count"} {
@@ -43,15 +69,42 @@ func contractExamples(contract map[string]any) any {
 		return nil
 	}
 	validation := validateDataInputs(contract, input)
-	example := map[string]any{
-		"kind":              "generated_from_inspected_schema",
-		"note":              "Illustrative Origo-generated inputs; not a published provider example or an executed query.",
-		"inputs":            input,
-		"valid_input_shape": validation == nil,
+	practical := validation == nil
+	if len(input) == 0 && len(listField(contract["options"])) > 0 {
+		practical = false
 	}
-	if validation != nil {
+	// A purely structural URL or a placeholder never proves a real record
+	// exists. High-credit person-profile lookups must use a real user URL.
+	for name, value := range input {
+		lower := strings.ToLower(name)
+		s := stringField(value)
+		if strings.Contains(lower, "linkedin") && strings.Contains(s, "example") {
+			practical = false
+		}
+		if strings.Contains(strings.ToLower(s), "placeholder") ||
+			strings.Contains(strings.ToLower(s), "identifier") {
+			practical = false
+		}
+	}
+	id := strings.ToLower(stringField(contract["id"]))
+	if (strings.HasSuffix(id, "/get") || strings.HasSuffix(id, "/lookup") ||
+		strings.HasSuffix(id, "/detail")) && len(input) == 0 {
+		practical = false
+	}
+	example := map[string]any{
+		"kind":               "generated_from_inspected_schema",
+		"note":               "Illustrative Origo-generated inputs; not a published provider example or an executed query.",
+		"inputs":             input,
+		"structurally_valid": validation == nil,
+		"valid_input_shape":  validation == nil && practical,
+		"ready_to_execute":   practical,
+	}
+	if validation != nil || !practical {
 		example["note"] = "Illustrative input template; fill required fields and check source-specific constraints before execution."
 		example["needs_input"] = needed
+		if len(chooseOne) > 0 {
+			example["needs_one_of"] = chooseOne
+		}
 	} else {
 		example["next"] = map[string]any{"tool": "execute", "arguments": map[string]any{
 			"calls": []any{map[string]any{"id": contract["id"], "inputs": input}},
@@ -72,7 +125,13 @@ func sampleFieldValue(name string, field map[string]any) (any, bool) {
 		}
 	}
 	if sample, ok := field["example"]; ok && sample != nil {
-		return sample, true
+		if s := stringField(sample); s != "" &&
+			(strings.Contains(strings.ToLower(s), "placeholder") ||
+				strings.Contains(strings.ToLower(s), "identifier")) {
+			// Example-like placeholders are not executable source IDs.
+		} else {
+			return sample, true
+		}
 	}
 	if samples := listField(field["examples"]); len(samples) > 0 && samples[0] != nil {
 		return samples[0], true
@@ -83,6 +142,20 @@ func sampleFieldValue(name string, field map[string]any) (any, bool) {
 	info := stringField(field["about"]) + " " + stringField(field["description"])
 	lower := strings.ToLower(name + " " + info)
 	switch {
+	case name == "companyKey":
+		return "NASDAQ_AAPL", true
+	case name == "repo" || name == "repository":
+		return "openai/openai-python", true
+	case name == "symbol" || name == "ticker":
+		return "AAPL", true
+	case name == "from" || name == "base_currency":
+		return "USD", true
+	case name == "to" || name == "quote_currency":
+		return "EUR", true
+	case name == "domain":
+		return "github.com", true
+	case strings.Contains(lower, "linkedin") || strings.Contains(lower, "professional_network_url"):
+		return nil, false
 	case strings.Contains(name, "series_id") && strings.Contains(info, "CPIAUCSL"):
 		return "CPIAUCSL", true
 	case strings.Contains(name, "series_id") && strings.Contains(info, "UNRATE"):

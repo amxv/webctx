@@ -30,7 +30,7 @@ Source-aware reading also prefers raw JSON, YAML, and OpenAPI files when the URL
 
 ## Structured data: discover → inspect → execute
 
-`research` discovers datasets and operations by meaning, website, source, category, or group. `inspect` retrieves exact parameter types, required fields, response shapes, pricing, and copy-ready `execute` arguments. `execute` validates the inputs and credit estimate before calling one or more data operations, and preserves their source-native JSON and pagination.
+`research` discovers datasets and operations by meaning, website, source, category, or group. `inspect` retrieves exact parameter types, required fields, response shapes, pricing, and copy-ready `execute` arguments. `execute` validates inputs and estimated charges before independently querying each operation, preserving native JSON, pagination and partial results when another provider rejects access.
 
 ```bash
 webctx research "podcast conversations about AI agents" --limit 5

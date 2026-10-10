@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const dataAPIBase = "https://api.firecrawl.dev/v2"
@@ -25,10 +29,13 @@ const defaultDataCreditBudget = 200
 const maxDataResponseBytes int64 = 12 << 20
 
 type DataError struct {
-	Code           string         `json:"code"`
-	Message        string         `json:"message"`
-	RequiresAction map[string]any `json:"requires_action,omitempty"`
-	Details        any            `json:"details,omitempty"`
+	Code              string         `json:"code"`
+	Message           string         `json:"message"`
+	RequiresAction    map[string]any `json:"requires_action,omitempty"`
+	Details           any            `json:"details,omitempty"`
+	RetryAfterSeconds int            `json:"retry_after_seconds,omitempty"`
+	RetryAt           string         `json:"retry_at,omitempty"`
+	Retryable         bool           `json:"retryable,omitempty"`
 }
 
 func (e *DataError) Error() string { return e.Code + ": " + e.Message }
@@ -53,6 +60,101 @@ func dataCreditCap() int {
 }
 
 var safeRequestID = regexp.MustCompile("^[A-Za-z0-9_-]{8,128}$")
+
+var freeDataCooldown struct {
+	sync.Mutex
+	until time.Time
+}
+
+type dataReadRetryKey struct{}
+
+var upstreamDataGate = make(chan struct{}, 3)
+
+type catalogueCacheEntry struct {
+	payload  map[string]any
+	response map[string]any
+	expires  time.Time
+}
+
+var catalogueCache = struct {
+	sync.Mutex
+	entries map[string]catalogueCacheEntry
+}{entries: map[string]catalogueCacheEntry{}}
+var catalogueFlight singleflight.Group
+
+func cacheableCatalogueKey(options map[string]any) string {
+	key, err := dataAPIKey()
+	if err != nil || strings.HasPrefix(key, "test") {
+		return ""
+	}
+	snapshot, err := json.Marshal(options)
+	if err != nil {
+		return ""
+	}
+	hash := sha256.Sum256(append(append([]byte(key), 0), snapshot...))
+	return hex.EncodeToString(hash[:])
+}
+
+// Coordinate upstream read traffic per warm worker. Vercel has multiple
+// workers, so this is a local best-effort throttle, not a global quota.
+func dataReadCooldown(ctx context.Context) error {
+	freeDataCooldown.Lock()
+	until := freeDataCooldown.until
+	freeDataCooldown.Unlock()
+	if remaining := time.Until(until); remaining > 0 {
+		if remaining < 4*time.Second {
+			timer := time.NewTimer(remaining)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				return nil
+			case <-ctx.Done():
+				return dataError("request_cancelled", "The provider read was cancelled while throttled.")
+			}
+		}
+		return rateLimitError(int(remaining.Seconds())+1, "The provider's request allowance is temporarily exhausted.", "local_cooldown")
+	}
+	return nil
+}
+
+func rateLimitError(seconds int, message, source string) *DataError {
+	if seconds < 1 {
+		seconds = 60
+	}
+	if seconds > 3600 {
+		seconds = 3600
+	}
+	return &DataError{
+		Code: "rate_limited", Message: message, Retryable: true, RetryAfterSeconds: seconds,
+		RetryAt: time.Now().Add(time.Duration(seconds) * time.Second).UTC().Format(time.RFC3339),
+		Details: map[string]any{"retry_after_source": source, "guidance": "Retry this read after the indicated delay. For paid calls, preserve the original request_id and exact inputs."},
+	}
+}
+
+func readRetryDelay(headers http.Header) (int, string) {
+	if raw := strings.TrimSpace(headers.Get("Retry-After")); raw != "" {
+		if n, e := strconv.Atoi(raw); e == nil && n > 0 {
+			return n, "retry-after-header"
+		}
+		if t, e := http.ParseTime(raw); e == nil {
+			seconds := int(time.Until(t).Seconds()) + 1
+			if seconds > 0 {
+				return seconds, "retry-after-header"
+			}
+		}
+	}
+	if raw := strings.TrimSpace(headers.Get("RateLimit-Reset")); raw != "" {
+		if n, e := strconv.ParseInt(raw, 10, 64); e == nil {
+			if n > 1e9 {
+				n = int64(time.Until(time.Unix(n, 0)).Seconds()) + 1
+			}
+			if n > 0 && n < 3601 {
+				return int(n), "ratelimit-reset-header"
+			}
+		}
+	}
+	return 60, "estimated_minute_window"
+}
 
 func newRequestID() (string, error) {
 	var bytes [16]byte
@@ -80,7 +182,18 @@ func doDataAPI(ctx context.Context, endpoint string, payload any, requestID stri
 	if requestID != "" {
 		req.Header.Set("x-request-id", requestID)
 	}
+	if requestID == "" {
+		if err := dataReadCooldown(ctx); err != nil {
+			return nil, err
+		}
+	}
+	select {
+	case upstreamDataGate <- struct{}{}:
+	case <-ctx.Done():
+		return nil, dataError("request_cancelled", "Timed out waiting for an upstream request slot.")
+	}
 	res, err := http.DefaultClient.Do(req)
+	<-upstreamDataGate
 	if err != nil {
 		return nil, &DataError{Code: "network_error", Message: "The provider request did not complete. For a paid call, retry only with the same request_id to prevent duplicate charges."}
 	}
@@ -94,6 +207,10 @@ func doDataAPI(ctx context.Context, endpoint string, payload any, requestID stri
 	}
 	var decoded map[string]any
 	if json.Unmarshal(raw, &decoded) != nil {
+		if res.StatusCode == http.StatusTooManyRequests {
+			seconds, source := readRetryDelay(res.Header)
+			return nil, rateLimitError(seconds, "The upstream data provider is rate limiting requests.", source)
+		}
 		return nil, dataError("invalid_upstream_response", fmt.Sprintf("Provider returned non-JSON HTTP %d.", res.StatusCode))
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 || decoded["success"] == false {
@@ -111,7 +228,36 @@ func doDataAPI(ctx context.Context, endpoint string, payload any, requestID stri
 		if len(message) > 800 {
 			message = message[:800]
 		}
+		if res.StatusCode == http.StatusTooManyRequests || strings.EqualFold(code, "rate_limit_exceeded") || strings.EqualFold(code, "rate_limited") {
+			seconds, source := readRetryDelay(res.Header)
+			if requestID == "" {
+				freeDataCooldown.Lock()
+				next := time.Now().Add(time.Duration(seconds) * time.Second)
+				if next.After(freeDataCooldown.until) {
+					freeDataCooldown.until = next
+				}
+				freeDataCooldown.Unlock()
+			}
+			// A short retry is safe for free discovery. Never automatically
+			// repeat a paid execution: its actual charging state may be unknown.
+			attempt, _ := ctx.Value(dataReadRetryKey{}).(int)
+			if requestID == "" && seconds <= 2 && attempt == 0 {
+				timer := time.NewTimer(time.Duration(seconds) * time.Second)
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+					return doDataAPI(context.WithValue(ctx, dataReadRetryKey{}, 1), endpoint, payload, requestID)
+				case <-ctx.Done():
+					return nil, rateLimitError(seconds, "The provider's allowance has not recovered yet.", source)
+				}
+			}
+			return nil, rateLimitError(seconds, "The upstream data provider is rate limiting requests.", source)
+		}
 		out := &DataError{Code: code, Message: message}
+		if strings.EqualFold(code, "duplicate_request") {
+			out.Message = "This request_id was already used with different inputs. Reuse the exact original request body to replay it, or omit request_id to start a new query."
+			out.Details = map[string]any{"guidance": "Do not retry the conflicting payload with the same request_id.", "recovery": "Restore the exact original calls for replay, or generate a fresh request_id for intentionally new calls."}
+		}
 		if action, ok := decoded["requiresAction"].(map[string]any); ok {
 			if target := stringValue(action["url"]); target != "" {
 				if u, e := url.Parse(target); e == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" {
@@ -148,6 +294,43 @@ func extractNativeData(response map[string]any) (map[string]any, error) {
 }
 
 func freeDataBrowse(ctx context.Context, options map[string]any) (map[string]any, map[string]any, error) {
+	cacheKey := cacheableCatalogueKey(options)
+	if cacheKey != "" {
+		catalogueCache.Lock()
+		cached, ok := catalogueCache.entries[cacheKey]
+		catalogueCache.Unlock()
+		if ok && time.Now().Before(cached.expires) {
+			return cached.payload, cached.response, nil
+		}
+		type cacheResult struct {
+			payload  map[string]any
+			response map[string]any
+		}
+		result, err, _ := catalogueFlight.Do(cacheKey, func() (any, error) {
+			data, raw, e := uncachedFreeDataBrowse(ctx, options)
+			if e != nil {
+				return nil, e
+			}
+			catalogueCache.Lock()
+			if len(catalogueCache.entries) > 256 {
+				catalogueCache.entries = map[string]catalogueCacheEntry{}
+			}
+			catalogueCache.entries[cacheKey] = catalogueCacheEntry{
+				payload: data, response: raw, expires: time.Now().Add(2 * time.Minute),
+			}
+			catalogueCache.Unlock()
+			return cacheResult{payload: data, response: raw}, nil
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		got := result.(cacheResult)
+		return got.payload, got.response, nil
+	}
+	return uncachedFreeDataBrowse(ctx, options)
+}
+
+func uncachedFreeDataBrowse(ctx context.Context, options map[string]any) (map[string]any, map[string]any, error) {
 	response, err := nativeDataCall(ctx, "firecrawl", "find-tools", options, "")
 	if err != nil {
 		return nil, nil, err
@@ -158,7 +341,12 @@ func freeDataBrowse(ctx context.Context, options map[string]any) (map[string]any
 	}
 	details, ok := item["data"].(map[string]any)
 	if !ok {
-		return nil, nil, dataError("invalid_upstream_response", "The catalogue returned no browsable entries.")
+		if item["data"] == nil && item["error"] == nil {
+			// Some Alexandria catalogues signal an unknown ID by returning
+			// a successful find-tools call with data=null.
+			return map[string]any{"items": []any{}, "total": 0}, response, nil
+		}
+		return nil, nil, dataError("invalid_upstream_response", "The catalogue returned an unreadable response. Retry discovery before selecting an operation.")
 	}
 	return details, response, nil
 }

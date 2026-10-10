@@ -1,6 +1,6 @@
 {
   "name": "webctx",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Go CLI for agent-friendly web research, structured-data discovery, and source-native querying",
   "license": "MIT",
   "author": "amxv",

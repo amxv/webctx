@@ -252,56 +252,26 @@ func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 }
 
 func MapSite(rawURL string) (string, error) {
-	if err := validateSourceURL(rawURL); err != nil {
+	data, err := MapSitePage(MapSiteInput{URL: rawURL})
+	if err != nil {
 		return "", err
 	}
-	apiKey := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
-	if apiKey == "" {
-		return "", missingCredentialsError("Error mapping website", []string{"FIRECRAWL_API_KEY"}, "")
+	parts := []string{
+		fmt.Sprintf("total urls found: %v", data["total_discovered"]),
+		fmt.Sprintf("matching pages: %v; displayed: %v (offset %v)", data["total_matching"], data["count"], data["offset"]),
+		"",
 	}
-
-	requestBody := map[string]any{
-		"url":                   rawURL,
-		"sitemap":               "include",
-		"includeSubdomains":     true,
-		"ignoreQueryParameters": true,
-		"limit":                 5000,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	body, err := doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/map", map[string]string{
-		"Authorization": "Bearer " + apiKey,
-		"Content-Type":  "application/json",
-	}, requestBody)
-	if err != nil {
-		return "", fmt.Errorf("Error mapping website: %v", err)
-	}
-
-	var parsed map[string]any
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", fmt.Errorf("Error mapping website: %v", err)
-	}
-	if success, _ := parsed["success"].(bool); !success {
-		return "", fmt.Errorf("Error mapping website: Mapping failed for %s: %v", rawURL, parsed["error"])
-	}
-
-	linksAny, _ := parsed["links"].([]any)
-	parts := []string{fmt.Sprintf("total urls found: %d", len(linksAny)), ""}
-	for _, item := range linksAny {
-		switch link := item.(type) {
-		case string:
-			parts = append(parts, "- "+link, "")
-		case map[string]any:
-			parts = append(parts, "- "+stringValue(link["url"]))
-			if v := stringValue(link["title"]); v != "" {
-				parts = append(parts, "- "+v)
-			}
-			if v := stringValue(link["description"]); v != "" {
-				parts = append(parts, "- "+v)
-			}
-			parts = append(parts, "")
+	for _, entry := range data["links"].([]map[string]any) {
+		parts = append(parts, "- "+stringField(entry["url"]))
+		if title := stringField(entry["title"]); title != "" {
+			parts = append(parts, "  - "+title)
 		}
+		if desc := stringField(entry["description"]); desc != "" {
+			parts = append(parts, "  - "+desc)
+		}
+	}
+	if data["next"] != nil {
+		parts = append(parts, "", "More pages available; use --offset with webctx map-site for the next page.")
 	}
 	return strings.Join(parts, "\n"), nil
 }

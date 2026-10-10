@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -60,7 +61,7 @@ func normalizeResearchInput(input ResearchDataInput) (ResearchDataInput, string,
 	if err != nil {
 		return input, "", nil, err
 	}
-	if input.Limit == 0 {
+	if input.Limit == 0 && !input.limitProvided {
 		input.Limit = 10
 	}
 	if input.Limit < 1 || input.Limit > 100 {
@@ -74,6 +75,16 @@ func normalizeResearchInput(input ResearchDataInput) (ResearchDataInput, string,
 			return input, "", nil, dataError("invalid_url", "Website filters require public HTTP(S) URLs.")
 		}
 	}
+	if len(input.URLs) > 0 && len(input.Sources) == 0 {
+		for _, target := range input.URLs {
+			u, _ := url.Parse(target)
+			host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+			if host != "" {
+				source := strings.ReplaceAll(host, ".", "-")
+				input.Sources = append(input.Sources, source)
+			}
+		}
+	}
 	return input, view, expand, nil
 }
 
@@ -82,7 +93,7 @@ func nativeBrowseOptions(input ResearchDataInput, view string, expand []string) 
 	if input.Query != "" {
 		o["query"] = input.Query
 	}
-	if len(input.URLs) > 0 {
+	if len(input.URLs) > 0 && len(input.Sources) == 0 {
 		o["urls"] = input.URLs
 	}
 	if len(input.Sources) > 0 {
@@ -123,6 +134,9 @@ func nativeBrowseOptions(input ResearchDataInput, view string, expand []string) 
 		}
 	}
 	if len(expand) > 0 {
+		if containsString(expand, "examples") && !containsString(expand, "options") {
+			expand = append(append([]string(nil), expand...), "options")
+		}
 		o["expand"] = expand
 	}
 	return o
@@ -145,9 +159,19 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 	}
 	ctx, cancel := defaultDataContext()
 	defer cancel()
+	explicitExact := len(input.Operations) > 0
+	// An exact operation ID is authoritative. A descriptive query helps
+	// communicate intent, but must not exclude a known operation.
+	note := ""
+	if explicitExact && input.Query != "" {
+		note = "Exact operation IDs take precedence over descriptive query terms; the query was not used as a restrictive upstream filter."
+		input.Query = ""
+	}
 	semantic := input.Mode != "catalogue" && input.Query != "" && view == "tools" && input.Offset == 0 &&
 		len(input.URLs) == 0 && len(input.Sources) == 0 && len(input.Categories) == 0 &&
 		len(input.Groups) == 0 && len(input.Operations) == 0
+	localFilteredRanking := view == "tools" && input.Query != "" &&
+		(len(input.URLs) > 0 || len(input.Sources) > 0 || len(input.Groups) > 0 || len(input.Categories) > 0)
 	var items []any
 	var total any
 	var next any
@@ -159,9 +183,16 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		// compact upstream matches may omit both price and operation name.
 		// We still return compact result cards unless include was requested.
 		detail := "full"
+		fetchLimit := input.Limit * 4
+		if fetchLimit < 20 {
+			fetchLimit = 20
+		}
+		if fetchLimit > 100 {
+			fetchLimit = 100
+		}
 		raw, err = doDataAPI(ctx, "/search", map[string]any{
 			"query": input.Query, "sources": []string{"alexandria"},
-			"limit": input.Limit, "toolDetail": detail,
+			"limit": fetchLimit, "toolDetail": detail,
 		}, "")
 		if err != nil {
 			return nil, err
@@ -171,17 +202,6 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		// Some upstream ranked matches arrive out of order despite including a
 		// similarity score. Present the highest-scoring candidate first, retaining
 		// upstream order for exact ties or missing scores.
-		sort.SliceStable(items, func(i, j int) bool {
-			a, aok := numberField(mapField(items[i])["similarity"])
-			b, bok := numberField(mapField(items[j])["similarity"])
-			if aok != bok {
-				return aok
-			}
-			if !aok {
-				return false
-			}
-			return a > b
-		})
 		// Ranked search has no native cursor. Expose the free, complete
 		// catalogue with matching semantic query as an optional expansion.
 		next = map[string]any{"tool": "research", "arguments": map[string]any{
@@ -189,6 +209,22 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		}, "note": "Browse all matching operations with pagination; ranked discovery itself has no cursor."}
 	} else {
 		options := nativeBrowseOptions(input, view, expand)
+		if localFilteredRanking {
+			// Provider-specified lexical filters can exclude operations whose
+			// descriptions describe the requested data indirectly. Fetch a
+			// catalogue slice from the actual source, then rank it ourselves.
+			delete(options, "query")
+			options["limit"] = 100
+			options["offset"] = 0
+			note = "The source/category filters select candidates first. The question ranks those candidates locally, rather than excluding matching source operations."
+			if input.Mode != "catalogue" {
+				mode = "ranked_filtered"
+			}
+		}
+		if explicitExact {
+			delete(options, "query")
+			delete(options, "urls")
+		}
 		var catalogue map[string]any
 		catalogue, raw, err = freeDataBrowse(ctx, options)
 		if err != nil {
@@ -198,6 +234,48 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		total = catalogue["total"]
 		if native := mapField(catalogue["next"]); native != nil {
 			next = continuationFromCatalogue(native)
+		}
+	}
+	if view == "tools" {
+		termsQuery := input.Query
+		for _, op := range input.Operations {
+			termsQuery += " " + op
+		}
+		if strings.TrimSpace(termsQuery) != "" {
+			sort.SliceStable(items, func(i, j int) bool {
+				return intentRelevance(mapField(items[i]), termsQuery) > intentRelevance(mapField(items[j]), termsQuery)
+			})
+		} else {
+			sort.SliceStable(items, func(i, j int) bool {
+				a, aok := numberField(mapField(items[i])["similarity"])
+				b, bok := numberField(mapField(items[j])["similarity"])
+				if aok != bok {
+					return aok
+				}
+				return a > b
+			})
+		}
+	}
+	if semantic && len(items) > input.Limit {
+		items = items[:input.Limit]
+	}
+	if localFilteredRanking {
+		count := len(items)
+		start := input.Offset
+		if start > count {
+			start = count
+		}
+		end := start + input.Limit
+		if end > count {
+			end = count
+		}
+		items = items[start:end]
+		if count > end {
+			next = map[string]any{"tool": "research", "arguments": ResearchDataInput{
+				Query: input.Query, Mode: input.Mode, URLs: input.URLs, Sources: input.Sources,
+				Categories: input.Categories, Groups: input.Groups, View: niceDataView(view),
+				Include: input.Include, Limit: input.Limit, Offset: end,
+			}}
 		}
 	}
 	results := make([]map[string]any, 0, len(items))
@@ -223,6 +301,15 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		}
 		if cost, ok := entry["creditsCost"]; ok {
 			result["credits_per_call"] = cost
+			if listed, ok := numberField(cost); ok {
+				if listed > float64(dataCreditCap()) {
+					result["executable"] = false
+					result["availability"] = "exceeds_server_credit_limit"
+					result["server_credit_limit"] = dataCreditCap()
+				} else if view == "tools" {
+					result["executable"] = true
+				}
+			}
 		}
 		if cost, ok := entry["perRecord"]; ok {
 			result["per_record"] = cost
@@ -230,8 +317,14 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		if count, ok := entry["toolCount"]; ok {
 			result["operation_count"] = count
 		}
+		if input.Query != "" && view == "tools" {
+			result["relevance"] = intentRelevance(entry, input.Query)
+		}
 		if rank, ok := entry["similarity"]; ok {
-			result["relevance"] = rank
+			result["semantic_similarity"] = rank
+			if input.Query == "" {
+				result["relevance"] = rank
+			}
 		}
 		if len(expand) > 0 {
 			if selected := entry["options"]; selected != nil && containsString(expand, "options") {
@@ -243,8 +336,15 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 			if selected := entry["examples"]; selected != nil && containsString(expand, "examples") {
 				result["examples"] = selected
 			}
+			if containsString(expand, "examples") && result["examples"] == nil {
+				if entry["options"] != nil {
+					result["examples"] = contractExamples(entry)
+				}
+			}
 		}
-		if continuation := mapField(entry["next"]); continuation != nil {
+		if view == "tools" && id != "" {
+			result["next"] = map[string]any{"tool": "inspect", "arguments": map[string]any{"id": id}}
+		} else if continuation := mapField(entry["next"]); continuation != nil {
 			result["next"] = continuationFromCatalogue(continuation)
 		} else if id != "" {
 			result["next"] = map[string]any{"tool": "inspect", "arguments": map[string]any{"id": id}}
@@ -256,6 +356,12 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		"count": len(results), "cost_credits": 0,
 		"guidance": "Use inspect with an operation ID to see complete inputs, output, examples and the next execute call. To explore a source, inspect its source ID.",
 	}
+	if note != "" {
+		output["mode_note"] = note
+	}
+	if len(input.URLs) > 0 && len(input.Sources) > 0 {
+		output["resolved_url_sources"] = input.Sources
+	}
 	if total != nil {
 		output["total"] = total
 	}
@@ -266,6 +372,55 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		output["raw"] = raw
 	}
 	return output, nil
+}
+
+// Rank operations by their ability to deliver the requested data, not just
+// semantic similarity. Keep the provider similarity separately for auditing.
+func intentRelevance(entry map[string]any, query string) float64 {
+	if entry == nil {
+		return 0
+	}
+	base, _ := numberField(entry["similarity"])
+	if query == "" {
+		return base
+	}
+	q := strings.ToLower(query)
+	id := strings.ToLower(stringField(entry["id"]))
+	name := strings.ToLower(stringField(entry["name"]))
+	desc := strings.ToLower(stringField(entry["description"]))
+	p := id + " " + name
+	searchIntent := strings.Contains(q, "search") || strings.Contains(q, "find") ||
+		strings.Contains(q, "papers") || strings.Contains(q, "podcast") ||
+		strings.Contains(q, "trials") || strings.Contains(q, "about")
+	historyIntent := strings.Contains(q, "historical") || strings.Contains(q, "history") ||
+		strings.Contains(q, "time series") || strings.Contains(q, "over time") ||
+		strings.Contains(q, "inflation")
+	if historyIntent && (strings.Contains(p, "observations") ||
+		strings.Contains(p, "history") || strings.Contains(p, "rates") ||
+		strings.Contains(p, "timeseries")) {
+		base += 0.23
+	}
+	if searchIntent && (strings.Contains(p, "/search") || strings.Contains(p, "/studies") ||
+		strings.Contains(p, "episode-search")) {
+		base += 0.20
+	}
+	if searchIntent && strings.Contains(p, "/list") && !strings.Contains(q, "list") {
+		base -= 0.04
+	}
+	for _, ancillary := range []string{"suggest", "related", "directory", "releases", "/source", "metadata", "browse"} {
+		if strings.Contains(p, ancillary) && !strings.Contains(q, strings.TrimLeft(ancillary, "/")) {
+			base -= 0.14
+		}
+	}
+	terms := queryTerms(query)
+	if len(terms) > 0 {
+		fit := termScore(name+" "+desc, terms)
+		if fit > 8 {
+			fit = 8
+		}
+		base += float64(fit) * 0.007
+	}
+	return float64(int(base*1000000+0.5)) / 1000000
 }
 
 func niceDataView(view string) string {

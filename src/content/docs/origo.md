@@ -16,9 +16,9 @@ The CLI includes `search`, `read-link`, `map-site`, `research`, `inspect`, and `
 
 `research` finds structured sources and operations using natural-language questions, websites, source/category/group filters, and browse/pagination controls. Its results contain exact IDs and next-step arguments for `inspect`.
 
-`inspect` retrieves a source's operations or one operation's complete upstream input and output contracts, validation rules, examples and price. Its response includes a ready-shaped `execute` call and identifies any required inputs the agent needs to fill.
+`inspect` shows a concise list of source operations, or one operation's full input/output contract. It distinguishes alternative identifiers from individually required inputs, retains the native schema, and marks operations above the server's credit ceiling as unavailable.
 
-`execute` makes one to ten provider-native data queries with the selected IDs and input fields. It uses paid Firecrawl Alexandria credits; the server validates inputs and enforces a 200-credit ceiling configured in Vercel, with no user-facing budget controls. Results preserve original JSON, estimated and actual charges, provenance and next-page continuations where supported.
+`execute` makes one to ten provider-native data queries with the selected IDs and input fields. It uses paid Firecrawl Alexandria credits; the server validates inputs and enforces a 200-credit ceiling configured in Vercel, with no user-facing budget controls. Multi-operation calls are isolated so a provider-terms rejection does not abort the other operations. Results preserve provider-native data, estimated and reported actual charges, operation-level receipts, partial failures and copy-ready next-page continuations.
 
 See [Research structured data](/docs/data-sources) for the complete API and CLI workflow.
 
@@ -49,7 +49,7 @@ Pass an absolute HTTP(S) URL. Origo uses the same retrieval ladder as `webctx re
 
 Provider discovery, validation and paid execution share the same backend between CLI and MCP; agents do not need provider-specific MCP connections.
 
-`read_link` performs free Alexandria discovery only. `execute` deliberately invokes paid provider operations using the caller's chosen inputs. The server checks the estimated charge against its configured limit and shows credits used. Provider terms must still be accepted separately by a human. Source excerpts and embedded JSON are provided as evidence, not as a generated or independently verified answer.
+`read_link` performs free Alexandria discovery only. `execute` deliberately invokes paid provider operations using the caller's chosen inputs. The server checks the estimated charge against its configured limit and shows credits used. Provider terms must still be accepted separately by a human. Warm-worker idempotent replays are served from a short-lived local cache without another provider execution. Origo cannot independently verify cross-worker replay charges without a durable billing ledger. Source excerpts and embedded JSON are evidence, not independently verified answers.
 
 Firecrawl Scrape uses **Firecrawl's built-in 30-minute cache** (`maxAge: 1800000` milliseconds). No application database, custom KV namespace, Redis service, or separate cache layer is used. Native GitHub and direct Markdown reads remain direct source reads.
 

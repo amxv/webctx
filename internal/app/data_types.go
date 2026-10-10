@@ -1,20 +1,43 @@
 package app
 
+import (
+	"bytes"
+	"encoding/json"
+)
+
 // ResearchData discovers data sources and their available operations. Search
 // and catalogue browsing are both free Firecrawl Alexandria operations.
 type ResearchDataInput struct {
-	Query      string   `json:"query,omitempty" jsonschema:"Optional natural-language description of the information needed"`
-	Mode       string   `json:"mode,omitempty" jsonschema:"ranked semantic discovery or catalogue browsing with filters and pagination; defaults to ranked for a query"`
-	URLs       []string `json:"urls,omitempty" jsonschema:"Filter by websites associated with a data source"`
-	Sources    []string `json:"sources,omitempty" jsonschema:"Filter by source IDs returned by research"`
-	Categories []string `json:"categories,omitempty" jsonschema:"Filter by catalogue category IDs"`
-	Groups     []string `json:"groups,omitempty" jsonschema:"Filter by catalogue group IDs"`
-	Operations []string `json:"operations,omitempty" jsonschema:"Filter by exact operation IDs"`
-	View       string   `json:"view,omitempty" jsonschema:"What to browse: sources, groups, or operations; default operations for a query, otherwise sources"`
-	Include    []string `json:"include,omitempty" jsonschema:"Additional contract details: inputs, output, examples. Default is a concise overview"`
-	Limit      int      `json:"limit,omitempty" jsonschema:"Maximum results in this page, 1-100; default 10"`
-	Offset     int      `json:"offset,omitempty" jsonschema:"Catalogue pagination offset, zero-based"`
-	Raw        bool     `json:"raw,omitempty" jsonschema:"Also include the complete original Firecrawl response"`
+	Query         string   `json:"query,omitempty" jsonschema:"Optional natural-language description of the information needed"`
+	Mode          string   `json:"mode,omitempty" jsonschema:"ranked semantic discovery or catalogue browsing with filters and pagination; defaults to ranked for a query"`
+	URLs          []string `json:"urls,omitempty" jsonschema:"Filter by websites associated with a data source"`
+	Sources       []string `json:"sources,omitempty" jsonschema:"Filter by source IDs returned by research"`
+	Categories    []string `json:"categories,omitempty" jsonschema:"Filter by catalogue category IDs"`
+	Groups        []string `json:"groups,omitempty" jsonschema:"Filter by catalogue group IDs"`
+	Operations    []string `json:"operations,omitempty" jsonschema:"Filter by exact operation IDs"`
+	View          string   `json:"view,omitempty" jsonschema:"What to browse: sources, groups, or operations; default operations for a query, otherwise sources"`
+	Include       []string `json:"include,omitempty" jsonschema:"Additional contract details: inputs, output, examples. Default is a concise overview"`
+	Limit         int      `json:"limit,omitempty" jsonschema:"Maximum results in this page, 1-100; default 10"`
+	Offset        int      `json:"offset,omitempty" jsonschema:"Catalogue pagination offset, zero-based"`
+	Raw           bool     `json:"raw,omitempty" jsonschema:"Also include the complete original Firecrawl response"`
+	limitProvided bool     `json:"-"`
+}
+
+func (input *ResearchDataInput) UnmarshalJSON(raw []byte) error {
+	type noMethods ResearchDataInput
+	var parsed noMethods
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	*input = ResearchDataInput(parsed)
+	_, input.limitProvided = fields["limit"]
+	return nil
 }
 
 // InspectDataInput returns the exact contract for a selected operation, or

@@ -88,6 +88,9 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 		return "", err
 	}
 	primary = copyableCurlExamples(primary)
+	if answer, ok := directlyAnsweredMetadata(rawURL, question, primary); ok {
+		return answer, nil
+	}
 
 	// Combine on-page links and authoritative Markdown index links instead of
 	// filling the entire budget from whichever links happen to appear first.
@@ -95,7 +98,7 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 	// SQLite, webhook, and API references over incidental alarm/concept pages.
 	links := researchCandidates(rawURL, primary, question, maxRelatedSources)
 	structuredDone := make(chan string, 1)
-	if strings.Contains(primary, "**Markdown source:**") {
+	if strings.Contains(primary, "**Markdown source:**") || !asksForAPIContracts(question) {
 		structuredDone <- ""
 	} else {
 		go func() { structuredDone <- embeddedStructuredContext(rawURL, question) }()
