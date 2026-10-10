@@ -14,6 +14,10 @@ webctx --version
 webctx search <query> [--exclude domains] [--keyword phrase]
 webctx read-link <url> [--question "what to find"]
 webctx map-site <url>
+webctx research [question] [--mode ranked|catalogue] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
+webctx inspect <operation-or-source-id> [--raw]
+webctx execute <operation-id> --inputs '{"field":"value"}' [--max-credits N] [--request-id ID]
+webctx execute --calls '[{"id":"source/operation","inputs":{}}]' [--max-credits N]
 ```
 
 ## Search flags
@@ -49,6 +53,8 @@ BRAVE_API_KEY
 TAVILY_API_KEY
 EXA_API_KEY
 FIRECRAWL_API_KEY
+WEBCTX_ALEXANDRIA_MAX_CREDITS
+WEBCTX_ALEXANDRIA_PAID
 GH_TOKEN
 GITHUB_TOKEN
 ```
@@ -60,6 +66,9 @@ GITHUB_TOKEN
 - `search` → retrieved source excerpts, supporting documentation, and ranked markdown links
 - `read-link` → full source Markdown/text, or question-focused excerpts and related sources
 - `map-site` → discovered URLs with titles/descriptions when available
+- `research` → JSON with ranked or pageable operations and next inspect calls
+- `inspect` → JSON with the exact source contract, price, and next execute call
+- `execute` → provider-native JSON, charged credits, request ID, and pagination hints
 
 Raw source, diffs, patches, and explicit job logs stay close to the original provider text. Structured GitHub pages use compact metadata plus the content that matters.
 
@@ -68,6 +77,7 @@ Raw source, diffs, patches, and explicit job logs stay close to the original pro
 - [Search the web](/docs/search)
 - [Read a URL](/docs/read-link)
 - [Map a site](/docs/map-site)
+- [Research structured data](/docs/data-sources)
 - [Credentials](/docs/credentials)
 
 If you are developing or releasing webctx itself, see `CONTRIBUTORS.md` in the repository.

@@ -1,16 +1,26 @@
 ---
 title: Origo MCP server
-description: Connect ChatGPT and other MCP clients to WebCTX's read-link and site-mapping engine without exposing search.
+description: Connect ChatGPT and other MCP clients to the shared web/document reader and progressively discover, inspect, and execute structured data sources.
 order: 12
 category: Guides
 summary: Origo is the hosted MCP transport over WebCTX's shared retrieval engine.
 ---
 
-**Origo** is WebCTX's hosted MCP interface, not a separate retrieval implementation. It uses the same Go retrieval engine as the CLI and exposes only two tools: `read_link` and `map_site`.
+**Origo** is WebCTX's hosted MCP interface, not a separate retrieval implementation. It uses the same Go retrieval engine as the CLI and exposes **five** tools: `read_link`, `map_site`, `research`, `inspect`, and `execute`.
 
-`read_link` now accepts an optional `question`. When supplied, it automatically follows up to two relevant same-host documentation references, selects focused API/code excerpts, and provides precise source URLs. The URL-only call keeps the previous full-page behavior. `map_site` remains unchanged; there are no additional tools to discover or learn.
+`read_link` accepts an optional `question` for source-grounded, question-focused exploration. URL-only calls and `map_site` retain their original behavior. The new data tools progressively reveal the relevant provider contracts and execute them when desired.
 
-The CLI keeps `search`, `read-link`, and `map-site`. Origo deliberately excludes search, so it complements your agent's existing search capabilities without replacing them.
+The CLI includes `search`, `read-link`, `map-site`, `research`, `inspect`, and `execute`. Origo deliberately excludes *federated web* `search` while providing the same three structured-data commands as the CLI.
+
+## Structured-data tools
+
+`research` finds structured sources and operations using natural-language questions, websites, source/category/group filters, and browse/pagination controls. Its results contain exact IDs and next-step arguments for `inspect`.
+
+`inspect` retrieves a source's operations or one operation's complete upstream input and output contracts, validation rules, examples and price. Its response includes a ready-shaped `execute` call and identifies any required inputs the agent needs to fill.
+
+`execute` makes one to ten provider-native data queries with the selected IDs and input fields. It uses paid Firecrawl Alexandria credits; the server checks schemas and the estimated credit cost before calling the provider. Results preserve original JSON, data provenance, pricing and next-page continuations where supported.
+
+See [Research structured data](/docs/data-sources) for the complete API and CLI workflow.
 
 ## Connect an MCP client
 
@@ -37,9 +47,9 @@ Pass an absolute HTTP(S) URL. Origo uses the same retrieval ladder as `webctx re
 5. **Explicit enhanced proxy**, if Firecrawl technically succeeds but returns a blocked or empty page.
 6. **Firecrawl Browser Sandbox**, if scraping still fails, with a short-lived, read-only agent-browser extraction.
 
-Only the retrieval adapters are internal implementation details. There are no additional model-facing MCP tools.
+Provider discovery, validation and paid execution share the same backend between CLI and MCP; agents do not need provider-specific MCP connections.
 
-Alexandria tool discovery does not authorize paid data-provider calls or acceptance of third-party terms. Origo never executes those calls on a user's behalf. Source excerpts and embedded JSON are provided as evidence, not as a generated or independently verified answer.
+`read_link` performs free Alexandria discovery only. `execute` deliberately invokes paid provider operations using the caller's chosen inputs. Price is checked against the request budget before submission, and provider terms must still be accepted separately by a human. Source excerpts and embedded JSON are provided as evidence, not as a generated or independently verified answer.
 
 Firecrawl Scrape uses **Firecrawl's built-in 30-minute cache** (`maxAge: 1800000` milliseconds). No application database, custom KV namespace, Redis service, or separate cache layer is used. Native GitHub and direct Markdown reads remain direct source reads.
 

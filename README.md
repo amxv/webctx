@@ -2,12 +2,15 @@
 
 Web context for agents, from the terminal.
 
-`webctx` gives you three small commands:
+`webctx` provides six commands: three for web documents and three for structured data.
 
 ```bash
 webctx search "agent web research"
 webctx read-link <url>
 webctx map-site <url>
+webctx research "podcast conversations about AI agents"
+webctx inspect particle/podcasts/episodes/search
+webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}' --max-credits 20
 ```
 
 The output is plain text or markdown, so it is easy to hand to ChatGPT, Codex, Claude Code, a shell script, or another tool. Search now retrieves relevant source excerpts automatically instead of returning only URLs. For a specific URL, add an optional question to explore related documentation and surface exact code and API details.
@@ -19,11 +22,25 @@ webctx read-link https://docs.example.com/api --question "How do authentication 
 
 ## Origo: hosted MCP access
 
-**Origo** is the MCP transport over the same WebCTX retrieval engine. Connect an MCP client to `https://api.origo.ashray.xyz/mcp?key=<your-private-key>` to access exactly two tools: `read_link` and `map_site`. Origo does not expose `search`; the CLI continues to provide all three commands. `read_link` accepts an optional `question` to retrieve focused source context while keeping ordinary URL-only reads intact.
+**Origo** is the MCP transport over the same WebCTX retrieval engine. Connect an MCP client to `https://api.origo.ashray.xyz/mcp?key=<your-private-key>` to access five tools: `read_link`, `map_site`, `research`, `inspect`, and `execute`. Origo deliberately omits federated web `search` but exposes the complete progressive data-research workflow. `read_link` accepts an optional `question` and keeps URL-only behavior unchanged.
 
 Both surfaces share native GitHub/Markdown readers and Firecrawl fallback behavior. Firecrawl's built-in cache is limited to **30 minutes**. Difficult pages automatically escalate through Firecrawl's proxy fallback and, if necessary, a temporary Browser Sandbox session. There is no Redis or additional cache database.
 
-Source-aware reading also prefers raw JSON, YAML, and OpenAPI files when the URL identifies one; question-focused reads can follow up to two relevant pages on the same host, including links found in `llms.txt`, and inspect embedded structured JSON. Firecrawl Alexandria tool matching and search discovery are automatic when supported, but **no paid Alexandria provider tools are executed**. The original source URLs remain explicit so an agent can verify facts.
+Source-aware reading also prefers raw JSON, YAML, and OpenAPI files when the URL identifies one; question-focused reads can follow relevant references, including links found in `llms.txt`, and inspect embedded structured JSON. The new `research`, `inspect`, and `execute` commands give agents direct control over Firecrawl Alexandria's catalogue and paid data operations without learning provider-specific transport syntax. The original source URLs remain explicit so an agent can verify facts.
+
+## Structured data: discover → inspect → execute
+
+`research` discovers datasets and operations by meaning, website, source, category, or group. `inspect` retrieves exact parameter types, required fields, response shapes, pricing, and copy-ready `execute` arguments. `execute` validates the inputs and credit estimate before calling one or more data operations, and preserves their source-native JSON and pagination.
+
+```bash
+webctx research "podcast conversations about AI agents" --limit 5
+webctx research --view sources --limit 5
+webctx research --mode catalogue --view operations --sources particle --limit 10
+webctx inspect particle/podcasts/episodes/search
+webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}' --max-credits 20
+```
+
+Browse [the structured-data guide](https://webctx.ashray.xyz/docs/data-sources) for filters, paging, batches, full upstream responses, validation, and credit handling. Discovery/inspection is free; `execute` uses paid Alexandria credits. The per-request default preflight cap is 100 credits (configurable via `WEBCTX_ALEXANDRIA_MAX_CREDITS`). Third-party provider terms require separate human acceptance; Origo never accepts them automatically.
 
 Origo deploys independently through the `origo-api` Vercel project on pushes to `main`. CLI releases and npm publishing are unchanged. See the [Origo MCP guide](https://webctx.ashray.xyz/docs/origo) for architecture, setup, and security notes.
 
@@ -78,7 +95,7 @@ Recognized native GitHub auth, private/not-found, and rate-limit failures stay a
 
 ## Search
 
-Normal search asks Brave, Tavily, and Exa, removes duplicate URLs, automatically reads three promising sources, follows up to two relevant links, and returns excerpts plus the ranked list. Alexandria tool discovery is included when available, without paid execution.
+Normal search asks Brave, Tavily, and Exa, removes duplicate URLs, automatically reads promising sources, follows relevant links, and returns excerpts plus the ranked list. Alexandria discovery is included when available; use `execute` when you need provider-native data.
 
 ```bash
 webctx search "next.js server components"
@@ -115,7 +132,7 @@ GH_TOKEN=...
 ```
 
 - `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY` power normal `search`.
-- `FIRECRAWL_API_KEY` powers `map-site` and page-crawl fallbacks.
+- `FIRECRAWL_API_KEY` powers `map-site`, page-crawl fallbacks, and Alexandria discovery/inspection/paid execution.
 - `GH_TOKEN` or `GITHUB_TOKEN` is optional. It increases GitHub capacity and unlocks reads such as blame, Discussions, some Actions job logs, private resources the token can access, and richer PR review state.
 
 Environment variables, `.env.local`, and macOS Keychain are supported. `GH_TOKEN` takes precedence over `GITHUB_TOKEN`.
@@ -129,6 +146,7 @@ Start with the guides in `src/content/docs`:
 - **Use webctx with agents** — practical research, repo, PR, and CI workflows
 - **Search the web** — federated search and filtering
 - **Map a site** — discover pages before reading them
+- **Research structured data** — browse data sources, inspect exact contracts, and execute paid queries with bounded credits
 - **Credentials** — keys and optional GitHub auth
 - **How URL reading works** — native/direct fast paths before Firecrawl
 - **How search ranking works** — URL normalization, position scoring, and provider agreement

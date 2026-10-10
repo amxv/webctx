@@ -1,8 +1,11 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/amxv/webctx/internal/buildinfo"
@@ -74,6 +77,90 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		_, _ = fmt.Fprintln(stdout, text)
 		return 0
+	case "research":
+		research := ResearchDataInput{
+			Query:      strings.Join(positional, " "),
+			Mode:       flags["mode"],
+			URLs:       splitCSV(flags["urls"]),
+			Sources:    splitCSV(flags["sources"]),
+			Categories: splitCSV(flags["categories"]),
+			Groups:     splitCSV(flags["groups"]),
+			Operations: splitCSV(flags["operations"]),
+			View:       flags["view"],
+			Include:    splitCSV(flags["include"]),
+			Raw:        flags["raw"] == "true",
+		}
+		if q := flags["query"]; q != "" {
+			research.Query = q
+		}
+		if flag := flags["limit"]; flag != "" {
+			n, e := strconv.Atoi(flag)
+			if e != nil {
+				return cliDataError(stderr, dataError("invalid_limit", "--limit requires an integer."))
+			}
+			research.Limit = n
+		}
+		if flag := flags["offset"]; flag != "" {
+			n, e := strconv.Atoi(flag)
+			if e != nil {
+				return cliDataError(stderr, dataError("invalid_offset", "--offset requires an integer."))
+			}
+			research.Offset = n
+		}
+		result, e := ResearchData(research)
+		if e != nil {
+			return cliDataError(stderr, e)
+		}
+		writeDataJSON(stdout, result)
+		return 0
+	case "inspect":
+		if strings.TrimSpace(input) == "" {
+			return cliDataError(stderr, dataError("missing_id", "Usage: webctx inspect <operation-or-source-id> [--raw]"))
+		}
+		result, e := InspectData(InspectDataInput{ID: input, Include: splitCSV(flags["include"]), Raw: flags["raw"] == "true"})
+		if e != nil {
+			return cliDataError(stderr, e)
+		}
+		writeDataJSON(stdout, result)
+		return 0
+	case "execute":
+		request := ExecuteDataInput{Raw: flags["raw"] == "true", RequestID: flags["request-id"]}
+		if flag := flags["max-credits"]; flag != "" {
+			n, e := strconv.Atoi(flag)
+			if e != nil {
+				return cliDataError(stderr, dataError("invalid_budget", "--max-credits requires an integer."))
+			}
+			request.MaxCredits = n
+		}
+		if jsonCalls := flags["calls"]; jsonCalls != "" {
+			data, e := cliJSONString(jsonCalls)
+			if e != nil {
+				return cliDataError(stderr, e)
+			}
+			if e := json.Unmarshal([]byte(data), &request.Calls); e != nil {
+				return cliDataError(stderr, dataError("invalid_calls", "--calls must be a JSON array of {id,inputs} objects."))
+			}
+		} else if strings.TrimSpace(input) != "" {
+			var inputs map[string]any
+			if source := flags["inputs"]; source != "" {
+				data, e := cliJSONString(source)
+				if e != nil {
+					return cliDataError(stderr, e)
+				}
+				if e := json.Unmarshal([]byte(data), &inputs); e != nil {
+					return cliDataError(stderr, dataError("invalid_inputs", "--inputs must be a JSON object."))
+				}
+			}
+			request.Calls = []DataCall{{ID: input, Inputs: inputs}}
+		} else {
+			return cliDataError(stderr, dataError("missing_calls", "Usage: webctx execute <operation-id> --inputs JSON [--max-credits N] or --calls JSON."))
+		}
+		result, e := ExecuteData(request)
+		if e != nil {
+			return cliDataError(stderr, e)
+		}
+		writeDataJSON(stdout, result)
+		return 0
 	default:
 		_, _ = fmt.Fprintln(stderr, "Unknown tool:", tool)
 		_, _ = fmt.Fprintln(stdout, usageText())
@@ -88,11 +175,19 @@ Usage:
   webctx search <query> [--exclude domain1,domain2] [--keyword phrase]
   webctx read-link <url> [--question 'what to find']
   webctx map-site <url>
+  webctx research [question] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
+  webctx inspect <operation-or-source-id> [--raw]
+  webctx execute <operation-id> --inputs '{"field":"value"}' [--max-credits N] [--request-id ID]
+  webctx execute --calls '[{"id":"source/operation","inputs":{}}]' [--max-credits N]
 
 Examples:
   webctx search "next.js server components"
   webctx search "react hooks" --exclude youtube.com,vimeo.com
   webctx search "drizzle orm" --keyword "migration guide"
+  webctx research "podcast conversations about AI agents"
+  webctx research --view sources --limit 5
+  webctx inspect particle/podcasts/episodes/search
+  webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}' --max-credits 20
   webctx read-link https://docs.example.com/guide
   webctx read-link https://docs.example.com/api --question "How do auth and pagination work?"
   webctx map-site https://example.com`, version)
@@ -102,6 +197,16 @@ func parseArgs(args []string) (map[string]string, []string) {
 	flags := map[string]string{}
 	positional := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--raw" {
+			flags["raw"] = "true"
+			continue
+		}
+		if strings.HasPrefix(args[i], "--") {
+			if k, v, ok := strings.Cut(strings.TrimPrefix(args[i], "--"), "="); ok {
+				flags[k] = v
+				continue
+			}
+		}
 		if strings.HasPrefix(args[i], "--") && i+1 < len(args) {
 			flags[strings.TrimPrefix(args[i], "--")] = args[i+1]
 			i++
@@ -110,6 +215,38 @@ func parseArgs(args []string) (map[string]string, []string) {
 		positional = append(positional, args[i])
 	}
 	return flags, positional
+}
+
+func cliJSONString(source string) (string, error) {
+	if !strings.HasPrefix(source, "@") {
+		return source, nil
+	}
+	path := strings.TrimPrefix(source, "@")
+	if path == "" {
+		return "", dataError("invalid_file", "The @file argument requires a path.")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", dataError("invalid_file", "Unable to read JSON input file: "+err.Error())
+	}
+	if len(b) > 1<<20 {
+		return "", dataError("invalid_file", "JSON input file exceeds 1 MiB.")
+	}
+	return string(b), nil
+}
+
+func writeDataJSON(out io.Writer, value any) {
+	bytes, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		_, _ = fmt.Fprintln(out, "{}")
+		return
+	}
+	_, _ = fmt.Fprintln(out, string(bytes))
+}
+
+func cliDataError(stderr io.Writer, err error) int {
+	writeDataJSON(stderr, dataRawOrError(err))
+	return 1
 }
 
 func splitCSV(v string) []string {

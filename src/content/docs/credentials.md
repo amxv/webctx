@@ -13,6 +13,7 @@ summary: Search keys, Firecrawl, and optional GitHub authentication without extr
 | `webctx search` | `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
 | `webctx map-site` | `FIRECRAWL_API_KEY` |
 | Normal web-page fallback in `read-link` | `FIRECRAWL_API_KEY` |
+| `webctx research`, `inspect`, and `execute` | `FIRECRAWL_API_KEY` (discovery and inspection are free; execution uses credits) |
 | More GitHub capacity and auth-only GitHub reads | `GH_TOKEN` or `GITHUB_TOKEN` |
 
 A GitHub token is optional. Many public repository, source, Issue, PR, commit, release, Search, profile, Gist, activity, deployment, and Project reads work without one when GitHub exposes them publicly.

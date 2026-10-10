@@ -47,21 +47,26 @@ func TestServerAuthentication(t *testing.T) {
 	}
 }
 
-func TestExactlyTwoToolsAndNoSearch(t *testing.T) {
+func TestFiveToolsWithProgressiveDataInterface(t *testing.T) {
 	t.Setenv("ORIGO_API_KEY", "secret")
 	response := request(t, "secret", `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
 	if response.Code != http.StatusOK {
 		t.Fatalf("tools/list failed: %d %s", response.Code, response.Body.String())
 	}
 	text := response.Body.String()
-	if !strings.Contains(text, `"name":"read_link"`) || !strings.Contains(text, `"name":"map_site"`) || strings.Contains(text, `"name":"search"`) {
+	if !strings.Contains(text, `"name":"read_link"`) || !strings.Contains(text, `"name":"map_site"`) ||
+		!strings.Contains(text, `"name":"research"`) || !strings.Contains(text, `"name":"inspect"`) ||
+		!strings.Contains(text, `"name":"execute"`) || strings.Contains(text, `"name":"search"`) {
 		t.Fatalf("unexpected tools: %s", text)
 	}
-	if count := strings.Count(text, `"name":`); count != 2 {
-		t.Fatalf("expected exactly 2 tools, got %d: %s", count, text)
+	if count := strings.Count(text, `"name":`); count != 5 {
+		t.Fatalf("expected exactly 5 tools, got %d: %s", count, text)
 	}
-	if count := strings.Count(text, `"readOnlyHint":true`); count != 2 {
-		t.Fatalf("expected both tools to declare read-only annotations, got %d: %s", count, text)
+	if count := strings.Count(text, `"readOnlyHint":true`); count != 4 {
+		t.Fatalf("expected the four free retrieval tools to be read-only, got %d: %s", count, text)
+	}
+	if count := strings.Count(text, `"readOnlyHint":false`); count != 1 {
+		t.Fatalf("expected only paid execute to indicate effects on billing, got %d: %s", count, text)
 	}
 }
 

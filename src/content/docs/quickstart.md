@@ -13,7 +13,7 @@ npm i -g webctx
 webctx --help
 ```
 
-## Try the three commands
+## Try the document commands
 
 Search the web:
 
@@ -33,7 +33,9 @@ Discover the pages on a site:
 webctx map-site https://docs.firecrawl.dev
 ```
 
-All three return plain text or markdown that can go straight into an agent, a file, a pipe, or your clipboard.
+These three return plain text or markdown that can go straight into an agent, a file, a pipe, or your clipboard.
+
+For structured data from statistical agencies, podcast indexes, finance or other live sources, use `research` to discover operations, `inspect` to view their exact contract, and `execute` to retrieve provider data. See [Research structured data](/docs/data-sources).
 
 Search automatically retrieves relevant source sections alongside the links. You can also ask a question about any URL, and Webctx will follow the most relevant documentation references automatically:
 

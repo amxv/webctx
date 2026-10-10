@@ -8,6 +8,14 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.5 - 2026-10-10
+
+- Added three agent-friendly structured-data commands to both the Webctx CLI and Origo MCP: `research` (semantic source and operation discovery, filters, browse and pagination), `inspect` (exact operation inputs, output contract, allowed values, examples and pricing), and `execute` (paid provider-native data queries).
+- All three tools share the same Go engine and retain Firecrawl Alexandria's full provider/category/group filters, exact operation IDs, native continuation requests, response schemas, batch execution of up to ten operations, and raw upstream JSON access.
+- Tool results provide the exact next tool name and argument shape. Contract inspection supplies input templates, required field hints and the next execute call; validation errors describe how to fix missing, invalid or out-of-range inputs before spending credits.
+- Paid execution uses one request ID for idempotent retries, a configurable per-request credit preflight cap, provider-native provenance and pagination continuations. Third-party terms cannot be accepted automatically; Firecrawl team limits remain authoritative.
+- Preserved the existing `read_link` / `map_site` MCP contracts and the three original CLI commands. The hosted Origo interface now contains five MCP tools, with charged `execute` clearly distinguished from free discovery and reads.
+
 ## 0.2.4 - 2026-10-10
 
 - Fixed native Markdown retrieval for documentation sites: use bounded GET requests rather than positive HEAD content-length assumptions, and recognize directory index.md routes. Canonical Stripe and Cloudflare URLs now prefer publisher Markdown while retaining the original URL and precise Markdown source URL.

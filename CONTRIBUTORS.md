@@ -97,7 +97,7 @@ gh workflow run npm-publish-retry.yml --repo amxv/webctx --ref main -f version=0
 - `cmd/webctx/main.go`: CLI entrypoint
 - `internal/app/`: CLI parsing, search, ranking, scrape, env loading, and Firecrawl queue logic
 - `pkg/retrieval/`: small public adapter to the shared read-link / site-map engine
-- `pkg/origo/`: authenticated, stateless MCP server with exactly two tools
+- `pkg/origo/`: authenticated, stateless MCP server with five tools (including structured-data discovery, inspection and execution)
 - `api/mcp.go`: Vercel Go Function entrypoint for Origo
 - `vercel.mjs`: project-specific Vercel settings for docs and Origo
 - `internal/buildinfo/`: build-time version plumbing for `--version`

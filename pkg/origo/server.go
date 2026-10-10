@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -49,7 +50,52 @@ func makeServer() *mcp.Server {
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: result}}}, nil, nil
 	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "research",
+		Title:       "Find data sources",
+		Description: "Discover real-world information sources and their available operations. Search semantically, browse all sources, groups or operations, filter by websites/source IDs/categories, and paginate. Free; returns IDs and copy-ready inspect calls. Use read_link for regular documentation.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(_ context.Context, _ *mcp.CallToolRequest, input retrieval.ResearchInput) (*mcp.CallToolResult, any, error) {
+		result, err := retrieval.Research(input)
+		return dataMCPResult(result, err)
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "inspect",
+		Title:       "Inspect a data source or operation",
+		Description: "Explore operations in a source, or inspect one operation's EXACT input types, required fields, constraints, output contract, pricing, and examples. Returns the next execute call with the exact input keys to fill. Free.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(_ context.Context, _ *mcp.CallToolRequest, input retrieval.InspectInput) (*mcp.CallToolResult, any, error) {
+		result, err := retrieval.Inspect(input)
+		return dataMCPResult(result, err)
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "execute",
+		Title:       "Query a data source (uses credits)",
+		Description: "Execute 1-10 inspected structured-data operations using their exact source IDs and inputs. Charges Firecrawl Alexandria credits after server-side schema and credit-budget checks. Supports pagination/continuations, stable request_id for safe retries, and original provider JSON. No third-party terms are accepted automatically.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: func() *bool { v := false; return &v }()},
+	}, func(_ context.Context, _ *mcp.CallToolRequest, input retrieval.ExecuteInput) (*mcp.CallToolResult, any, error) {
+		result, err := retrieval.Execute(input)
+		return dataMCPResult(result, err)
+	})
 	return s
+}
+
+func dataMCPResult(result map[string]any, err error) (*mcp.CallToolResult, any, error) {
+	failed := err != nil
+	if failed {
+		// Use the shared error serializer to preserve codes, corrective details
+		// and provider-term acceptance URLs as structured tool output.
+		result = retrieval.DataErrorResult(err)
+	}
+	bytes, marshalErr := json.MarshalIndent(result, "", "  ")
+	if marshalErr != nil {
+		return nil, nil, marshalErr
+	}
+	return &mcp.CallToolResult{
+		Content:           []mcp.Content{&mcp.TextContent{Text: string(bytes)}},
+		StructuredContent: result,
+		IsError:           failed,
+	}, nil, nil
 }
 
 var transport = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
