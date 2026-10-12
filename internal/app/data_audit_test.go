@@ -34,12 +34,108 @@ func TestAuditPerRecordBoundsFromActualOperations(t *testing.T) {
 				"options": []any{map[string]any{"name": "ids", "type": "array"}}},
 			map[string]any{"ids": []any{"A", "B"}}, 4,
 		},
+		{
+			map[string]any{"id": "fullenrich/contacts/mobile", "creditsCost": 175, "perRecord": true,
+				"response": map[string]any{"paginated": true, "about": "One record in results when a mobile number was found, an empty array when not."}},
+			map[string]any{"linkedin_url": "https://www.linkedin.com/in/example-test-person/"}, 175,
+		},
+		{
+			map[string]any{"id": "example/search", "creditsCost": 2, "perRecord": true,
+				"options": []any{map[string]any{"name": "k", "type": "integer"}, map[string]any{"name": "limit", "type": "integer"}}},
+			map[string]any{"limit": 1, "k": 120}, 240,
+		},
 	}
 	for _, tt := range tests {
 		got, err := expectedCallCredits(tt.contract, tt.inputs)
 		if err != nil || got != tt.credits {
 			t.Errorf("%s: got %d (%v), want %d", tt.contract["id"], got, err, tt.credits)
 		}
+	}
+}
+
+func TestFilteredCataloguePaginationBeyondFirstHundred(t *testing.T) {
+	previous := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = previous })
+	t.Setenv("FIRECRAWL_API_KEY", "test-filtered-pagination")
+	const total = 215
+	var upstreamOffsets []int
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/v2/scrape" {
+			return nil, fmt.Errorf("unexpected endpoint %s", req.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		options := mapField(mapField(body["alexandria"])["options"])
+		offset, _ := numberField(options["offset"])
+		upstreamOffsets = append(upstreamOffsets, int(offset))
+		start, end := int(offset), int(offset)+100
+		if end > total {
+			end = total
+		}
+		var items []any
+		for i := start; i < end; i++ {
+			items = append(items, map[string]any{
+				"id":   fmt.Sprintf("fred-stlouisfed-org/data/series_%03d", i),
+				"name": "Inflation series observations", "description": "Retrieve inflation observations",
+				"creditsCost": 5, "provider": "fred-stlouisfed-org",
+			})
+		}
+		encoded, _ := json.Marshal(map[string]any{"success": true, "data": map[string]any{
+			"alexandria": []any{map[string]any{"provider": "firecrawl", "capability": "find-tools",
+				"data": map[string]any{"items": items, "total": total}}}}})
+		return testHTTPResponse(req, 200, string(encoded), nil), nil
+	})}
+	input := ResearchDataInput{Query: "inflation series", Mode: "ranked", Sources: []string{"fred-stlouisfed-org"}, Limit: 10}
+	first, err := ResearchData(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["ranking_incomplete"] != true || first["ranking_scope"] != "catalogue_page" {
+		t.Fatalf("ranked first page should disclose scope: %+v", first)
+	}
+	seen := map[string]bool{}
+	pages := 0
+	next := first
+	for {
+		pages++
+		rows := next["results"].([]map[string]any)
+		if len(rows) == 0 {
+			t.Fatalf("empty page %d", pages)
+		}
+		for _, row := range rows {
+			id := row["id"].(string)
+			if seen[id] {
+				t.Fatalf("pagination repeated %s", id)
+			}
+			seen[id] = true
+		}
+		cont := mapField(next["next"])
+		if cont == nil {
+			break
+		}
+		if pages > 30 {
+			t.Fatal("pagination did not terminate")
+		}
+		args := cont["arguments"].(ResearchDataInput)
+		next, err = ResearchData(args)
+		if err != nil {
+			t.Fatalf("page %d: %v", pages, err)
+		}
+	}
+	if len(seen) != total || pages != 22 {
+		t.Fatalf("pagination missed items: got %d of %d over %d pages", len(seen), total, pages)
+	}
+	hasSecondBatch := false
+	for _, offset := range upstreamOffsets {
+		if offset == 100 {
+			hasSecondBatch = true
+			break
+		}
+	}
+	if !hasSecondBatch {
+		t.Fatalf("never fetched beyond the first 100 entries: %v", upstreamOffsets)
 	}
 }
 
@@ -327,6 +423,46 @@ func TestAuditWorkerIdempotentReplayAndCollision(t *testing.T) {
 	}
 }
 
+func TestConcurrentSameIDHasExactlyOnePaidExecution(t *testing.T) {
+	mock := installDataTestTransport(t)
+	const workers = 12
+	id := "audit-parallel-replay-20261010"
+	input := ExecuteDataInput{RequestID: id, Calls: []DataCall{{
+		ID:     "particle/podcasts/episodes/search",
+		Inputs: map[string]any{"semantic_search": "AI agents", "limit": float64(2)},
+	}}}
+	start := make(chan struct{})
+	type result struct {
+		output map[string]any
+		err    error
+	}
+	out := make(chan result, workers)
+	for range workers {
+		go func() {
+			<-start
+			response, err := ExecuteData(input)
+			out <- result{response, err}
+		}()
+	}
+	close(start)
+	replays := 0
+	for range workers {
+		r := <-out
+		if r.err != nil {
+			t.Fatalf("same-ID concurrent request failed: %v", r.err)
+		}
+		if r.output["replayed"] == true {
+			replays++
+		}
+	}
+	mock.mu.Lock()
+	calls := mock.executions
+	mock.mu.Unlock()
+	if calls != 1 || replays != workers-1 {
+		t.Fatalf("concurrent same-ID calls executed %d provider requests; %d cached replays; wanted 1 and %d", calls, replays, workers-1)
+	}
+}
+
 func TestAuditMixedTermsBatchKeepsIndependentResultsAndCredits(t *testing.T) {
 	previous := http.DefaultClient
 	t.Cleanup(func() { http.DefaultClient = previous })
@@ -374,7 +510,7 @@ func TestAuditMixedTermsBatchKeepsIndependentResultsAndCredits(t *testing.T) {
 		{ID: "fred/data/search", Inputs: map[string]any{"query": "inflation"}},
 		{ID: "sec/data/search", Inputs: map[string]any{"query": "filings"}},
 	}
-	result, err := ExecuteData(ExecuteDataInput{Calls: calls})
+	result, err := ExecuteData(ExecuteDataInput{Calls: calls, RequestID: "audit-partial-replay-20261010"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,6 +535,11 @@ func TestAuditMixedTermsBatchKeepsIndependentResultsAndCredits(t *testing.T) {
 	}
 	if paid["particle"] != 1 || paid["fred"] != 1 || paid["sec"] != 1 {
 		t.Fatalf("provider calls were not independent: %+v", paid)
+	}
+	replayed, err := ExecuteData(ExecuteDataInput{Calls: calls, RequestID: "audit-partial-replay-20261010"})
+	if err != nil || replayed["replayed"] != true || paid["fred"] != 1 || paid["sec"] != 1 ||
+		replayed["credits_charged_this_request"] != 0 {
+		t.Fatalf("replay of partial batch re-executed charged successes: reply=%+v paid=%+v error=%v", replayed, paid, err)
 	}
 }
 

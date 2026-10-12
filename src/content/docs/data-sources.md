@@ -79,6 +79,8 @@ The response contains untouched provider-native `data`, the operation ID, the da
 
 Mixed-provider batches execute each operation independently, preserving successful results alongside provider-specific errors (including terms requirements). Operation receipts and Firecrawl credits are labelled separately from any provider-native fields named `credits`.
 
+For a filtered source with more than 100 operations, `research` fetches and ranks one catalogue page at a time. `ranking_scope` and `ranking_incomplete` distinguish this from globally ranked semantic discovery. Following `next` advances across the 100-operation boundaries. Unfiltered `mode=ranked` has no native offset pagination; use `mode=catalogue` for paged browsing.
+
 ## Credits, retries, and terms
 
 Paid Alexandria queries execute automatically. Origo validates inputs against the inspected schema and checks estimated credits **before** submitting them. The hosted server enforces a **200-credit per-request limit in its Vercel environment**, with no user-facing budget toggle or parameter.
@@ -86,6 +88,8 @@ Paid Alexandria queries execute automatically. Origo validates inputs against th
 Responses show `estimated_credits` before execution and provider-reported `credits_used` afterward, including per-operation charges. Estimates are not audited billing totals; Firecrawl team/account limits remain authoritative. Per-record tools require a known upper bound, such as a `limit`.
 
 Every paid request has an idempotency `request_id`. If the network fails and you need to retry the *same* request, reuse that ID. A different page or different query requires a new ID. A successful identical replay on the same warm worker uses a 15-minute cache without a second provider call and reports `replayed: true` and `credits_charged_this_request: 0`. Across separate workers, actual incremental charges remain unverified without a durable ledger. The system does not automatically replay potentially charged calls.
+
+Concurrent calls sharing a `request_id` are serialized on a warm server worker. Identical replays of partially successful batches return the stored partial outcome without resubmitting previously successful charged operations. After fixing a failed provider's access, execute only the failed operation with a **new** request ID.
 
 Rate-limit errors include `retry_after_seconds`, `retry_at` and `retryable`. The server caches free catalogue lookups briefly and throttles local concurrency; Firecrawl account quotas still apply across workers.
 

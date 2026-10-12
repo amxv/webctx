@@ -74,6 +74,7 @@ func TestAuditMCPRejectsZeroLimitAndInvalidSourceURLsWithoutExceptions(t *testin
 		code string
 	}{
 		{"research", map[string]any{"mode": "catalogue", "view": "sources", "limit": 0}, "invalid_limit"},
+		{"map_site", map[string]any{"url": "https://docs.firecrawl.dev", "limit": 0}, "invalid_limit"},
 		{"read_link", map[string]any{"url": "file:///etc/passwd", "question": "summarize"}, "invalid_url"},
 		{"map_site", map[string]any{"url": "file:///etc/passwd"}, "invalid_url"},
 	} {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,12 +21,30 @@ import (
 // MapSiteInput retrieves an agent-sized page rather than dumping thousands
 // of URLs. An omitted language prefers English; "all" allows all locales.
 type MapSiteInput struct {
-	URL        string `json:"url" jsonschema:"Website URL to map; HTTP(S) only"`
-	Query      string `json:"query,omitempty" jsonschema:"Optional topic to filter and rank discovered pages"`
-	Limit      int    `json:"limit,omitempty" jsonschema:"Number of URLs to return, 1-100; defaults to 30"`
-	Offset     int    `json:"offset,omitempty" jsonschema:"Pagination offset, zero-based"`
-	PathPrefix string `json:"path_prefix,omitempty" jsonschema:"Optional URL path prefix, e.g. /api/"`
-	Language   string `json:"language,omitempty" jsonschema:"Locale code such as en or fr; defaults to English, use all for all languages"`
+	URL           string `json:"url" jsonschema:"Website URL to map; HTTP(S) only"`
+	Query         string `json:"query,omitempty" jsonschema:"Optional topic to filter and rank discovered pages"`
+	Limit         int    `json:"limit,omitempty" jsonschema:"Number of URLs to return, 1-100; defaults to 30"`
+	Offset        int    `json:"offset,omitempty" jsonschema:"Pagination offset, zero-based"`
+	PathPrefix    string `json:"path_prefix,omitempty" jsonschema:"Optional URL path prefix, e.g. /api/"`
+	Language      string `json:"language,omitempty" jsonschema:"Locale code such as en or fr; defaults to English, use all for all languages"`
+	limitProvided bool   `json:"-"`
+}
+
+func (input *MapSiteInput) UnmarshalJSON(raw []byte) error {
+	type fields MapSiteInput
+	var parsed fields
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return err
+	}
+	var presence map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &presence); err != nil {
+		return err
+	}
+	*input = MapSiteInput(parsed)
+	_, input.limitProvided = presence["limit"]
+	return nil
 }
 
 type siteMapCacheValue struct {
@@ -139,7 +158,7 @@ func mapPageLocale(raw string) string {
 }
 
 func MapSitePage(input MapSiteInput) (map[string]any, error) {
-	if input.Limit == 0 {
+	if input.Limit == 0 && !input.limitProvided {
 		input.Limit = 30
 	}
 	if input.Limit < 1 || input.Limit > 100 {

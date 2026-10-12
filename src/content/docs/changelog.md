@@ -8,6 +8,14 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.8 - 2026-10-12
+
+- Serialized identical paid requests within each warm Origo worker, preventing concurrent same-ID executions from racing before a replay receipt is stored. Partial batches are cached as well: replaying the same request no longer resubmits its successful charged operations. Cached replays report zero new provider executions; cross-worker billing remains explicitly unverified.
+- Repaired filtered-source discovery pagination beyond 100 operations. Each page is ranked locally and the result explicitly identifies its ranking scope and whether additional source operations remain unvisited. Unfiltered semantic search now rejects a ranked offset that cannot be served by the provider, rather than silently changing discovery modes.
+- Strengthened per-record credit preflight for operations exposing multiple result-count fields by using the largest explicit bound, not the first. Supported single-record FullEnrich mobile enrichment according to its inspected one-record response contract while keeping all provider-specific required-identifier validation.
+- Explicit `map_site.limit=0` (and CLI `--limit 0`) now returns `invalid_limit` instead of silently using the default, matching the documented 1–100 range.
+- Added live-contract and automated regression coverage for cross-page filtered discovery, simultaneous identical paid requests, partial-batch replay safety, high-credit singleton pricing, and explicit zero limits. Preserved the original five MCP tools, server-controlled 200-credit maximum, and absence of model-facing budgets.
+
 ## 0.2.7 - 2026-10-10
 
 - Audited the complete Origo MCP data workflow against the extended v0.2.6 quality report. Repaired filtered discovery (exact ID, source-domain lookup, transparent filtered ranking, task-oriented reranking, strict explicit zero limits) and made catalogue per-operation continuations consistently point to `inspect`.

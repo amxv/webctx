@@ -70,6 +70,12 @@ func normalizeResearchInput(input ResearchDataInput) (ResearchDataInput, string,
 	if input.Offset < 0 || input.Offset > 100000 {
 		return input, "", nil, dataError("invalid_offset", "offset must be between 0 and 100000.")
 	}
+	if input.Mode == "ranked" && input.Offset > 0 && strings.TrimSpace(input.Query) != "" &&
+		len(input.Sources) == 0 && len(input.URLs) == 0 && len(input.Groups) == 0 &&
+		len(input.Categories) == 0 && len(input.Operations) == 0 {
+		return input, "", nil, dataError("ranked_search_not_pageable",
+			"Ranked semantic search has no native pagination cursor. Use mode=catalogue with offset, or supply a source/category filter to browse and rerank catalogue pages.")
+	}
 	for _, target := range input.URLs {
 		if err := validateSourceURL(target); err != nil {
 			return input, "", nil, dataError("invalid_url", "Website filters require public HTTP(S) URLs.")
@@ -212,11 +218,13 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 		if localFilteredRanking {
 			// Provider-specified lexical filters can exclude operations whose
 			// descriptions describe the requested data indirectly. Fetch a
-			// catalogue slice from the actual source, then rank it ourselves.
+			// catalogue page from the actual source, then rank that page.
+			// Do not reset every continuation to offset zero: large sources
+			// can have hundreds of operations.
 			delete(options, "query")
 			options["limit"] = 100
-			options["offset"] = 0
-			note = "The source/category filters select candidates first. The question ranks those candidates locally, rather than excluding matching source operations."
+			options["offset"] = (input.Offset / 100) * 100
+			note = "Source/category filters select candidates first. The question ranks each catalogue page locally (up to 100 operations per page); this is not a global ranking across unvisited pages."
 			if input.Mode != "catalogue" {
 				mode = "ranked_filtered"
 			}
@@ -261,7 +269,7 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 	}
 	if localFilteredRanking {
 		count := len(items)
-		start := input.Offset
+		start := input.Offset % 100
 		if start > count {
 			start = count
 		}
@@ -270,12 +278,16 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 			end = count
 		}
 		items = items[start:end]
-		if count > end {
+		sourceTotal, hasTotal := numberField(total)
+		more := count > end || (hasTotal && sourceTotal > float64((input.Offset/100)*100+count))
+		if more {
 			next = map[string]any{"tool": "research", "arguments": ResearchDataInput{
 				Query: input.Query, Mode: input.Mode, URLs: input.URLs, Sources: input.Sources,
 				Categories: input.Categories, Groups: input.Groups, View: niceDataView(view),
-				Include: input.Include, Limit: input.Limit, Offset: end,
+				Include: input.Include, Limit: input.Limit, Offset: input.Offset + len(items),
 			}}
+		} else {
+			next = nil
 		}
 	}
 	results := make([]map[string]any, 0, len(items))
@@ -358,6 +370,12 @@ func ResearchData(input ResearchDataInput) (map[string]any, error) {
 	}
 	if note != "" {
 		output["mode_note"] = note
+	}
+	if localFilteredRanking {
+		output["ranking_scope"] = "catalogue_page"
+		if sourceTotal, ok := numberField(total); ok {
+			output["ranking_incomplete"] = sourceTotal > 100
+		}
 	}
 	if len(input.URLs) > 0 && len(input.Sources) > 0 {
 		output["resolved_url_sources"] = input.Sources

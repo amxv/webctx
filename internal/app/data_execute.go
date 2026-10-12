@@ -210,14 +210,16 @@ func expectedCallCredits(contract map[string]any, inputs map[string]any) (int, e
 		count := 0.0
 		for _, key := range []string{"limit", "k", "top_k", "topK", "per_page", "page_size", "max_results", "count", "size", "num_results", "max_records", "results_per_page"} {
 			if n, ok := numberField(inputs[key]); ok && n >= 1 {
-				count = n
-				break
+				// Providers occasionally accept several independent count
+				// fields. Use the largest explicit bound instead of
+				// underestimating charges from the first matching key.
+				count = math.Max(count, n)
 			}
 		}
 		// For bulk identifier lookups, a response may be charged per input.
 		for _, key := range []string{"ids", "domains", "urls", "companies", "people", "symbols"} {
-			if records := listField(inputs[key]); count == 0 && len(records) > 0 {
-				count = float64(len(records))
+			if records := listField(inputs[key]); len(records) > 0 {
+				count = math.Max(count, float64(len(records)))
 			}
 		}
 		if count == 0 {
@@ -226,7 +228,7 @@ func expectedCallCredits(contract map[string]any, inputs map[string]any) (int, e
 				for _, key := range []string{"limit", "k", "top_k", "topK", "per_page", "page_size", "max_results", "count", "size", "num_results", "max_records", "results_per_page"} {
 					if stringField(f["name"]) == key {
 						if n, ok := numberField(f["default"]); ok && n >= 1 {
-							count = n
+							count = math.Max(count, n)
 						}
 					}
 				}
@@ -250,6 +252,20 @@ func expectedCallCredits(contract map[string]any, inputs map[string]any) (int, e
 			if isLookup && hasIdentifier {
 				if paginated, ok := mapField(contract["response"])["paginated"].(bool); !ok || !paginated {
 					count = 1
+				}
+			}
+			// FullEnrich's contact mobile enrichment is per one result even
+			// though its contract sets paginated=true. The response expressly
+			// states "One record in results", with empty/no-match free.
+			response := mapField(contract["response"])
+			description := strings.ToLower(stringField(response["about"]))
+			if count == 0 && strings.Contains(description, "one record in results") &&
+				(strings.HasSuffix(id, "/mobile") || strings.HasSuffix(id, "/lookup")) {
+				for _, key := range []string{"linkedin_url", "first_name", "domain", "professional_network_url"} {
+					if strings.TrimSpace(stringField(inputs[key])) != "" {
+						count = 1
+						break
+					}
 				}
 			}
 		}
@@ -476,6 +492,8 @@ func ExecuteData(input ExecuteDataInput) (map[string]any, error) {
 		}
 	}
 	if input.RequestID != "" {
+		unlock := lockPaidRequest(requestID)
+		defer unlock()
 		if cached, err := cachedPaidReplay(requestID, input.Calls); err != nil {
 			return nil, err
 		} else if cached != nil {
@@ -540,9 +558,10 @@ func ExecuteData(input ExecuteDataInput) (map[string]any, error) {
 	if input.Raw {
 		output["raw"] = rawResponses
 	}
-	if failed == 0 {
-		storePaidReplay(requestID, input.Calls, output)
-	}
+	// Cache partial responses too. Retrying a mixed batch must not resubmit
+	// already successful paid operations just because a different provider
+	// rejected its terms.
+	storePaidReplay(requestID, input.Calls, output)
 	return output, nil
 }
 

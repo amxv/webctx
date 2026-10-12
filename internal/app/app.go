@@ -89,6 +89,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			result, e := MapSitePage(MapSiteInput{
 				URL: input, Limit: limit, Offset: offset, Query: flags["query"],
 				PathPrefix: flags["path-prefix"], Language: flags["language"],
+				limitProvided: flags["limit"] != "",
 			})
 			if e != nil {
 				return cliDataError(stderr, e)

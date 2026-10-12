@@ -20,6 +20,41 @@ var paidReplayMemory = struct {
 	items map[string]localPaidReplay
 }{items: map[string]localPaidReplay{}}
 
+// In a single warm worker, serialize requests with the same idempotency key.
+// Without this, two concurrent requests can both miss the replay cache and
+// execute before either writes the receipt.
+type paidReplayGate struct {
+	mu    sync.Mutex
+	users int
+}
+
+var paidReplayGates = struct {
+	sync.Mutex
+	items map[string]*paidReplayGate
+}{items: map[string]*paidReplayGate{}}
+
+func lockPaidRequest(id string) func() {
+	key := localReplayKey(id)
+	paidReplayGates.Lock()
+	gate := paidReplayGates.items[key]
+	if gate == nil {
+		gate = &paidReplayGate{}
+		paidReplayGates.items[key] = gate
+	}
+	gate.users++
+	paidReplayGates.Unlock()
+	gate.mu.Lock()
+	return func() {
+		gate.mu.Unlock()
+		paidReplayGates.Lock()
+		gate.users--
+		if gate.users == 0 {
+			delete(paidReplayGates.items, key)
+		}
+		paidReplayGates.Unlock()
+	}
+}
+
 func localReplayKey(id string) string {
 	h := sha256.Sum256([]byte(os.Getenv("FIRECRAWL_API_KEY") + "\x00" + id))
 	return hex.EncodeToString(h[:])
