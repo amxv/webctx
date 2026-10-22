@@ -12,7 +12,6 @@ on:
       - "astro.config.mjs"
       - "tsconfig.json"
       - "scripts/prepare-prebuilt.mjs"
-      - "scripts/deployment.test.mjs"
   pull_request:
     branches: [main]
     paths:
@@ -23,7 +22,6 @@ on:
       - "astro.config.mjs"
       - "tsconfig.json"
       - "scripts/prepare-prebuilt.mjs"
-      - "scripts/deployment.test.mjs"
   workflow_dispatch:
 
 permissions:
