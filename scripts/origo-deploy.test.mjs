@@ -53,7 +53,7 @@ test('both Vercel project configurations disable Git auto-deploy and ignored bui
     assert.equal(origo.config.git.deploymentEnabled, false);
     assert.equal(Object.hasOwn(origo.config, 'ignoreCommand'), false);
     assert.deepEqual(origo.config.rewrites, [{ source: '/mcp', destination: '/api/mcp' }]);
-    assert.equal(origo.config.functions['api/*.go'].maxDuration, 60);
+    assert.equal(origo.config.functions['api/*.go'].maxDuration, 300);
   } finally {
     if (previous === undefined) delete process.env.ORIGO_DEPLOYMENT;
     else process.env.ORIGO_DEPLOYMENT = previous;

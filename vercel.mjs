@@ -8,7 +8,7 @@ const origo =
 export const config = origo
   ? {
       framework: null,
-      functions: { 'api/*.go': { maxDuration: 60 } },
+      functions: { 'api/*.go': { maxDuration: 300 } },
       rewrites: [{ source: '/mcp', destination: '/api/mcp' }],
       git: { deploymentEnabled: false }
     }
