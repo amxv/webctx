@@ -104,3 +104,7 @@ When cutting a release, update `src/content/docs/changelog.md` before tagging.
 ### Docs deployment
 
 The Docs GitHub Actions workflow deploys production only for the watched site paths; Vercel Git auto-deployments and `ignoreCommand` stay disabled. Keep the project-scoped `VERCEL_TOKEN` Actions secret and ID variables configured. Check Astro locally; builds run in CI.
+
+### Origo deployment
+
+The separate `Origo API` GitHub Actions workflow deploys the Go function only for changes to its import graph and Vercel configuration. Use `VERCEL_ORIGO_TOKEN` and `VERCEL_ORIGO_PROJECT_ID` exclusively for Origo; never substitute the WebCTX Docs token or a static `--prebuilt` site bundle. Keep the `/mcp` rewrite and Origo production environment variables intact.

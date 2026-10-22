@@ -108,9 +108,9 @@ gh workflow run npm-publish-retry.yml --repo amxv/webctx --ref main -f version=0
 
 ## Origo deployment
 
-The `origo-api` Vercel project is linked to this GitHub repo and uses `ORIGO_DEPLOYMENT=1` to select its Go Function configuration. It needs `ORIGO_API_KEY` and `FIRECRAWL_API_KEY` production environment variables; optionally add `GH_TOKEN` for native authenticated GitHub reads. The docs project remains `webctx-docs` and never receives the Origo connection key.
+The `origo-api` Vercel project uses `ORIGO_DEPLOYMENT=1` to select its Go Function configuration. It needs `ORIGO_API_KEY` and `FIRECRAWL_API_KEY` production environment variables; optionally add `GH_TOKEN` for native authenticated GitHub reads. The docs project remains `webctx-docs` and never receives the Origo connection key.
 
-Both projects deploy automatically from `main`. `scripts/should-build.mjs` gates docs and API builds independently, while `v*` GitHub tags still drive the CLI release workflow.
+The independent `Docs` and `Origo API` GitHub Actions workflows filter their own build inputs before deploying to Vercel. Origo uses the `VERCEL_ORIGO_TOKEN` Actions secret and `VERCEL_ORIGO_PROJECT_ID` variable, separate from the docs credentials. Git-triggered Vercel deployments are disabled; `v*` tags still drive CLI releases.
 
 ## Notes on package naming
 

@@ -10,7 +10,7 @@ export const config = origo
       framework: null,
       functions: { 'api/*.go': { maxDuration: 60 } },
       rewrites: [{ source: '/mcp', destination: '/api/mcp' }],
-      ignoreCommand: 'node scripts/should-build.mjs'
+      git: { deploymentEnabled: false }
     }
   : {
       installCommand: 'bun install --ignore-scripts',

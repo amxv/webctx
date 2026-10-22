@@ -68,7 +68,7 @@ Two independent Vercel projects build from the same `amxv/webctx` repository:
 | WebCTX docs | `webctx-docs` | `webctx.ashray.xyz` | Docs and site changes on `main` |
 | Origo MCP | `origo-api` | `api.origo.ashray.xyz` | Retrieval and MCP changes on `main` |
 
-`vercel.mjs` is conditional on the project identity. `scripts/should-build.mjs` filters relevant paths independently. The CLI's tag-driven GitHub Releases and npm publishing are unchanged.
+`vercel.mjs` selects each project's configuration. Separate GitHub Actions workflows filter changes before creating Docs or Origo deployments; CLI releases and npm publishing remain independent.
 
 Origo code lives in `api/mcp.go`, `pkg/origo`, and `pkg/retrieval`. The shared retrieval engine remains in `internal/app`.
 

@@ -1,0 +1,70 @@
+name: Origo API
+
+# Filter before requesting a deployment. WebCTX Docs and CLI-only changes
+# outside the Origo import graph do not create an Origo Vercel deployment.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'pkg/**'
+      - 'internal/app/**'
+      - 'internal/buildinfo/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'vercel.mjs'
+      - '.github/workflows/origo-deploy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'pkg/**'
+      - 'internal/app/**'
+      - 'internal/buildinfo/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'vercel.mjs'
+      - '.github/workflows/origo-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origo-api-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  origo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify deployment boundary
+        run: node --test scripts/origo-deploy.test.mjs
+      - name: Test Go packages
+        run: go test ./...
+      - name: Vet Go packages
+        run: go vet ./...
+      - name: Deploy Origo Go function to Vercel
+        if: >-
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          github.ref == 'refs/heads/main'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ORIGO_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_ORIGO_PROJECT_ID }}
+          ORIGO_DEPLOYMENT: '1'
+        run: |
+          set -euo pipefail
+          if [[ -z "$VERCEL_TOKEN" || -z "$VERCEL_ORG_ID" || -z "$VERCEL_PROJECT_ID" ]]; then
+            echo 'Missing Origo-scoped Vercel credentials or project ID.' >&2
+            exit 1
+          fi
+          # Do not use --prebuilt: Vercel must build the Go serverless function.
+          npx --yes vercel@latest deploy --prod --yes --non-interactive
