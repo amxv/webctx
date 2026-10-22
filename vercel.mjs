@@ -14,5 +14,5 @@ export const config = origo
     }
   : {
       installCommand: 'bun install --ignore-scripts',
-      ignoreCommand: 'node scripts/should-build.mjs'
+      git: { deploymentEnabled: false }
     };
