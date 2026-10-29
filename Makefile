@@ -21,7 +21,7 @@ help:
 	@echo "  make lint         - run Node script checks"
 	@echo "  make check        - fmt + test + vet + lint"
 	@echo "  make build        - build local binary to dist/webctx"
-	@echo "  make build-all    - build release binaries for 5 target platforms"
+	@echo "  make build-all    - build release binaries for 7 target platforms"
 	@echo "  make install-local - install CLI to ~/.local/bin/webctx"
 	@echo "  make clean        - remove dist artifacts"
 	@echo "  make release-tag  - create and push git tag (requires VERSION=x.y.z)"
@@ -46,7 +46,7 @@ build:
 
 build-all:
 	@mkdir -p $(DIST_DIR)
-	@for target in "darwin amd64" "darwin arm64" "linux amd64" "linux arm64" "windows amd64"; do \
+	@for target in "darwin amd64" "darwin arm64" "linux amd64" "linux arm64" "windows 386" "windows amd64" "windows arm64"; do \
 		set -- $$target; \
 		GOOS=$$1; GOARCH=$$2; \
 		EXT=""; \

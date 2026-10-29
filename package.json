@@ -1,6 +1,6 @@
 {
   "name": "webctx",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Go CLI for agent-friendly web research, structured-data discovery, and source-native querying",
   "license": "MIT",
   "author": "amxv",
@@ -35,7 +35,7 @@
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
-    "test": "node --check bin/webctx.js && node --check scripts/postinstall.js",
+    "test": "node --check bin/webctx.js && node --check scripts/postinstall.js && node --test scripts/postinstall.test.js",
     "lint": "npm run test",
     "docs:dev": "astro dev",
     "docs:build": "astro build",

@@ -51,7 +51,9 @@ npm i -g webctx
 webctx --help
 ```
 
-Prebuilt binaries are also available from GitHub Releases.
+Prebuilt binaries are also available from GitHub Releases. Windows builds cover
+x86 (32-bit), x64 (AMD64), and ARM64; the npm installer selects the native
+binary for your Node.js architecture. macOS and Linux builds cover x64 and ARM64.
 
 ## Why `read-link` is useful
 

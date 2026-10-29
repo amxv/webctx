@@ -56,7 +56,11 @@ jobs:
           - goos: linux
             goarch: arm64
           - goos: windows
+            goarch: "386"
+          - goos: windows
             goarch: amd64
+          - goos: windows
+            goarch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -85,8 +89,37 @@ jobs:
           name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*
 
-  github-release:
+  windows-smoke:
     needs: build-binaries
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: windows-latest
+            goarch: "386"
+          - runner: windows-latest
+            goarch: amd64
+          - runner: windows-11-arm
+            goarch: arm64
+    steps:
+      - name: Download Windows binary
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-windows-${{ matrix.goarch }}
+          path: dist
+
+      - name: Run Windows binary and check version
+        shell: pwsh
+        run: |
+          $binary = "./dist/webctx_windows_${{ matrix.goarch }}.exe"
+          $version = & $binary --version
+          $expectedVersion = $env:GITHUB_REF_NAME.Substring(1)
+          if ($LASTEXITCODE -ne 0 -or $version -ne $expectedVersion) {
+            throw "Windows ${{ matrix.goarch }} smoke test failed: $version"
+          }
+
+  github-release:
+    needs: [build-binaries, windows-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts

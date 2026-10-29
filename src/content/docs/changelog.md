@@ -8,8 +8,14 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.11 - 2026-10-29
+
+- Added Windows x86 (32-bit) and ARM64 to the release build matrix, alongside existing Windows x64, macOS, and Linux targets.
+- Updated the npm installer to select the native Windows x86 binary when Node.js reports `ia32`, while keeping the existing x64 and ARM64 mappings. Added platform-resolution regression tests.
+
 ## 0.2.10 - 2026-10-29
 
+- Added Windows x86 (32-bit) and ARM64 GitHub release binaries after initial publication, alongside the existing Windows x64 build. npm installation support for Windows x86 starts in v0.2.11.
 - Added multiple API keys per federated search provider: `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, and `EXA_API_KEYS` accept comma/newline-separated credentials or JSON arrays, alongside the backward-compatible singular key. Duplicates are removed; plural keys are preferred over legacy singular credentials.
 - Automatically tries the next configured key for Brave, Tavily, or Exa when the provider rejects a key with an authentication, credit/quota, rate-limit, or server error (or a transport error). Bad requests and malformed successful responses are not retried. Provider failures cannot leak key values in CLI error text.
 - Recognizes Brave's unusual HTTP 422 `SUBSCRIPTION_TOKEN_INVALID` response as a key error, without retrying unrelated 422 request-validation failures.

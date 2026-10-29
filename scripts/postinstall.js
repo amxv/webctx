@@ -29,8 +29,17 @@ const goarchMap = {
   arm64: "arm64"
 };
 
-const goos = goosMap[process.platform];
-const goarch = goarchMap[process.arch];
+function resolvePlatform(platform, arch) {
+  const goos = goosMap[platform];
+  const goarch = platform === "win32" && arch === "ia32" ? "386" : goarchMap[arch];
+  return { goos, goarch };
+}
+
+function releaseAssetName(name, goos, goarch) {
+  return `${name}_${goos}_${goarch}${goos === "windows" ? ".exe" : ""}`;
+}
+
+const { goos, goarch } = resolvePlatform(process.platform, process.arch);
 
 const rootDir = path.resolve(__dirname, "..");
 const binDir = path.join(rootDir, "bin");
@@ -52,7 +61,7 @@ async function main() {
   fs.mkdirSync(binDir, { recursive: true });
 
   const version = pkg.version;
-  const assetName = `${cliName}_${goos}_${goarch}${goos === "windows" ? ".exe" : ""}`;
+  const assetName = releaseAssetName(cliName, goos, goarch);
   const assetURL = `https://github.com/${repoOwner}/${repoName}/releases/download/v${version}/${assetName}`;
 
   try {
@@ -131,7 +140,11 @@ function downloadToFile(url, destinationPath) {
   });
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { resolvePlatform, releaseAssetName };

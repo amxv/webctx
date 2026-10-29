@@ -51,6 +51,10 @@ This repo ships in two ways:
 - GitHub Releases for native binaries
 - npm for `npm i -g webctx`
 
+Windows release binaries cover 32-bit x86 (`windows/386`), x64 (`windows/amd64`),
+and native ARM64 (`windows/arm64`). The release pipeline smoke-tests all three
+executables on GitHub-hosted Windows x64/ARM64 runners before publishing.
+
 The release workflow triggers on `v*` tags and does the following:
 
 1. runs Go and Node quality checks
