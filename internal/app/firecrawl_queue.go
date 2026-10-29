@@ -12,14 +12,14 @@ import (
 )
 
 // A shared, file-locked queue gives independent webctx processes run by the
-// same OS user one Firecrawl admission budget. Only admission uses file locks:
+// same OS user one Firecrawl admission budget PER ACCOUNT KEY. Only admission uses file locks:
 // no global mutex is held while the network call runs. OS locks are released
 // automatically when a process exits, including on crashes.
 //
 // Firecrawl Free (2026): /scrape, /map and /search each allow 10 requests per
-// minute, /interact allows 2, and there are 2 concurrent browsers. Distinct
-// endpoint groups have separate sliding windows. All scrapes and maps share
-// the same two in-flight browser slots. Session-based browser fallbacks hold
+// minute per key, /interact allows 2, and there are 2 browsers per account.
+// Distinct endpoint groups have separate sliding windows. Scrapes and maps
+// within one account share its two in-flight browser slots. Browser sessions hold
 // a slot for the lifetime of their browser session.
 type firecrawlQueue struct {
 	dir    string
@@ -60,6 +60,17 @@ func getFirecrawlQueue() *firecrawlQueue {
 	return &firecrawlQueue{dir: dir, window: firecrawlQueueWindow}
 }
 
+// The user configures credentials belonging to separate Firecrawl teams.
+// Tokens, upstream cooldowns and browser sessions are therefore isolated by
+// credential identity. Hashes avoid persisting credentials or leaking them in
+// paths, while separate CLI processes with the same credential share a pool.
+func (q *firecrawlQueue) forKey(key string) *firecrawlQueue {
+	return &firecrawlQueue{
+		dir:    filepath.Join(q.dir, "accounts", searchKeyID(key)),
+		window: q.window,
+	}
+}
+
 func (q *firecrawlQueue) setup() error {
 	if q.dir == "" {
 		return fmt.Errorf("Firecrawl queue directory is not configured")
@@ -79,6 +90,12 @@ func firecrawlRequestLimits(method, path string) (group string, requestsPerMinut
 		return "scrape", 10, true
 	case method == "POST" && path == "/v2/map":
 		return "map", 10, true
+	case method == "POST" && path == "/v2/crawl":
+		return "crawl", 2, false
+	case method == "GET" && strings.HasPrefix(path, "/v2/crawl/"):
+		return "crawl-status", 500, false
+	case method == "DELETE" && strings.HasPrefix(path, "/v2/crawl/"):
+		return "", 0, false
 	case method == "POST" && path == "/v2/search":
 		return "search", 10, false
 	case method == "POST" && path == "/v2/interact":
@@ -102,35 +119,46 @@ func (q *firecrawlQueue) acquire(ctx context.Context, group string, maxRequests 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		permit := &firecrawlPermit{}
-		if needsSlot {
-			slot, err := q.tryBrowserSlot()
-			if err != nil {
-				return nil, err
-			}
-			if slot == nil {
-				if err := waitForFirecrawlSlot(ctx); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			permit.slot = slot
-		}
-		delay, err := q.reserveRateToken(group, maxRequests)
+		permit, delay, err := q.tryAcquire(group, maxRequests, needsSlot)
 		if err != nil {
-			permit.release()
 			return nil, err
 		}
-		if delay == 0 {
+		if permit != nil {
 			return permit, nil
 		}
-		// Never occupy a browser slot while waiting for the minute quota to
-		// refill. Another endpoint may use that slot in the meantime.
-		permit.release()
 		if err := waitFirecrawl(ctx, delay); err != nil {
 			return nil, err
 		}
 	}
+}
+
+// Non-blocking admission lets a caller try another independently provisioned
+// account before waiting for a busy key. Never hold a browser slot while
+// waiting on quota, and never hold a rate lock during HTTP execution.
+func (q *firecrawlQueue) tryAcquire(group string, maxRequests int, needsSlot bool) (*firecrawlPermit, time.Duration, error) {
+	if maxRequests == 0 {
+		return &firecrawlPermit{}, 0, nil
+	}
+	if err := q.setup(); err != nil {
+		return nil, 0, err
+	}
+	permit := &firecrawlPermit{}
+	if needsSlot {
+		slot, err := q.tryBrowserSlot()
+		if err != nil {
+			return nil, 0, err
+		}
+		if slot == nil {
+			return nil, 65 * time.Millisecond, nil
+		}
+		permit.slot = slot
+	}
+	delay, err := q.reserveRateToken(group, maxRequests)
+	if err != nil || delay > 0 {
+		permit.release()
+		return nil, delay, err
+	}
+	return permit, 0, nil
 }
 
 func (q *firecrawlQueue) browserSession(ctx context.Context) (*firecrawlPermit, error) {
@@ -172,6 +200,9 @@ func (q *firecrawlQueue) tryBrowserSlot() (*os.File, error) {
 // persistent; crashes cannot reset a burst of requests. The per-token lock is
 // held only for the few milliseconds needed to claim an available token.
 func (q *firecrawlQueue) reserveRateToken(group string, maxRequests int) (time.Duration, error) {
+	if groupPause, err := q.rateCooldown(group, 0); err != nil || groupPause > 0 {
+		return groupPause, err
+	}
 	now := time.Now()
 	window := q.window
 	if window <= 0 {

@@ -155,8 +155,12 @@ func printProviderStatus(out io.Writer) error {
 		_, _ = fmt.Fprintf(out, "  %-7s %-9s %s\n", p.name, state, key)
 	}
 	_, _ = fmt.Fprintln(out, "\nFirecrawl (page reading, site maps, and Alexandria; separate from search):")
-	if strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY")) != "" {
-		_, _ = fmt.Fprintln(out, "  key configured")
+	if count := len(firecrawlKeys()); count > 0 {
+		if count == 1 {
+			_, _ = fmt.Fprintln(out, "  key configured")
+		} else {
+			_, _ = fmt.Fprintf(out, "  key configured (%d separate accounts)\n", count)
+		}
 	} else {
 		_, _ = fmt.Fprintln(out, "  key missing")
 	}

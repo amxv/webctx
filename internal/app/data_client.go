@@ -44,9 +44,9 @@ func dataError(code, message string) error {
 }
 
 func dataAPIKey() (string, error) {
-	key := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
+	key := firecrawlDefaultKey()
 	if key == "" {
-		return "", dataError("missing_credentials", "Set FIRECRAWL_API_KEY to use data source discovery and queries.")
+		return "", dataError("missing_credentials", "Set FIRECRAWL_API_KEY or FIRECRAWL_API_KEYS to use data source discovery and queries.")
 	}
 	return key, nil
 }
@@ -190,7 +190,7 @@ func doDataAPI(ctx context.Context, endpoint string, payload any, requestID stri
 	// Alexandria requests bypass doRawRequest, but must use the same local
 	// cross-process Firecrawl admission queue as scrape/map/browser operations.
 	group, limit, browserSlot := firecrawlRequestLimits(req.Method, req.URL.Path)
-	permit, err := getFirecrawlQueue().acquire(ctx, group, limit, browserSlot)
+	permit, err := getFirecrawlQueue().forKey(key).acquire(ctx, group, limit, browserSlot)
 	if err != nil {
 		return nil, dataError("shared_queue_unavailable", "Could not enter shared Firecrawl request queue: "+err.Error())
 	}
@@ -206,6 +206,9 @@ func doDataAPI(ctx context.Context, endpoint string, payload any, requestID stri
 		return nil, &DataError{Code: "network_error", Message: "The provider request did not complete. For a paid call, retry only with the same request_id to prevent duplicate charges."}
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusTooManyRequests {
+		_, _ = getFirecrawlQueue().forKey(key).rateCooldown(group, firecrawl429Cooldown(res.Header))
+	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, maxDataResponseBytes+1))
 	if err != nil {
 		return nil, dataError("read_error", "Could not read provider response.")

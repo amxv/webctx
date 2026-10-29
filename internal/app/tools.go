@@ -256,7 +256,7 @@ func readLinkWithDomainTools(rawURL string, domainTools bool) (string, error) {
 }
 
 func shouldBestEffortCrawlGitHubPackage(rawURL string, nativeErr error) bool {
-	if strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY")) == "" {
+	if firecrawlDefaultKey() == "" {
 		return false
 	}
 	target := parseGitHubTarget(rawURL)
@@ -284,7 +284,7 @@ func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 }
 
 func scrapeLinkWithFirecrawlOptions(rawURL string, domainTools bool) (string, string, error) {
-	apiKey := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
+	apiKey := firecrawlDefaultKey()
 	if apiKey == "" {
 		return "", "", missingCredentialsError("Error reading web page", []string{"FIRECRAWL_API_KEY"}, "for non-.md URLs")
 	}
@@ -732,13 +732,25 @@ func doRawRequest(ctx context.Context, method, rawURL string, headers map[string
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	if pooledFirecrawlEndpoint(req) && firecrawlRequestCredential(req) == firecrawlDefaultKey() {
+		if keys := firecrawlKeys(); len(keys) != 0 {
+			return doPooledFirecrawlRequest(ctx, req, keys)
+		}
+	}
+	return executeRawRequest(req, nil)
+}
+
+func executeRawRequest(req *http.Request, preselected *firecrawlPermit) ([]byte, error) {
 	if req.URL.Hostname() == "api.firecrawl.dev" {
 		group, limit, slot := firecrawlRequestLimits(req.Method, req.URL.Path)
-		permit, err := getFirecrawlQueue().acquire(ctx, group, limit, slot)
-		if err != nil {
-			return nil, fmt.Errorf("Firecrawl shared queue: %w", err)
+		if preselected == nil {
+			permit, err := getFirecrawlQueue().forKey(firecrawlRequestCredential(req)).acquire(req.Context(), group, limit, slot)
+			if err != nil {
+				return nil, fmt.Errorf("Firecrawl shared queue: %w", err)
+			}
+			preselected = permit
 		}
-		defer permit.release()
+		defer preselected.release()
 		// Preserve bounded network time independently of time waiting for the
 		// local Free-plan queue. Otherwise a 60s quota delay consumes all of a
 		// scrape's former 32s timeout before the request even reaches Firecrawl.
@@ -746,7 +758,7 @@ func doRawRequest(ctx context.Context, method, rawURL string, headers map[string
 		if group == "map" {
 			networkTimeout = 60 * time.Second
 		}
-		networkCtx, cancel := context.WithTimeout(ctx, networkTimeout)
+		networkCtx, cancel := context.WithTimeout(req.Context(), networkTimeout)
 		defer cancel()
 		req = req.WithContext(networkCtx)
 	}
@@ -759,8 +771,21 @@ func doRawRequest(ctx context.Context, method, rawURL string, headers map[string
 	if err != nil {
 		return nil, err
 	}
+	if req.URL.Hostname() == "api.search.brave.com" {
+		observeBraveSearchQPS(resp.Header, req.Header.Get("x-subscription-token"))
+	}
+	if req.URL.Hostname() == "api.firecrawl.dev" && resp.StatusCode == http.StatusTooManyRequests {
+		group, _, _ := firecrawlRequestLimits(req.Method, req.URL.Path)
+		_, _ = getFirecrawlQueue().forKey(firecrawlRequestCredential(req)).rateCooldown(group, firecrawl429Cooldown(resp.Header))
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		retryAfter := searchRetryAfter(resp.Header.Get("Retry-After"))
+		if retryAfter == 0 && req.URL.Hostname() == "api.search.brave.com" && resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter = braveSearchRetryAfter(resp.Header)
+		}
+		if retryAfter == 0 && req.URL.Hostname() == "api.firecrawl.dev" && resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter = firecrawl429Cooldown(resp.Header)
+		}
 		if len(respBody) > 0 {
 			return nil, &httpStatusError{Code: resp.StatusCode, RetryAfter: retryAfter, Message: fmt.Sprintf("API request failed: %s - %s", resp.Status, strings.TrimSpace(string(respBody)))}
 		}

@@ -18,7 +18,7 @@ type MarkdownResult struct {
 const keychainServiceName = "webctx"
 
 var (
-	credentialEnvKeys = []string{"BRAVE_API_KEY", "BRAVE_API_KEYS", "TAVILY_API_KEY", "TAVILY_API_KEYS", "EXA_API_KEY", "EXA_API_KEYS", "FIRECRAWL_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"}
+	credentialEnvKeys = []string{"BRAVE_API_KEY", "BRAVE_API_KEYS", "TAVILY_API_KEY", "TAVILY_API_KEYS", "EXA_API_KEY", "EXA_API_KEYS", "FIRECRAWL_API_KEY", "FIRECRAWL_API_KEYS", "GH_TOKEN", "GITHUB_TOKEN"}
 	getwdFunc         = os.Getwd
 	executableFunc    = os.Executable
 	keychainLookup    = lookupKeychainSecret

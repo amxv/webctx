@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // A provider's legacy singular key remains supported. New and old keys join
@@ -21,7 +22,7 @@ import (
 // latter is how the macOS Keychain stores them).
 func searchKeysForProvider(name string) []string {
 	name = strings.ToLower(strings.TrimSpace(name))
-	if !validSearchProvider(name) {
+	if !validKeyProvider(name) {
 		return nil
 	}
 	prefix := strings.ToUpper(name) + "_API_KEY"
@@ -30,6 +31,25 @@ func searchKeysForProvider(name string) []string {
 		keys = append(keys, key)
 	}
 	return uniqueSearchKeys(keys)
+}
+
+func validKeyProvider(name string) bool {
+	return validSearchProvider(name) || name == "firecrawl"
+}
+
+func firecrawlKeys() []string { return searchKeysForProvider("firecrawl") }
+
+// Chargeable Alexandria executions intentionally stay on one account.
+// Rotating an idempotency key between accounts could execute paid work twice.
+func firecrawlDefaultKey() string {
+	if key := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY")); key != "" {
+		return key
+	}
+	keys := firecrawlKeys()
+	if len(keys) != 0 {
+		return keys[0]
+	}
+	return ""
 }
 
 func parseSearchKeyList(raw string) []string {
@@ -99,36 +119,30 @@ func useSearchKeys(ctx context.Context, name string, attempt func(string) ([]byt
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("missing %s_API_KEY", strings.ToUpper(name))
 	}
-	// Single-key installations keep their existing behavior and don't touch
-	// the filesystem. Multiple keys use a durable round-robin cursor shared by
-	// independent agent processes running under the same OS user.
-	if len(keys) == 1 {
-		body, err := attempt(keys[0])
-		return body, redactSearchError(err, keys)
-	}
+	// Even single-key installations coordinate with other CLI processes. Each
+	// credential belongs to a separate team/account with its own quota.
 	balancer := currentSearchKeyBalancer()
-	order, err := balancer.reserve(ctx, name, keys)
-	if err != nil {
-		return nil, err
-	}
+	tried := make(map[string]bool, len(keys))
+	deadline := time.Now().Add(searchAdmissionBudget())
 	var lastErr error
 	attempted := 0
-	for index, keyIndex := range order {
+	for attempted < len(keys) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		key := keys[keyIndex]
-		if index != 0 {
-			// A concurrently running agent may have cooled this key down while
-			// the current request was waiting on a failed provider response.
-			available, err := balancer.available(ctx, name, key)
-			if err != nil {
-				return nil, err
-			}
-			if !available {
-				continue
-			}
+		remaining := time.Until(deadline)
+		if remaining < 0 {
+			remaining = 0
 		}
+		keyIndex, err := balancer.admit(ctx, name, keys, tried, remaining)
+		if err != nil {
+			if lastErr != nil {
+				return nil, fmt.Errorf("%s: fallback unavailable after %d attempt(s): %w (last upstream error: %v)", name, attempted, err, lastErr)
+			}
+			return nil, err
+		}
+		key := keys[keyIndex]
+		tried[searchKeyID(key)] = true
 		attempted++
 		body, err := attempt(key)
 		if err == nil {
@@ -138,9 +152,15 @@ func useSearchKeys(ctx context.Context, name string, attempt func(string) ([]byt
 		if !retryWithNextSearchKey(err) {
 			break
 		}
-		// Cool down the bad key across processes so later searches do not
-		// repeatedly spend time and provider quota on its known failure.
-		if saveErr := balancer.coolDown(ctx, name, key, searchKeyFailureCooldown(err)); saveErr != nil {
+		cooldown := searchKeyFailureCooldown(err)
+		var status *httpStatusError
+		shortWindowLimit := errors.As(err, &status) && status.Code == 429 && name != "tavily"
+		if shortWindowLimit && status.RetryAfter == 0 {
+			// Exa/Brave are QPS-limited; prevent a gratuitous 60s lockout.
+			cooldown = time.Second
+		}
+		saveErr := balancer.coolDown(ctx, name, key, cooldown)
+		if saveErr != nil {
 			return nil, fmt.Errorf("%s: save search key failure state: %w", name, saveErr)
 		}
 	}
@@ -170,8 +190,8 @@ func storeKeychainSecret(account, secret string) error {
 
 func managedKeychainAccount(name string) (string, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
-	if !validSearchProvider(name) {
-		return "", fmt.Errorf("unknown search provider %q (choose brave, tavily, or exa)", name)
+	if !validKeyProvider(name) {
+		return "", fmt.Errorf("unknown API key provider %q (choose brave, tavily, exa, or firecrawl)", name)
 	}
 	return strings.ToUpper(name) + "_API_KEYS", nil
 }
@@ -253,12 +273,12 @@ func removeManagedSearchKey(name, rawIndex string) (int, error) {
 
 func printManagedSearchKeySlots(out io.Writer) error {
 	_, _ = fmt.Fprintln(out, "\nManaged macOS Keychain keys (numbered newest-first; indexes start at 1):")
-	for _, provider := range searchProviderKeys {
-		keys, err := readManagedKeys(provider.name)
+	for _, provider := range []string{"brave", "tavily", "exa", "firecrawl"} {
+		keys, err := readManagedKeys(provider)
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(out, "  %-7s %d managed\n", provider.name, len(keys))
+		_, _ = fmt.Fprintf(out, "  %-9s %d managed\n", provider, len(keys))
 	}
 	return nil
 }

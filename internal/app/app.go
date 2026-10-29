@@ -58,7 +58,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stdout, "Removed managed %s API key (%d managed key(s) remain).\n", strings.ToLower(args[2]), count)
 			return 0
 		}
-		_, _ = fmt.Fprintln(stderr, "Usage: webctx keys list | keys add <brave|tavily|exa> --stdin | keys remove <provider> <managed-key-index>")
+		_, _ = fmt.Fprintln(stderr, "Usage: webctx keys list | keys add <brave|tavily|exa|firecrawl> --stdin | keys remove <provider> <managed-key-index>")
 		return 1
 	}
 	isProviderTool := tool == "status" || tool == "providers" || tool == "provider"

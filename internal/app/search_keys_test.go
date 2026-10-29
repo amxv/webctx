@@ -226,4 +226,11 @@ func TestSearchKeyRetryDoesNotMaskBadInputOrLeakKeys(t *testing.T) {
 	if err == nil || count != 2 || strings.Contains(err.Error(), "first-secret") || strings.Contains(err.Error(), "second-secret") || !strings.Contains(err.Error(), "2 configured") {
 		t.Fatalf("exhausted-key error is unsafe or not actionable: count=%d error=%v", count, err)
 	}
+	// Each key is a distinct Exa team. Both received an independent 429, so
+	// each has its own cooldown; an unrelated key remains eligible.
+	state, readErr := os.ReadFile(filepath.Join(os.Getenv("WEBCTX_SEARCH_KEY_BALANCER_DIR"), "exa.json"))
+	var decoded searchKeyBalanceState
+	if readErr != nil || json.Unmarshal(state, &decoded) != nil || len(decoded.Cooldowns) != 2 || decoded.Cooldowns["shared"] != 0 {
+		t.Fatalf("missing per-key Exa cooldowns: %s %v", state, readErr)
+	}
 }

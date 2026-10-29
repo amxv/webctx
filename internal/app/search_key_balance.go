@@ -25,8 +25,10 @@ type searchKeyBalancer struct {
 }
 
 type searchKeyBalanceState struct {
-	LastSelected string           `json:"last_selected,omitempty"`
-	Cooldowns    map[string]int64 `json:"cooldowns,omitempty"`
+	LastSelected string             `json:"last_selected,omitempty"`
+	Cooldowns    map[string]int64   `json:"cooldowns,omitempty"`
+	Admissions   map[string][]int64 `json:"admissions,omitempty"`
+	KeyQPS       map[string]int     `json:"key_qps,omitempty"`
 }
 
 func currentSearchKeyBalancer() searchKeyBalancer {
@@ -102,12 +104,15 @@ func (b searchKeyBalancer) available(ctx context.Context, provider, key string) 
 }
 
 func (b searchKeyBalancer) coolDown(ctx context.Context, provider, key string, duration time.Duration) error {
+	return b.coolDownScope(ctx, provider, searchKeyID(key), duration)
+}
+
+func (b searchKeyBalancer) coolDownScope(ctx context.Context, provider, id string, duration time.Duration) error {
 	if duration <= 0 {
 		return nil
 	}
 	until := b.now().Add(duration).UnixMilli()
 	return b.withState(ctx, provider, func(state *searchKeyBalanceState) (bool, error) {
-		id := searchKeyID(key)
 		if state.Cooldowns == nil {
 			state.Cooldowns = make(map[string]int64)
 		}
@@ -122,8 +127,8 @@ func (b searchKeyBalancer) coolDown(ctx context.Context, provider, key string, d
 // withState serializes a tiny read/modify/atomic-replace transaction. The OS
 // lock is separate from the JSON state file for Windows rename compatibility.
 func (b searchKeyBalancer) withState(ctx context.Context, provider string, update func(*searchKeyBalanceState) (bool, error)) error {
-	if !validSearchProvider(provider) {
-		return fmt.Errorf("unknown search provider %q", provider)
+	if !validKeyProvider(provider) {
+		return fmt.Errorf("unknown API key provider %q", provider)
 	}
 	if err := os.MkdirAll(b.dir, 0700); err != nil {
 		return fmt.Errorf("create search key rotation directory: %w", err)

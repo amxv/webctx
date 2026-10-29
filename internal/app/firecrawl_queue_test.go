@@ -87,6 +87,9 @@ func TestFirecrawlRequestClassification(t *testing.T) {
 	}{
 		{"POST", "/v2/scrape", "scrape", 10, true},
 		{"POST", "/v2/map", "map", 10, true},
+		{"POST", "/v2/crawl", "crawl", 2, false},
+		{"GET", "/v2/crawl/job-id", "crawl-status", 500, false},
+		{"DELETE", "/v2/crawl/job-id", "", 0, false},
 		{"POST", "/v2/search", "search", 10, false},
 		{"POST", "/v2/interact", "interact", 2, false},
 		{"POST", "/v2/interact/abc/execute", "interact-execute", 10, false},
@@ -96,6 +99,32 @@ func TestFirecrawlRequestClassification(t *testing.T) {
 		if group != tc.group || limit != tc.limit || slot != tc.slot {
 			t.Errorf("%s %s => %s %d %t, want %+v", tc.method, tc.path, group, limit, slot, tc)
 		}
+	}
+}
+
+func TestFirecrawlUpstream429CooldownSharedButEndpointIsolated(t *testing.T) {
+	q := &firecrawlQueue{dir: t.TempDir(), window: time.Second}
+	if _, err := q.rateCooldown("scrape", 150*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	other := &firecrawlQueue{dir: q.dir, window: q.window}
+	if wait, err := other.reserveRateToken("scrape", 10); err != nil || wait < 50*time.Millisecond {
+		t.Fatalf("shared scrape cooldown was bypassed: %s %v", wait, err)
+	}
+	if wait, err := other.reserveRateToken("map", 10); err != nil || wait != 0 {
+		t.Fatalf("scrape cooldown blocked independent map: %s %v", wait, err)
+	}
+	if _, err := other.rateCooldown("scrape", 30*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if wait, err := q.reserveRateToken("scrape", 10); err != nil || wait < 50*time.Millisecond {
+		t.Fatalf("shorter 429 overwrote longer cooldown: %s %v", wait, err)
+	}
+	if err := waitFirecrawl(context.Background(), 180*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if wait, err := other.reserveRateToken("scrape", 10); err != nil || wait != 0 {
+		t.Fatalf("expired upstream cooldown didn't recover: %s %v", wait, err)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 )
 
 func TestExaUsesHighlightsAndSupportedFreshnessSettings(t *testing.T) {
+	t.Setenv("WEBCTX_SEARCH_KEY_BALANCER_DIR", t.TempDir())
 	t.Setenv("EXA_API_KEY", "test-exa")
 	t.Setenv("EXA_API_KEYS", "")
 	previous := http.DefaultClient.Transport
@@ -56,6 +57,7 @@ func TestExaUsesHighlightsAndSupportedFreshnessSettings(t *testing.T) {
 }
 
 func TestTavilyExactMatchOnlyForPhraseSearch(t *testing.T) {
+	t.Setenv("WEBCTX_SEARCH_KEY_BALANCER_DIR", t.TempDir())
 	t.Setenv("TAVILY_API_KEY", "test-tavily")
 	t.Setenv("TAVILY_API_KEYS", "")
 	previous := http.DefaultClient.Transport

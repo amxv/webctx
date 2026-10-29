@@ -149,6 +149,7 @@ func (p *providerRequests) received(provider string) []string {
 func searchTestEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("WEBCTX_CONFIG_FILE", filepath.Join(t.TempDir(), "config.json"))
+	t.Setenv("WEBCTX_SEARCH_KEY_BALANCER_DIR", t.TempDir())
 	t.Setenv("BRAVE_API_KEY", "test-brave")
 	t.Setenv("TAVILY_API_KEY", "test-tavily")
 	t.Setenv("EXA_API_KEY", "test-exa")

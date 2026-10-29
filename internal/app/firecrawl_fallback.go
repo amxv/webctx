@@ -84,15 +84,41 @@ func firecrawlScrape(rawURL, apiKey, proxy string, domainTools bool) (scrapedPag
 }
 
 func firecrawlJSON(ctx context.Context, method, endpoint, apiKey string, data map[string]any) (map[string]any, error) {
-	body, err := doJSONRequest(ctx, method, endpoint, map[string]string{
-		"Authorization": "Bearer " + apiKey,
-		"Content-Type":  "application/json",
-	}, data)
+	return firecrawlJSONWithPermit(ctx, method, endpoint, apiKey, data, nil)
+}
+
+// The interact session's creation quota and browser slot are both reserved by
+// firecrawlBrowserAccount. A dummy permit skips double-charging the quota;
+// the actual slot stays held until session teardown.
+func firecrawlJSONWithPermit(ctx context.Context, method, endpoint, apiKey string, data map[string]any, preselected *firecrawlPermit) (map[string]any, error) {
+	var body []byte
+	var err error
+	if data != nil {
+		body, err = json.Marshal(data)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var response []byte
+	if preselected == nil {
+		response, err = doRawRequest(ctx, method, endpoint, map[string]string{
+			"Authorization": "Bearer " + apiKey,
+			"Content-Type":  "application/json",
+		}, body)
+	} else {
+		req, createErr := http.NewRequestWithContext(ctx, method, endpoint, strings.NewReader(string(body)))
+		if createErr != nil {
+			return nil, createErr
+		}
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Content-Type", "application/json")
+		response, err = executeRawRequest(req, preselected)
+	}
 	if err != nil {
 		return nil, err
 	}
 	var parsed map[string]any
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	if err := json.Unmarshal(response, &parsed); err != nil {
 		return nil, err
 	}
 	if success, ok := parsed["success"].(bool); ok && !success {
@@ -108,23 +134,18 @@ func quoteShellURL(rawURL string) string {
 }
 
 func firecrawlBrowserFallback(rawURL, apiKey string) (string, string, error) {
-	// Give the team-wide browser-session quota time to refill when other CLI
-	// processes are already using both free sessions.
+	// Prefer an account with an available browser session; all independent CLI
+	// processes share the same two-slot pool for each configured account.
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	sessionPermit, err := getFirecrawlQueue().browserSession(ctx)
+	selectedKey, session, sessionPermit, err := startFirecrawlBrowser(ctx)
 	if err != nil {
 		return "", "", err
 	}
+	apiKey = selectedKey
 	defer sessionPermit.release()
-	// Failed scrape responses do not reliably include a scrape-bound browser ID.
-	// Open a disposable session with the standalone browser API instead.
-	session, err := firecrawlJSON(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/interact", apiKey, map[string]any{
-		"ttl": 60, "activityTtl": 30,
-	})
-	if err != nil {
-		return "", "", err
-	}
+	// This disposable session has already reserved its per-account quota and
+	// browser slot. Its subsequent commands must use the originating key.
 	sessionID := stringValue(session["id"])
 	if sessionID == "" {
 		return "", "", fmt.Errorf("Firecrawl browser returned no session ID")

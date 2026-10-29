@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -120,6 +119,43 @@ func TestSearchKeysFallbackSkipsUnavailableCredentials(t *testing.T) {
 	}
 }
 
+func TestSeparateExaAndBraveAccountsCanFailOverAfter429(t *testing.T) {
+	for _, provider := range []string{"exa", "brave"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Setenv("WEBCTX_SEARCH_KEY_BALANCER_DIR", t.TempDir())
+			prefix := strings.ToUpper(provider) + "_API_KEY"
+			t.Setenv(prefix+"S", "bad-account-key,good-account-key")
+			t.Setenv(prefix, "")
+			attempts := []string{}
+			call := func(key string) ([]byte, error) {
+				attempts = append(attempts, key)
+				if key == "bad-account-key" {
+					return nil, &httpStatusError{Code: 429, RetryAfter: 30 * time.Second, Message: "rate limited"}
+				}
+				return []byte("ok"), nil
+			}
+			if response, err := useSearchKeys(context.Background(), provider, call); err != nil || string(response) != "ok" {
+				t.Fatalf("separate account failover: %q %v", response, err)
+			}
+			if !reflect.DeepEqual(attempts, []string{"bad-account-key", "good-account-key"}) {
+				t.Fatalf("did not retry healthy second account: %v", attempts)
+			}
+			attempts = nil
+			if response, err := useSearchKeys(context.Background(), provider, call); err != nil || string(response) != "ok" || !reflect.DeepEqual(attempts, []string{"good-account-key"}) {
+				t.Fatalf("shared cooldown poisoned healthy account: %q %v %v", response, err, attempts)
+			}
+			data, err := os.ReadFile(filepath.Join(os.Getenv("WEBCTX_SEARCH_KEY_BALANCER_DIR"), provider+".json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var state searchKeyBalanceState
+			if json.Unmarshal(data, &state) != nil || state.Cooldowns[searchKeyID("bad-account-key")] == 0 || state.Cooldowns[searchKeyID("good-account-key")] != 0 {
+				t.Fatalf("incorrect per-account provider cooldown: %s", data)
+			}
+		})
+	}
+}
+
 func TestTavilyHTTPFailoverAlsoCoolsDownKeysForLaterCalls(t *testing.T) {
 	t.Setenv("WEBCTX_SEARCH_KEY_BALANCER_DIR", t.TempDir())
 	t.Setenv("TAVILY_API_KEYS", "test-key-A,test-key-B")
@@ -172,8 +208,8 @@ func TestTavilyHTTPFailoverAlsoCoolsDownKeysForLaterCalls(t *testing.T) {
 	}
 }
 
-func TestSearchKeysSingleKeyNeedsNoStateDirectory(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "should-not-be-created")
+func TestSearchKeysSingleKeySharesAdmissionState(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "single-key-admissions")
 	t.Setenv("WEBCTX_SEARCH_KEY_BALANCER_DIR", dir)
 	t.Setenv("BRAVE_API_KEYS", "")
 	t.Setenv("BRAVE_API_KEY", "single-private-key")
@@ -181,8 +217,9 @@ func TestSearchKeysSingleKeyNeedsNoStateDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("single-key search created unnecessary shared state: %v", err)
+	data, err := os.ReadFile(filepath.Join(dir, "brave.json"))
+	if err != nil || !strings.Contains(string(data), "admissions") || strings.Contains(string(data), "single-private-key") {
+		t.Fatalf("single-key search must reserve shared capacity without storing secrets: %s %v", data, err)
 	}
 }
 

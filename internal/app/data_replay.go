@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"sync"
 	"time"
 )
@@ -56,7 +55,7 @@ func lockPaidRequest(id string) func() {
 }
 
 func localReplayKey(id string) string {
-	h := sha256.Sum256([]byte(os.Getenv("FIRECRAWL_API_KEY") + "\x00" + id))
+	h := sha256.Sum256([]byte(firecrawlDefaultKey() + "\x00" + id))
 	return hex.EncodeToString(h[:])
 }
 func paidRequestFingerprint(calls []DataCall) string {

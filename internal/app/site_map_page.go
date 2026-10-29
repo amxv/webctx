@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -62,7 +61,7 @@ func rawMappedLinks(ctx context.Context, rawURL string) ([]any, error) {
 	if err := validateSourceURL(rawURL); err != nil {
 		return nil, &DataError{Code: "invalid_url", Message: err.Error()}
 	}
-	credential := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
+	credential := firecrawlDefaultKey()
 	if credential == "" {
 		return nil, missingCredentialsError("Error mapping website", []string{"FIRECRAWL_API_KEY"}, "")
 	}
