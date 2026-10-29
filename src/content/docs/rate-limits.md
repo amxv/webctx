@@ -6,7 +6,7 @@ category: Reference
 summary: How webctx shares capacity across keys and concurrent coding agents.
 ---
 
-WebCTX is designed for multiple agents launching separate CLI processes on one computer. **All processes using the same API key share that key's local rate-limit state.** Different configured keys represent separate provider accounts and have independent budgets.
+WebCTX is designed for multiple agents launching separate CLI processes on one computer. Its **capacity-aware round-robin load balancer** distributes requests across multiple API keys based on available capacity, helping maximize throughput even on free tiers. **All processes using the same key share that key's local rate-limit state**, while keys from separate provider accounts have independent budgets.
 
 ## Default limits
 

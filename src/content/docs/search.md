@@ -48,7 +48,7 @@ Provider preferences persist between runs. `status` reports whether a key is con
 
 ## Multiple agents and API keys
 
-You can configure several keys from **separate provider accounts**. webctx picks a key with available capacity and coordinates its rate limits across CLI processes on the same machine. A throttled account does not block a healthy one. When an entire provider is busy, results from other providers can still come back.
+You can configure multiple API keys from **separate accounts** for Brave, Tavily, Exa, and Firecrawl. WebCTX's **capacity-aware round-robin load balancer** routes requests to keys with available quota instead of blindly rotating, maximizing throughput under free-tier limits while coordinating all agents on the same machine. A throttled account does not block a healthy one; if an entire search provider is busy, other providers can still return results.
 
 Start with [Credentials](/docs/credentials); see [Rate limits and concurrency](/docs/rate-limits) for limits, file locks, cooldowns, and overrides.
 

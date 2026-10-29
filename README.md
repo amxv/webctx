@@ -55,7 +55,7 @@ GitHub URLs are especially useful: `read-link` understands repository trees, fil
 - **Page extraction, site maps, and structured data:** `FIRECRAWL_API_KEY`.
 - **GitHub:** `GH_TOKEN` is optional for many public URLs, but helps with higher limits and authenticated resources.
 
-Set keys as environment variables, in `.env.local`, or in macOS Keychain. Multiple keys from separate accounts are supported, including `FIRECRAWL_API_KEYS`. WebCTX spreads work across available accounts and coordinates rate limits between agents running on the same machine.
+Set keys as environment variables, in `.env.local`, or in macOS Keychain. **All four providers support multiple API keys from separate accounts**, including `FIRECRAWL_API_KEYS`. WebCTX's **capacity-aware round-robin load balancer** automatically routes requests to keys with available quota, maximizing throughput even when many agents share the same machine and free-tier rate limits.
 
 See [Credentials](https://webctx.ashray.xyz/docs/credentials) for setup and [Rate limits and concurrency](https://webctx.ashray.xyz/docs/rate-limits) for the technical details.
 
