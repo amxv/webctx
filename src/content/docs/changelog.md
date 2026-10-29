@@ -8,6 +8,14 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.3.0 - 2026-10-30
+
+- Added **capacity-aware search scheduling** across Tavily, Exa, and Brave. Each configured key uses its own request budget and cooldown, coordinated across concurrent WebCTX processes on the same machine. A throttled account can fail over to another healthy account.
+- Added per-key rate-limit defaults, configurable admission waits, provider retry guidance, and adaptive Brave limits learned from response headers. Busy providers can return partial results without holding up all federated search.
+- Added **multiple Firecrawl accounts** through `FIRECRAWL_API_KEYS` and macOS Keychain management. Scrape, map, crawl, and browser resources are tracked per account, with failover to available accounts for supported operations.
+- Kept Firecrawl browser sessions and paid Alexandria executions on their originating account, protecting session behavior and paid-request idempotency.
+- Added multi-process quota tests, account-failover tests, and shared browser-capacity regression coverage.
+
 ## 0.2.11 - 2026-10-29
 
 - Added Windows x86 (32-bit) and ARM64 to the release build matrix, alongside existing Windows x64, macOS, and Linux targets.
