@@ -4,7 +4,9 @@ Guidance for coding agents working in `webctx`.
 
 ## Purpose
 
-This repo contains the Go `webctx` CLI and its hosted Origo MCP transport, sharing one retrieval engine.
+This monorepo contains the Go `webctx` CLI, the hosted Origo MCP transport,
+the npm CLI distribution wrapper, and the Astro documentation site. The CLI
+and MCP server share a single Go module at the repository root.
 
 It is no longer a generic starter template. Treat the current CLI behavior as the source of truth unless the user explicitly asks to change it.
 
@@ -15,13 +17,17 @@ It is no longer a generic starter template. Treat the current CLI behavior as th
 - `internal/app/tools.go`: search provider clients, ranking, formatting, and HTTP helpers.
 - `internal/app/scrape.go`: GitHub raw-content optimization, `.md` fetch path, and env loading. Shared Firecrawl admission control lives in `internal/app/firecrawl_queue.go` and OS-specific file locking helpers.
 - `pkg/retrieval/`: public adapter to `internal/app` for Vercel's Go packaging restrictions.
-- `pkg/origo/`: authenticated Streamable HTTP MCP with exactly `read_link` and `map_site`.
+- `pkg/origo/`: authenticated Streamable HTTP MCP with `read_link`, `map_site`, `research`, `inspect`, and `execute`.
 - `api/mcp.go`: Go Function entrypoint for independent Origo deployment.
 - `internal/app/app_test.go`: unit tests for CLI behavior and core helpers.
-- `bin/webctx.js`: npm shim that invokes the packaged native binary.
-- `scripts/postinstall.js`: downloads release binary on install, falls back to `go build`.
+- `npm/package.json`: npm-published `webctx` CLI package, separate from Astro.
+- `npm/bin/webctx.js`: npm shim that invokes the packaged native binary.
+- `npm/scripts/postinstall.js`: downloads a release binary on install, falls back to `go build`.
+- `npm/scripts/prepare-package.mjs`: stages the Go sources and npm shim under ignored `npm/.publish/` for publication.
+- `docs/`: independent Astro app (`package.json`, `bun.lock`, `src/`, `public/`).
+- `notes/porting-status.md`: historical porting reference.
+- `tests/`: repository-level deployment contract tests.
 - `.github/workflows/release.yml`: tag-driven release pipeline.
-- `docs/porting-status.md`: progress log and remaining work for future agents.
 
 ## Local commands
 
@@ -35,12 +41,15 @@ Use `make` targets:
 - `make build`
 - `make build-all`
 - `make install-local`
+- `make docs-check` (requires `bun install` from `docs/` first)
+- `make docs-build`
 
 Direct commands:
 
 - `go test ./...`
 - `go vet ./...`
-- `npm run lint`
+- `npm --prefix npm test`
+- `cd docs && bun run check && bun run build`
 
 ## Current CLI contract
 
@@ -69,19 +78,19 @@ Behavioral expectations:
 - release assets: `<cli>_<goos>_<goarch>[.exe]`
 - npm-installed binary path: `bin/<cli>-bin` (or `.exe` on Windows)
 
-2. If changing search behavior, compare against the TypeScript porting notes in `docs/porting-status.md` first.
+2. If changing search behavior, compare against the TypeScript porting notes in `notes/porting-status.md` first.
 
 3. If adding dependencies, commit `go.sum` and make sure the workflow still passes on a clean checkout.
 
-4. If you change release artifacts or version plumbing, update `Makefile`, `.github/workflows/release.yml`, and `scripts/postinstall.js` together.
+4. If you change release artifacts or version plumbing, update `Makefile`, `.github/workflows/release.yml`, `npm/package.json`, `npm/scripts/prepare-package.mjs`, and `npm/scripts/postinstall.js` together. The staged package must retain the Go fallback sources.
 
 ## Release contract
 
 Release pipeline triggers on `v*` tags and expects:
 
 - The `NPM_TOKEN` GitHub Actions secret must contain a valid npm access token with publish rights for `webctx`; publishing uses `NODE_AUTH_TOKEN` (not OIDC trusted publishing).
-- npm package name in `package.json` is publishable under your account/org.
-- repository URL matches the release origin used by `scripts/postinstall.js`.
+- npm package name in `npm/package.json` is publishable under your account/org.
+- repository URL matches the release origin used by `npm/scripts/postinstall.js`.
 
 Release binaries should embed the tagged version into `internal/buildinfo.Version` so `webctx --version` matches the release tag.
 
@@ -89,13 +98,13 @@ Release binaries should embed the tagged version into `internal/buildinfo.Versio
 
 - Prefer additive changes and keep the CLI output stable.
 - Do not silently change Firecrawl request settings unless the user explicitly wants behavioral changes.
-- Do not add search to Origo's MCP tool surface; only `read_link` and `map_site` are registered.
+- Do not add federated `search` to Origo's MCP tool surface; its five tools are `read_link`, `map_site`, `research`, `inspect`, and `execute`.
 - Keep `origo-api` deployment separate from the existing WebCTX docs Vercel project and tag-driven CLI releases.
 - Never introduce Redis, custom KV, or another caching service for Origo: the user explicitly chose Firecrawl's own 30-minute cache.
 
 ## Changelog Guidelines
 
-When cutting a release, update `src/content/docs/changelog.md` before tagging.
+When cutting a release, update `docs/src/content/docs/changelog.md` before tagging.
 
 - Add a new section for the exact version tag being released.
 - Keep the newest version at the top.
@@ -108,7 +117,7 @@ When cutting a release, update `src/content/docs/changelog.md` before tagging.
 
 ### Docs deployment
 
-The Docs GitHub Actions workflow deploys production only for the watched site paths; Vercel Git auto-deployments and `ignoreCommand` stay disabled. Keep the project-scoped `VERCEL_TOKEN` Actions secret and ID variables configured. Check Astro locally; builds run in CI.
+The Docs GitHub Actions workflow runs from `docs/` and deploys production only for its watched paths; Vercel Git auto-deployments and `ignoreCommand` stay disabled. It stages the prebuilt Astro output at root `.vercel/output` to preserve the existing Vercel project root. Keep the project-scoped `VERCEL_TOKEN` Actions secret and ID variables configured. Check Astro locally; builds run in CI.
 
 ### Origo deployment
 

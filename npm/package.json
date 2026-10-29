@@ -6,7 +6,8 @@
   "author": "amxv",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/amxv/webctx.git"
+    "url": "git+https://github.com/amxv/webctx.git",
+    "directory": "npm"
   },
   "homepage": "https://github.com/amxv/webctx#readme",
   "bugs": {
@@ -27,20 +28,13 @@
     "go.sum",
     "pkg",
     "README.md",
-    "docs",
-    "LICENSE",
-    "AGENTS.md",
-    "CONTRIBUTORS.md",
-    "Makefile"
+    "LICENSE"
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
-    "test": "node --check bin/webctx.js && node --check scripts/postinstall.js && node --test scripts/postinstall.test.js",
+    "test": "node --check bin/webctx.js && node --check scripts/postinstall.js && node --test scripts/postinstall.test.js scripts/prepare-package.test.mjs",
     "lint": "npm run test",
-    "docs:dev": "astro dev",
-    "docs:build": "astro build",
-    "docs:preview": "astro preview",
-    "docs:check": "astro check"
+    "prepare:package": "node scripts/prepare-package.mjs"
   },
   "engines": {
     "node": ">=18"
@@ -57,12 +51,5 @@
     "agent-tools",
     "npm",
     "release"
-  ],
-  "devDependencies": {
-    "@astrojs/check": "^0.9.4",
-    "@types/node": "^26.0.0",
-    "astro": "^7.0.3",
-    "typescript": "^5.9.2",
-    "zuedocs": "0.1.26"
-  }
+  ]
 }

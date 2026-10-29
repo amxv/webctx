@@ -73,4 +73,6 @@ The **Guides** cover search, reading URLs, mapping sites, structured data, and a
 
 Contributing, building, and releasing: [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
+The Go CLI and MCP server share the root module. The Astro site lives in `docs/` and the npm CLI distribution lives in `npm/`.
+
 License: [Apache-2.0](LICENSE).

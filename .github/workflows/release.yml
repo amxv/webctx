@@ -39,7 +39,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Node checks
-        run: npm run test
+        run: npm --prefix npm test
+
+      - name: Verify npm source fallback builds
+        run: |
+          node npm/scripts/prepare-package.mjs "${GITHUB_REF_NAME#v}"
+          (cd npm/.publish && go build -o "$RUNNER_TEMP/webctx-npm-fallback" ./cmd/webctx)
+          npm pack ./npm/.publish --dry-run --ignore-scripts
 
   build-binaries:
     needs: quality
@@ -149,12 +155,12 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
-      - name: Set npm version from tag
+      - name: Prepare npm distribution with tagged version
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          VERSION="$VERSION" node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.VERSION;fs.writeFileSync('package.json', JSON.stringify(p, null, 2)+'\\n');"
+          node npm/scripts/prepare-package.mjs "$VERSION"
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish ./npm/.publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

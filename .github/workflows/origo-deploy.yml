@@ -46,7 +46,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Verify deployment boundary
-        run: node --test scripts/origo-deploy.test.mjs
+        run: node --test tests/origo-deploy.test.mjs
       - name: Test Go packages
         run: go test ./...
       - name: Vet Go packages

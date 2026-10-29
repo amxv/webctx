@@ -13,6 +13,6 @@ export const config = origo
       git: { deploymentEnabled: false }
     }
   : {
-      installCommand: 'bun install --ignore-scripts',
+      installCommand: 'cd docs && bun install --frozen-lockfile --ignore-scripts',
       git: { deploymentEnabled: false }
     };

@@ -34,10 +34,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
-          node -e 'const p=require("./package.json"); if(p.version !== process.env.VERSION) { throw new Error("Version does not match released tag") }'
+          node -e 'const fs=require("fs"); const file=fs.existsSync("npm/package.json") ? "./npm/package.json" : "./package.json"; const p=require(file); if(p.version !== process.env.VERSION) { throw new Error("Version does not match released tag") }'
           gh release view "v${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null
 
       - name: Publish to npm with access token
-        run: npm publish --access public
+        run: |
+          # Releases before the monorepo move still publish from their old root.
+          if [[ -f npm/package.json ]]; then
+            node npm/scripts/prepare-package.mjs "${{ inputs.version }}"
+            npm publish ./npm/.publish --access public
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

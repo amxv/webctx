@@ -2,13 +2,13 @@
 
 Maintainer notes for `webctx`.
 
-Origo is the separately deployed MCP transport in this same repository. The CLI, MCP, and ZueDocs share source code but have independent distribution pipelines.
+Origo is the separately deployed MCP transport in this monorepo. The Go CLI and MCP server share the same Go module; npm distribution and the Astro documentation site have independent pipelines.
 
 ## Prerequisites
 
 - Go `1.26+`
-- Node `18+`
-- npm account with publish rights for the package name in `package.json`
+- Node `18+` for the npm CLI, Node `22.12+` and Bun `1.4+` for docs development
+- npm account with publish rights for the package name in `npm/package.json`
 - GitHub repo admin access
 
 ## Build from source
@@ -28,14 +28,15 @@ make build
 ./dist/webctx --help
 ```
 
-Public documentation lives in `src/content/docs/`: Start and Guides explain
+Public documentation lives in `docs/src/content/docs/`: Start and Guides explain
 common tasks, while Reference contains flags, configuration, quotas, and
 implementation details. To check a documentation change:
 
 ```bash
+cd docs
 bun install --frozen-lockfile --ignore-scripts
-bun run docs:check
-bun run docs:build
+bun run check
+bun run build
 ```
 
 Example command checks:
@@ -74,16 +75,15 @@ The release workflow triggers on `v*` tags and does the following:
 
 ## Release process
 
-1. Update `package.json` to the new version and add a corresponding section to
-   `src/content/docs/changelog.md`. For a minor release from `0.2.x`, the next
-   version is `0.3.0`.
+1. Update `npm/package.json` to the new version and add a corresponding section to
+   `docs/src/content/docs/changelog.md`.
 
 2. Ensure the code and documentation checks pass:
 
 ```bash
 make check
-bun run docs:check
-bun run docs:build
+make docs-check
+make docs-build
 ```
 
 3. Confirm the release workflow targets `webctx`, and verify the package name,
@@ -116,17 +116,25 @@ gh workflow run npm-publish-retry.yml --repo amxv/webctx --ref main -f version=<
 
 ## Project layout
 
-- `cmd/webctx/main.go`: CLI entrypoint
-- `internal/app/`: CLI parsing, search, ranking, scrape, env loading, and Firecrawl queue logic
-- `pkg/retrieval/`: small public adapter to the shared read-link / site-map engine
-- `pkg/origo/`: authenticated, stateless MCP server with five tools (including structured-data discovery, inspection and execution)
-- `api/mcp.go`: Vercel Go Function entrypoint for Origo
-- `vercel.mjs`: project-specific Vercel settings for docs and Origo
-- `internal/buildinfo/`: build-time version plumbing for `--version`
-- `bin/webctx.js`: npm shim that invokes the packaged native binary
-- `scripts/postinstall.js`: downloads the release binary on install and falls back to local `go build`
-- `.github/workflows/release.yml`: tag-driven release pipeline
-- `AGENTS.md`: guidance for coding agents
+```text
+webctx/
+├── cmd/webctx/       Go CLI entrypoint
+├── internal/         Shared retrieval, search, and command implementation
+├── pkg/              Go adapters and Origo MCP server
+├── api/mcp.go        Vercel Go Function entrypoint
+├── npm/              npm CLI package, shim, and packaging scripts
+├── docs/             Standalone Astro docs site, its dependencies and lockfile
+├── notes/            Historical porting notes
+├── tests/            Root deployment boundary checks
+├── go.mod            One shared Go module for CLI and MCP
+└── Makefile          Go commands and docs convenience targets
+```
+
+The npm package is **staged** with `node npm/scripts/prepare-package.mjs` before
+publishing. This creates the ignored `npm/.publish/` directory containing the
+shim, Go module sources, README, and license. The published package can still
+build the native CLI from source if downloading its release binary fails.
+The docs site is never bundled into npm.
 
 ## Origo deployment
 
@@ -138,12 +146,13 @@ The independent `Docs` and `Origo API` GitHub Actions workflows filter their own
 
 `webctx` is already configured. If you ever rename or move the package, update all of the following together:
 
-- `package.json`
-- `bin/webctx.js`
-- `scripts/postinstall.js`
+- `npm/package.json`
+- `npm/bin/webctx.js`
+- `npm/scripts/postinstall.js`
+- `npm/scripts/prepare-package.mjs`
 - `.github/workflows/release.yml`
 - `Makefile`
 
 ## Porting reference
 
-The repo includes `docs/porting-status.md` as the running reference for what was ported from `webctx-ts`, what was intentionally excluded, and what future agents should verify before making behavior changes.
+The repo includes `notes/porting-status.md` as the running reference for what was ported from `webctx-ts`, what was intentionally excluded, and what future agents should verify before making behavior changes.

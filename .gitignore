@@ -1,7 +1,8 @@
 # Build outputs
 /dist
-/bin/*-bin
-/bin/*.exe
+/npm/bin/*-bin
+/npm/bin/*.exe
+/npm/.publish/
 
 # Node/npm
 node_modules/
@@ -19,4 +20,5 @@ tmp/
 
 # Astro docs
 .astro/
+/docs/dist/
 .env*.local

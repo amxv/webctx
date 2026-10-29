@@ -5,23 +5,15 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/**"
-      - "public/**"
-      - "package.json"
-      - "bun.lock"
-      - "astro.config.mjs"
-      - "tsconfig.json"
-      - "scripts/prepare-prebuilt.mjs"
+      - "docs/**"
+      - "vercel.mjs"
+      - ".github/workflows/docs-deploy.yml"
   pull_request:
     branches: [main]
     paths:
-      - "src/**"
-      - "public/**"
-      - "package.json"
-      - "bun.lock"
-      - "astro.config.mjs"
-      - "tsconfig.json"
-      - "scripts/prepare-prebuilt.mjs"
+      - "docs/**"
+      - "vercel.mjs"
+      - ".github/workflows/docs-deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -36,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: .
+        working-directory: docs
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,17 +40,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Test deployment contract and output
-        working-directory: .
         run: node --test scripts/deployment.test.mjs scripts/prepare-prebuilt.test.mjs
       - name: Check documentation
-        run: bun run docs:check
+        run: bun run check
       - name: Build static site in CI
         if: >-
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
-          bun run docs:build
+          bun run build
           node scripts/prepare-prebuilt.mjs
       - name: Deploy production site
         if: >-

@@ -6,10 +6,10 @@ BIN_NAME ?= webctx
 CMD_PATH ?= ./cmd/$(BIN_NAME)
 DIST_DIR ?= dist
 BIN_PATH ?= $(DIST_DIR)/$(BIN_NAME)
-VERSION ?= $(shell node -p "require('./package.json').version" 2>/dev/null)
+VERSION ?= $(shell node -p "require('./npm/package.json').version" 2>/dev/null)
 LDFLAGS ?= -s -w -X github.com/amxv/webctx/internal/buildinfo.Version=$(if $(VERSION),$(VERSION),dev)
 
-.PHONY: help fmt test vet lint check build build-all install-local clean release-tag
+.PHONY: help fmt test vet lint check build build-all install-local clean release-tag docs-check docs-build
 
 help:
 	@echo "webctx command runner"
@@ -18,16 +18,18 @@ help:
 	@echo "  make fmt          - format Go files"
 	@echo "  make test         - run go test ./..."
 	@echo "  make vet          - run go vet ./..."
-	@echo "  make lint         - run Node script checks"
+	@echo "  make lint         - run npm CLI packaging and deployment contract tests"
 	@echo "  make check        - fmt + test + vet + lint"
+	@echo "  make docs-check   - check Astro docs from docs/"
+	@echo "  make docs-build   - build the Astro docs site"
 	@echo "  make build        - build local binary to dist/webctx"
 	@echo "  make build-all    - build release binaries for 7 target platforms"
 	@echo "  make install-local - install CLI to ~/.local/bin/webctx"
-	@echo "  make clean        - remove dist artifacts"
+	@echo "  make clean        - remove generated build and package artifacts"
 	@echo "  make release-tag  - create and push git tag (requires VERSION=x.y.z)"
 
 fmt:
-	@$(GOFMT) -w $$(find . -type f -name '*.go' -not -path './dist/*')
+	@$(GOFMT) -w $$(find api cmd internal pkg -type f -name '*.go')
 
 test:
 	@$(GO) test ./...
@@ -36,7 +38,14 @@ vet:
 	@$(GO) vet ./...
 
 lint:
-	@npm run lint
+	@npm --prefix npm run lint
+	@node --test tests/origo-deploy.test.mjs
+
+docs-check:
+	@cd docs && bun run check
+
+docs-build:
+	@cd docs && bun run build
 
 check: fmt test vet lint
 
@@ -61,7 +70,7 @@ install-local: build
 	@echo "Installed $(BIN_NAME) to $$HOME/.local/bin/$(BIN_NAME)"
 
 clean:
-	@rm -rf $(DIST_DIR)
+	@rm -rf $(DIST_DIR) npm/.publish docs/dist docs/.astro .vercel/output
 
 release-tag:
 	@test -n "$(VERSION)" || (echo "Usage: make release-tag VERSION=x.y.z" && exit 1)

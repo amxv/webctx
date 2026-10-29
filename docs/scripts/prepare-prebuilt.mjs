@@ -5,12 +5,15 @@ import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-export function preparePrebuilt(docsRoot = process.cwd()) {
+export function preparePrebuilt(docsRoot = process.cwd(), deploymentRoot = path.resolve(docsRoot, '..')) {
   const dist = path.join(docsRoot, 'dist');
   if (!existsSync(path.join(dist, 'index.html'))) {
     throw new Error('Astro dist/index.html is missing. Run bun run build in GitHub Actions.');
   }
-  const output = path.join(docsRoot, '.vercel', 'output');
+  // The docs live in docs/, but the existing Vercel project is linked at repo root.
+  // Stage its static Build Output API bundle there so no project setting changes
+  // or live Origo function configuration changes are needed.
+  const output = path.join(deploymentRoot, '.vercel', 'output');
   rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
   cpSync(dist, path.join(output, 'static'), { recursive: true });

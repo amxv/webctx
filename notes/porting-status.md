@@ -123,7 +123,7 @@ These can be added later only if explicitly requested.
 - `internal/app/scrape.go`
 - `internal/app/app_test.go`
 - `.github/workflows/release.yml`
-- `scripts/postinstall.js`
+- `npm/scripts/postinstall.js`
 - `README.md`
 
 ## Verification already completed
