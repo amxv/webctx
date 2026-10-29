@@ -1,40 +1,32 @@
 ---
 title: How search ranking works
-description: See how webctx combines Brave, Tavily, and Exa into one deterministic result list.
-order: 31
-category: How it works
-summary: Provider position and independent agreement turn three search result sets into one useful list.
+description: Scoring and deduplication across Brave, Tavily, and Exa.
+order: 28
+category: Reference
+summary: How provider positions, agreement, and technical relevance affect search results.
 ---
 
-## Why combine search engines?
+A normal `webctx search` asks the available enabled Brave, Tavily, and Exa accounts in parallel. It returns one ranked Markdown list of at most **35 URLs** with titles and provider-supplied snippets. No result pages are automatically read.
 
-Different search providers are good at different things. A page that appears near the top of several independent result sets is often a stronger candidate than a page surfaced by only one provider.
-
-A normal search therefore runs the enabled Brave, Tavily, and Exa providers together (you can change this with `webctx providers disable exa` or another provider):
-
-```bash
-webctx search "durable agent runtimes"
-```
-
-Then webctx turns those result sets into one list.
-
-## The ranking pipeline
+## Ranking steps
 
 ```text
 Brave ───┐
-Tavily ──┼─→ exclude noise → normalize URLs → rank positions and agreement → technical relevance → 35 links
+Tavily ──┼─→ exclude domains → normalize URLs → score positions + agreement → quality bonus → rank
 Exa ─────┘
 ```
 
-The final output is capped at 35 results so a research query does not flood an agent's context.
+### 1. Exclude unwanted domains
 
-No search-result pages are opened automatically. The final descriptions come directly from Brave and Tavily's search API snippets, or from Exa's query-focused content highlights. To fetch full source text, run `webctx read-link` on a selected URL.
+Default noisy domains and anything from `--exclude` are removed before scoring:
 
-## 1. Normalize URLs
+```bash
+webctx search "react effects" --exclude medium.com,dev.to
+```
 
-Before deduplicating, webctx normalizes URLs so tracking differences do not make the same page look unique.
+### 2. Normalize URLs
 
-For example, these should represent one page:
+Tracking differences should not make duplicate pages look unique. For example:
 
 ```text
 https://example.com/guide?utm_source=search
@@ -42,85 +34,38 @@ https://example.com/guide?ref=homepage
 https://example.com/guide/
 ```
 
-Common tracking parameters such as `utm_*`, `ref`, `fbclid`, and `gclid` are removed. Meaningful query parameters are preserved.
+These normalize to the same URL. Common tracking parameters are removed; meaningful parameters remain.
 
-## 2. Reward high positions
+### 3. Score position and independent agreement
 
-A result gets more points when a provider ranks it highly.
+Every enabled search provider has the same scoring weight. Higher positions get more points:
 
-The first positions use this curve:
+| Position | Points | Position | Points |
+| ---: | ---: | ---: | ---: |
+| 1 | 30 | 8 | 11 |
+| 2 | 27 | 9 | 9 |
+| 3 | 24 | 10 | 7 |
+| 4 | 21 | 11 | 5 |
+| 5 | 19 | 12 | 4 |
+| 6 | 16 | 13 | 3 |
+| 7 | 13 | 14 | 2 |
 
-| Position | Points |
-| ---: | ---: |
-| 1 | 30 |
-| 2 | 27 |
-| 3 | 24 |
-| 4 | 21 |
-| 5 | 19 |
-| 6 | 16 |
-| 7 | 13 |
-| 8 | 11 |
-| 9 | 9 |
-| 10 | 7 |
-| 11 | 5 |
-| 12 | 4 |
-| 13 | 3 |
-| 14 | 2 |
-| 15+ | 1 |
+Positions 15 and later get 1 point. A URL found by more than one provider accumulates points from each appearance and receives an extra agreement bonus (stronger when it appears in a top-five position).
 
-Brave, Tavily, and Exa use the same provider weight, so the ranking is driven primarily by **where a page appears and how many providers agree on it**.
+### 4. Add a bounded technical relevance bonus
 
-## 3. Reward independent agreement
+For coding-oriented searches, local scoring also considers title-term matches, documentation URLs, API/SDK paths, and known first-party sources tied to the searched ecosystem. Not every GitHub result is considered official: the repository organization and query terms need to match.
 
-Suppose the providers return this:
+These are deterministic local checks. No additional network requests or page crawls are made to compute the bonus.
 
-```text
-Brave   #2  https://docs.example.com/agent-runtime
-Tavily  #4  https://docs.example.com/agent-runtime
-Exa     #1  https://other.example.com/runtime-guide
-```
+### 5. Preserve stable order
 
-The repeated `docs.example.com` URL accumulates position points from both Brave and Tavily and receives an additional duplicate bonus.
+Equal final scores keep original insertion order. When multiple providers return a URL, Exa's useful highlight text can be kept even when another provider supplied the strongest title.
 
-That is intentional: two independent providers surfacing the same page is useful evidence.
+## Keyword searches
 
-Agreement near the top of the result sets receives a slightly stronger bonus than agreement on low-ranked results.
+`--keyword` is different from normal multi-provider discovery. It prefers Exa with the phrase quoted in the query. If Exa is unavailable, Brave searches the quoted phrase and Tavily can enforce `exact_match`. This does **not** mean every resulting Exa/Brave page has been checked for the phrase in its full text.
 
-## 4. Favor useful technical sources
+## Search versus reading
 
-For coding and implementation searches, webctx adds bounded relevance bonuses for title-term matches, documentation paths and domains, API/SDK references, and verified first-party GitHub organizations associated with the searched ecosystem. A random GitHub repository is **not** automatically considered official. These local bonuses do not involve extra network calls and preserve the strong role of provider position and agreement.
-
-## 5. Keep output stable
-
-If final scores tie, webctx keeps the original insertion order. This makes the output deterministic and easier to diff or reuse in agent workflows.
-
-## Exclusions happen before ranking
-
-Default noisy domains and anything supplied with `--exclude` are removed before scoring:
-
-```bash
-webctx search "react effects" --exclude medium.com,dev.to
-```
-
-That means excluded pages cannot consume rank or earn agreement bonuses.
-
-## Keyword mode is intentionally different
-
-`--keyword` is not a federated ranking mode:
-
-```bash
-webctx search "drizzle orm" --keyword "migration guide"
-```
-
-It prefers Exa `auto` search with the requested phrase quoted in the query. This replaces Exa's deprecated approximate `includeText` parameter, which was not a strict phrase filter. If Exa is disabled, unconfigured, or fails, Brave searches the quoted phrase and Tavily enables `exact_match`. WebCTX discloses the distinction instead of claiming that all matching pages have had their full text verified. Use normal search when you want cross-provider discovery and agreement; use keyword mode when you know the textual clue you are looking for.
-
-## A practical research loop
-
-The ranking system is meant to find candidates, not produce the final research context.
-
-```bash
-webctx search "agent tool sandbox architecture"
-webctx read-link https://the-best-looking-result.example/guide
-```
-
-Search tells you **what looks worth reading**. `read-link` turns the selected URL into the context you actually give the agent.
+The search APIs provide candidate URLs and snippets. Read a selected source with `webctx read-link` when you need actual page evidence. See [Search the web](/docs/search) for examples and [Rate limits](/docs/rate-limits) for provider admission behavior.

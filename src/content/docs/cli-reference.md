@@ -1,9 +1,9 @@
 ---
 title: CLI reference
-description: The small command and flag reference for everyday webctx use.
+description: Every webctx command, common flags, and output format.
 order: 20
 category: Reference
-summary: Commands, flags, keys, and output in one page.
+summary: Copyable syntax for web and structured-data commands.
 ---
 
 ## Commands
@@ -11,94 +11,91 @@ summary: Commands, flags, keys, and output in one page.
 ```bash
 webctx --help
 webctx --version
-webctx search <query> [--exclude domains] [--keyword phrase]
-webctx status
-webctx providers [status|enable <brave|tavily|exa>|disable <brave|tavily|exa>]
-webctx keys list
-webctx keys add <brave|tavily|exa> --stdin
-webctx keys remove <brave|tavily|exa> <managed-key-index>
+
+# Web research
+webctx search <query> [--exclude domain1,domain2] [--keyword "phrase"]
 webctx read-link <url> [--question "what to find"]
-webctx map-site <url> [--query topic] [--limit 30] [--offset 0] [--path-prefix /api] [--language en|all]
+webctx map-site <url> [--query topic] [--limit N] [--offset N] [--path-prefix /api] [--language en|all]
+
+# Structured data
 webctx research [question] [--mode ranked|catalogue] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
 webctx inspect <operation-or-source-id> [--raw]
 webctx execute <operation-id> --inputs '{"field":"value"}' [--request-id ID]
 webctx execute --calls '[{"id":"source/operation","inputs":{}}]'
+
+# Configuration
+webctx status
+webctx providers [status|enable <brave|tavily|exa>|disable <brave|tavily|exa>]
+webctx keys list
+webctx keys add <brave|tavily|exa|firecrawl> --stdin
+webctx keys remove <brave|tavily|exa|firecrawl> <managed-key-index>
 ```
 
-## Search flags
+Use quotes around URLs containing `#`, `?`, or shell-special characters.
 
-### `--exclude`
+## Search
 
-Add comma-separated domains to the normal exclusion list:
+| Flag | Behavior |
+| --- | --- |
+| `--exclude domains` | Removes specified domains, separated by commas, in addition to built-in exclusions. |
+| `--keyword phrase` | Prefers Exa for a quoted phrase, with Brave/Tavily fallback. It is not a verified full-text filter. |
+
+Normal search uses available enabled providers in parallel, removes duplicate URLs, and returns up to **35** ranked links with provider snippets. It does **not** automatically open result pages.
+
+Enable or disable providers with `webctx providers enable exa` and `webctx providers disable exa`. This preference is separate from whether you have configured keys.
+
+## `read-link`
+
+| Flag | Behavior |
+| --- | --- |
+| `--question "..."` | Selects relevant sections and can explore a bounded set of related documentation links. |
+
+Without `--question`, the response follows the specified URL. Native GitHub URLs keep source ranges, comments, review threads, jobs, and other selectors when possible. See [GitHub URL reference](/docs/github-urls).
+
+## `map-site`
+
+| Flag | Default | Behavior |
+| --- | --- | --- |
+| `--query` | None | Prioritizes pages related to the topic. |
+| `--limit` | 30 | Number of returned pages (1–100). |
+| `--offset` | 0 | Zero-based result offset. |
+| `--path-prefix` | None | Includes only paths under the given prefix. |
+| `--language` | `en` | Locale filter; use `all` to include translated pages. |
+
+Mapping can discover at most 5,000 URLs from the configured provider request. Results include total counts and a copyable continuation when more pages are available. Explicit `--limit 0` is invalid; omit the flag for the default.
+
+## Structured-data commands
+
+`research` can search by natural-language question, or use `--mode catalogue` to browse a paginated list. Views are `sources`, `groups`, and `operations`. Additional filters include `--urls`, `--sources`, `--categories`, `--groups`, and `--operations`. Use `--include inputs,output,examples` to expand specific contract fields.
+
+`inspect` accepts an operation or source ID. Use `--raw` for the full upstream contract.
+
+`execute` accepts an operation ID and a JSON object of inputs, or `--calls` for a batch of up to ten operations. Prefix a JSON filename with `@` when arguments are too long:
 
 ```bash
-webctx search "react hooks" --exclude youtube.com,medium.com
+webctx execute --calls @requests.json
+webctx execute particle/podcasts/episodes/search --inputs @inputs.json
 ```
 
-### `--keyword`
+`--request-id` supplies an idempotency ID for retries of the **same** paid execution. Do not reuse it for a new query or page. For prices, credit limits, return fields, and retries, see [Structured data reference](/docs/data-reference).
 
-Prefer a short quoted phrase in Exa; if Exa is unavailable, Brave uses the quoted query and Tavily enables `exact_match`:
+## Credentials and settings
 
-```bash
-webctx search "drizzle orm" --keyword "migration guide"
-```
+`webctx status` displays search provider enablement and locally configured key counts, not live credit balances. `keys list` also reports managed macOS Keychain slots. `keys add` reads one key from standard input and `keys remove` removes a numbered *managed* key; they never print key values.
 
-Exa's old `includeText` filter is deprecated and was only approximate. Quoted searches do not independently verify that the literal phrase exists in the full text of every Exa/Brave result. Tavily's fallback `exact_match` restricts results to pages matching the quoted phrase.
+Search provider settings are stored in your OS user config directory under `webctx/config.json`, or at `WEBCTX_CONFIG_FILE` if set.
 
-## Provider settings
+See [Credentials](/docs/credentials) for environment variables and [Rate limits and concurrency](/docs/rate-limits) for scheduling overrides and state locations.
 
-```bash
-webctx status                # see enabled state and credential presence
-webctx providers disable exa # never send Exa search requests
-webctx providers enable exa  # re-enable later
-```
+## Output formats
 
-These are persistent, per-user search-provider settings, independent of credentials. The config file is `webctx/config.json` inside the OS user config directory, or the path given by `WEBCTX_CONFIG_FILE`. `status` does not check provider quotas or API health. Firecrawl is separate from federated search.
+| Command | Output |
+| --- | --- |
+| `search` | Markdown with titles, URLs, and short provider snippets. |
+| `read-link` | Markdown/text with source attribution and caveats. |
+| `map-site` | Site URL inventory with counts and pagination. |
+| `research` | JSON with sources/operations and next-step arguments. |
+| `inspect` | JSON with contract, price, and suggested execution. |
+| `execute` | Provider data and per-operation results, credits, and continuations. |
 
-## Multiple credentials per provider
-
-For additional API keys, use `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` (CSV, newlines, or JSON arrays). The legacy singular key joins the round-robin pool; each search begins with a different healthy key, coordinated across independent CLI processes on the same machine. A rejected key triggers failover for auth, quota/credits, rate limits, server, or transport failures; shared cooldowns prevent repeated attempts until recovery. Malformed successful responses and invalid API requests do not trigger a retry. Only key hashes and cooldown timestamps are stored in the per-user cache; override its location with `WEBCTX_SEARCH_KEY_BALANCER_DIR` if needed.
-
-On macOS, `pbpaste | webctx keys add exa --stdin` stores a newly copied key in Keychain, not on disk. `webctx keys list` reports configured counts and Keychain-managed slots without printing secrets; `webctx keys remove exa 1` deletes the newest managed Exa key, without touching the singular legacy key. These commands support Brave, Tavily, and Exa only; Firecrawl/Alexandria has separate request and billing semantics.
-
-## Question-focused reading
-
-`--question` asks Webctx to select relevant API/code sections and follow up to two matching same-host documentation links. Without it, `read-link` retains the full original source read.
-
-```bash
-webctx read-link https://docs.example.com/api --question "How does pagination work?"
-```
-
-## Environment variables
-
-```text
-BRAVE_API_KEY
-TAVILY_API_KEY
-EXA_API_KEY
-FIRECRAWL_API_KEY
-GH_TOKEN
-GITHUB_TOKEN
-```
-
-`GH_TOKEN` is preferred when both GitHub variables are set.
-
-## Output
-
-- `search` → retrieved source excerpts, supporting documentation, and ranked markdown links
-- `read-link` → full source Markdown/text, or question-focused excerpts and related sources
-- `map-site` → discovered URLs with titles/descriptions when available
-- `research` → JSON with ranked or pageable operations and next inspect calls
-- `inspect` → JSON with the exact source contract, price, and next execute call
-- `execute` → provider-native JSON, charged credits, request ID, and pagination hints
-
-Raw source, diffs, patches, and explicit job logs stay close to the original provider text. Structured GitHub pages use compact metadata plus the content that matters.
-
-## More detail
-
-- [Search the web](/docs/search)
-- [Read a URL](/docs/read-link)
-- [Map a site](/docs/map-site)
-- [Research structured data](/docs/data-sources)
-- [Credentials](/docs/credentials)
-
-If you are developing or releasing webctx itself, see `CONTRIBUTORS.md` in the repository.
+Raw source files, diffs, and patches remain close to their upstream representation. Errors include provider-specific limitations when known.

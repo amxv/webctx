@@ -1,175 +1,69 @@
 ---
 title: How URL reading works
-description: See how webctx chooses the cleanest way to read a URL before falling back to a full page crawl.
-order: 30
-category: How it works
-summary: Native GitHub reads, direct markdown, and Firecrawl form an automatic cost-and-quality ladder.
+description: Native sources, direct Markdown, and Firecrawl fallbacks.
+order: 27
+category: Reference
+summary: The retrieval strategy behind read-link and Origo read_link.
 ---
 
-## One command, different paths
-
-You always run the same command:
+One command handles different source types:
 
 ```bash
 webctx read-link <url>
 ```
 
-webctx chooses how to read the URL for you.
+webctx chooses the most faithful available representation before attempting page extraction.
 
 ```text
 URL
- │
- ├─ supported structured source? ──→ read it directly
- │   GitHub repos, source, Issues, PRs, CI, history, ...
- │
- ├─ clean markdown available? ─────→ fetch the markdown
- │
- ├─ otherwise ─────────────────────→ Firecrawl Scrape (30-minute cache)
- │                                    ↳ automatic basic/enhanced proxy
- │                                    ↳ explicit enhanced if content blocked
- └─ still blocked ─────────────────→ disposable Firecrawl Browser Sandbox
-
-                                   ↓
-                           useful markdown/text
+ ├─ recognized structured GitHub URL → native/raw provider read
+ ├─ raw JSON, YAML, OpenAPI, or text → direct fetch
+ ├─ clean published Markdown available → direct Markdown fetch
+ └─ ordinary rendered webpage → Firecrawl Scrape
+                                  ↳ enhanced proxy if necessary
+                                  ↳ temporary browser extraction if blocked
+                                      ↓
+                              readable Markdown/text
 ```
 
-The goal is simple: **do the cheapest faithful thing first, and only crawl a page when crawling is actually necessary.**
+This avoids paying to scrape a page when the source already offers accurate structured or readable content.
 
-For question-focused reads, Webctx adds a bounded second step after the faithful initial read: score document sections against the question, follow up to two relevant same-host documentation links, consult `llms.txt` when useful, and extract public JSON metadata where available. A normal URL-only read stays a single exact-source request. Search independently fetches three ranked candidate sources and up to two supporting references so coding agents receive grounded context without extra tool calls.
+## Native GitHub reads
 
-The same retrieval engine powers the **WebCTX CLI** and the **Origo MCP** transport. Origo exposes `read_link` and `map_site` for documents plus `research`, `inspect`, and `execute` for structured data; it does not expose the CLI's federated web `search`. Firecrawl's `maxAge` is 30 minutes for scraped pages; no extra caching service is used.
+GitHub URLs can refer to repositories, directories, source ranges, issues, pull requests, reviews, diffs, commits, blame, CI jobs, releases, Discussions, Gists, Projects, and other recognized resources.
 
-## Why this matters
+- **Overview URLs** return a bounded index and links to exact children.
+- **Exact selectors** target the specified source lines, comment, review thread, diff hunk, or job.
+- **Raw `.diff` / `.patch` links** preserve the requested bulk representation.
 
-A browser page contains much more than the thing an agent asked for: navigation, menus, buttons, avatars, sidebars, repeated metadata, scripts, and layout text.
+A compact overview can omit items even when GitHub has returned them; webctx distinguishes these omissions from upstream pagination and rate limits. Some exact machine-generated content, such as large CI logs, can still be previewed with links for further reading.
 
-If the URL already identifies the useful resource, webctx can skip that noise completely.
+See [GitHub URL reference](/docs/github-urls) for exact forms and limitations.
 
-For example:
+## Direct text and Markdown
 
-```bash
-webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#L1-L20'
-```
+Before crawling a normal URL, webctx checks whether an authentic text/Markdown version is available. For documentation sites, this can include published `.md` variants and directory `index.md` pages. It can also read raw structured documents such as JSON, YAML, and OpenAPI definitions.
 
-That URL already means “these source lines.” Fetching the source directly is faster and gives a cleaner result than rendering the GitHub page and trying to recover those lines afterward.
+`--question` is a separate, bounded exploration step: it selects relevant source sections, can follow related same-host documentation links, and may inspect `llms.txt`, OpenAPI documents, or public embedded JSON when useful. A normal URL-only read does not trigger that extra research loop.
 
-The same idea applies to more structured GitHub URLs:
+## Firecrawl fallback
 
-```bash
-# One Issue conversation
-webctx read-link https://github.com/amxv/webctx/issues/6
+When a direct read is unavailable, webctx asks Firecrawl to extract the main content. Firecrawl's own scrape cache is set to **30 minutes**. Challenge screens and empty responses can trigger enhanced extraction or a temporary browser session. Browser extraction is best-effort, not a guarantee that blocked sites are accessible.
 
-# One PR review thread
-webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
+`map-site` uses Firecrawl to discover URLs rather than extracting every discovered page. Firecrawl requests are scheduled against per-key quotas across local CLI processes; see [Rate limits and concurrency](/docs/rate-limits).
 
-# One Actions job and its log
-webctx read-link https://github.com/<owner>/<repo>/actions/runs/<run-id>/job/<job-id>
-```
+## Permissions remain authoritative
 
-webctx treats the URL as a selector, not merely an address.
+If a URL is recognized as a native GitHub resource, a permission, private/not-found, or rate-limit error from GitHub is not hidden behind a generic HTML scrape. An unsupported GitHub URL shape can use the ordinary webpage path instead.
 
-## GitHub fast paths
+The narrow exception is a **public GitHub Package URL** whose Package API rejects authentication/permission: if Firecrawl is configured, webctx may return a clearly labeled best-effort page extraction.
 
-GitHub is the deepest optimization because its URLs carry a lot of meaning and GitHub exposes structured/raw provider data for many resources.
+A GitHub token can improve limits and unlock more resource types, but it never bypasses GitHub's permissions.
 
-webctx can use those sources to return focused context for things such as:
+## Search is a different operation
 
-- repository overviews and directory listings
-- source files, line ranges, and Markdown sections
-- Issues and exact comments
-- PR conversations, review threads, diffs, commits, and checks
-- commit history, comparisons, and blame
-- Actions runs, jobs, logs, and artifacts
-- releases, Discussions, Gists, Search, profiles, Projects, and deployments
+`search` queries Brave, Tavily, and Exa, ranks URLs, and returns provider-supplied snippets. **It does not run `read-link` on its results**. This separation keeps discovery fast and avoids using Firecrawl credits on every possible result.
 
-This has three useful properties for agents:
+The same core readers power webctx CLI and Origo MCP. Origo exposes `read_link`, `map_site`, and structured-data tools, but not the CLI's federated `search`.
 
-1. **Less context.** The response contains the selected resource instead of GitHub UI chrome.
-2. **More precision.** Fragments such as source lines, Issue comments, review threads, and diff anchors stay meaningful.
-3. **Better truthfulness.** Provider limits, missing permissions, pagination, expired logs, and incomplete results can be surfaced directly instead of being hidden by a rendered page.
-
-You do not need to learn separate webctx subcommands for these resources. Copy the GitHub URL and use `read-link`.
-
-### Overview, exact, and raw are different contracts
-
-Native GitHub routes fall into three practical shapes:
-
-- A **container/root** URL returns a bounded overview: authoritative metadata, compact previews/indexes, and exact URLs for deeper navigation.
-- A **copied selector** such as a source range, Issue/PR/Discussion/Gist comment, review thread, diff hunk, or focused check reads that exact semantic item. Provider traversal is allowed when it is necessary to locate the requested identity rather than to expand the whole root.
-- An explicit **raw/bulk representation** such as `.diff` or `.patch` keeps the bulk representation complete.
-
-The budget applies to context-amplifying overviews, not by chopping exact selected human text. Machine-generated subordinate content such as logs, annotations, or oversized summaries may instead use a bounded preview plus a stable provider URL for the deeper artifact.
-
-Provider completeness and local context budgeting are also separate facts. A view can say that GitHub has another page or enforces a provider ceiling while independently reporting how many returned rows webctx chose not to print inline.
-
-## Direct markdown before crawling
-
-GitHub is not the only fast path.
-
-For normal sites, webctx checks whether a clean markdown representation is available before asking Firecrawl to render and extract the page.
-
-```bash
-webctx read-link https://some-docs.example/guide
-```
-
-If the site exposes a usable markdown version, webctx can fetch that directly. Otherwise it moves on to the crawler.
-
-This is especially useful for documentation sites where the authored text is already available without browser rendering.
-
-## Firecrawl is the general fallback
-
-When there is no faithful native or direct-text path, webctx uses Firecrawl:
-
-```bash
-webctx read-link https://example.com/article
-```
-
-Rendered-page extraction is the broadest path. It handles ordinary websites that need HTML cleanup or browser-style extraction, while the faster paths handle resources that can be represented more precisely.
-
-`map-site` also uses Firecrawl when you want to discover URLs before reading them:
-
-```bash
-webctx map-site https://docs.example.com
-```
-
-## One deliberate best-effort exception
-
-GitHub Package pages are unusual: a Package can be publicly visible in the browser while GitHub's Package API rejects the available credential.
-
-For an exact public Package URL, webctx first prefers the structured API. If that fails specifically because of authentication or permission and Firecrawl is configured, it can crawl the public Package page instead.
-
-```bash
-webctx read-link https://github.com/orgs/<org>/packages/container/package/<name>
-```
-
-That output is visibly marked **best-effort** because page extraction can contain UI noise or be incomplete.
-
-webctx does not use this escape hatch to hide GitHub rate limits, private/not-found resources, or unrelated native GitHub failures.
-
-The routing boundary matters here. If webctx recognizes a GitHub URL as a native resource, GitHub's auth/not-found/rate-limit result is authoritative. If the GitHub route is outside the native URL grammar (for example, an ordinary Wiki page), `read-link` can continue through the same direct-markdown/Firecrawl path used for other websites.
-
-## Authentication improves the fast path
-
-Most public GitHub reads do not require a token. Adding `GH_TOKEN` or `GITHUB_TOKEN` gives webctx more GitHub capacity and can unlock richer reads such as:
-
-- blame
-- Discussions
-- some Actions job logs
-- private resources your token can access
-- resolved/outdated PR review-thread state
-
-Fine-grained tokens can be narrower than GitHub's public surface. For public endpoints where GitHub permits it, webctx can retry without Authorization if the token itself is rejected.
-
-## Architecture at a glance
-
-The whole CLI is intentionally small:
-
-```text
-search    ──→ Brave + Tavily + Exa ──→ normalize + rank ──→ markdown links
-read-link ──→ native/direct fast paths ──→ Firecrawl fallback ──→ markdown/text
-map-site  ──→ Firecrawl map ──→ URL inventory
-```
-
-That is the product architecture: **find good pages, read them with the most faithful available path, and keep the result easy to hand to another tool.**
-
-For repository layout, build details, or implementation code, see [`CONTRIBUTORS.md`](https://github.com/amxv/webctx/blob/main/CONTRIBUTORS.md) or the source itself.
+For the result scoring model, see [How search ranking works](/docs/ranking).

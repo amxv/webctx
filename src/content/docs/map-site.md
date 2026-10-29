@@ -1,38 +1,29 @@
 ---
 title: Map a site
-description: Discover the useful URLs on a site before deciding which pages to read.
+description: Discover a site's pages before deciding which ones to read.
 order: 12
 category: Guides
-summary: Turn a docs or product site into a navigable URL inventory.
+summary: Explore a documentation site without flooding an agent with URLs.
 ---
 
-## Basic usage
+## Find pages
 
 ```bash
 webctx map-site https://docs.firecrawl.dev
 ```
 
-The result is a **bounded preview of 30 URLs** (not the entire site), with titles and descriptions where available. This prevents thousands of links from flooding an agent's context.
+The default output shows up to 30 relevant URLs with titles and descriptions when available. It is a preview, not a promise that every page has been discovered.
 
-For filtered and paginated structured output:
+## Narrow the list
 
 ```bash
-webctx map-site https://docs.firecrawl.dev --limit 20 --query "REST API"
-webctx map-site https://docs.firecrawl.dev --limit 20 --offset 20 --path-prefix /api/
-webctx map-site https://docs.firecrawl.dev --language all --limit 30
+webctx map-site https://docs.firecrawl.dev --query "REST API" --limit 20
+webctx map-site https://docs.firecrawl.dev --path-prefix /api/ --offset 20
 ```
 
-The MCP `map_site` tool accepts `url`, optional `query`, `limit` (1–100, default 30), `offset`, `path_prefix`, and `language` (default `en`; `all` includes translated pages).
+Use `--query` to rank pages by a topic, `--path-prefix` to focus on a section, and `--offset` to browse the next page. You can also change the result count with `--limit` (1 to 100) and include translated pages with `--language all`.
 
-Explicit `limit: 0` or CLI `--limit 0` is rejected with `invalid_limit`; omit the field to use the default of 30.
-
-Each result includes `total_discovered`, `total_matching`, bounded `links` objects and a copy-ready `next` call when another page exists. Source mapping may itself be incomplete if the provider's 5,000-URL ceiling is reached.
-
-## Why map first?
-
-A docs site can contain hundreds or thousands of pages. An agent usually does not need all of them.
-
-Use `map-site` to see the shape of the site, then read only the pages that matter:
+## Read what matters
 
 ```bash
 webctx map-site https://some-docs.example
@@ -40,12 +31,6 @@ webctx read-link https://some-docs.example/getting-started
 webctx read-link https://some-docs.example/api/reference
 ```
 
-This keeps research broad at the discovery step and focused at the reading step. Full inventories remain accessible by paging rather than adding thousands of URLs to one model context.
+The map helps your agent decide where to go. `read-link` retrieves the selected page.
 
-## Credential
-
-`map-site` uses:
-
-```text
-FIRECRAWL_API_KEY
-```
+`map-site` requires a Firecrawl API key. Additional keys from separate accounts can be configured for higher concurrent throughput. See [Credentials](/docs/credentials), [CLI reference](/docs/cli-reference), and [Rate limits](/docs/rate-limits).

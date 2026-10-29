@@ -1,96 +1,93 @@
 ---
 title: Quickstart
-description: Install webctx, add the keys you need, and get useful web context in a few commands.
+description: Install webctx and run your first search, URL read, and site map.
 order: 1
 category: Start
-summary: Install it, paste a URL, and start giving agents cleaner web context.
+summary: A few commands to get useful context into your agent.
 ---
 
-## Install
+## Install webctx
 
 ```bash
-npm i -g webctx
-webctx --help
+npm install -g webctx
+webctx --version
 ```
 
-## Try the document commands
+## Choose a task
 
-Search the web:
+**Find documentation:**
 
 ```bash
-webctx search "agent web research"
+webctx search "Go context cancellation"
 ```
 
-Turn a URL into useful text:
+Search queries Brave, Tavily, and Exa when enabled and configured. You get one ranked list with short source snippets. It does **not** automatically open every result page.
+
+**Read a URL:**
 
 ```bash
 webctx read-link https://github.com/amxv/webctx
+webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#L1-L20'
 ```
 
-Discover the pages on a site:
+The first link returns a repository overview; the second asks for specific source lines. For normal web pages, webctx tries clean text and falls back to Firecrawl extraction.
+
+**Find pages on a site:**
 
 ```bash
 webctx map-site https://docs.firecrawl.dev
 ```
 
-These three return plain text or markdown that can go straight into an agent, a file, a pipe, or your clipboard.
+`map-site` returns a manageable page list, not an unbounded crawl of every URL.
 
-For structured data from statistical agencies, podcast indexes, finance or other live sources, use `research` to discover operations, `inspect` to view their exact contract, and `execute` to retrieve provider data. See [Research structured data](/docs/data-sources).
-
-Search automatically retrieves relevant source sections alongside the links. You can also ask a question about any URL, and Webctx will follow the most relevant documentation references automatically:
+**Ask a focused question:**
 
 ```bash
 webctx read-link https://docs.example.com/api --question "How does pagination work?"
 ```
 
-## The part worth trying first
+Question mode looks for relevant sections and can follow a small set of related documentation links.
 
-`read-link` understands many GitHub URLs instead of scraping the whole GitHub page.
+## Configure credentials
 
-```bash
-# Just these source lines
-webctx read-link 'https://github.com/amxv/webctx/blob/main/README.md#L1-L20'
+You only need keys for the capabilities you use:
 
-# Just this Issue and its conversation
-webctx read-link https://github.com/amxv/webctx/issues/6
-
-# A PR as a review conversation
-webctx read-link https://github.com/amxv/webctx/pull/15
-
-# A single inline review thread
-webctx read-link 'https://github.com/cli/cli/pull/13250#discussion_r3118513169'
-```
-
-The URL already carries your intent. webctx tries to preserve that intent and return only the useful context.
-
-## Add credentials
-
-Create `.env.local` in the directory where you normally run webctx:
-
-```bash
-BRAVE_API_KEY=...
-TAVILY_API_KEY=...
-EXA_API_KEY=...
-FIRECRAWL_API_KEY=...
-GH_TOKEN=...
-```
-
-You do not need every key for every command:
-
-| What you want to do | Key |
+| Task | Credentials |
 | --- | --- |
-| Normal `search` | Any one or more of `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
-| Map sites or crawl normal pages | `FIRECRAWL_API_KEY` |
-| More GitHub capacity / auth-only GitHub views | `GH_TOKEN` or `GITHUB_TOKEN` |
+| Search | One or more of `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
+| Map sites or extract ordinary web pages | `FIRECRAWL_API_KEY` |
+| Discover, inspect, or execute structured data | `FIRECRAWL_API_KEY` |
+| Read most public GitHub URLs | Usually no token needed; `GH_TOKEN` helps with rate limits and permissions |
 
-Many public GitHub reads work without a GitHub token. Add one when you want higher limits, blame, Discussions, some Actions logs, private resources your token can access, or richer review-thread state.
+For example, put the keys you use into a `.env.local` file or your environment:
 
-## A simple agent loop
-
-```bash
-webctx search "next.js caching changes"
-webctx read-link https://nextjs.org/docs/app/building-your-application/caching
-webctx read-link https://github.com/vercel/next.js/issues/<issue-number>
+```dotenv
+BRAVE_API_KEY=your-key
+FIRECRAWL_API_KEY=your-key
 ```
 
-Search finds candidates **and retrieves evidence**. `read-link` lets your agent inspect exact URLs or dig deeper with an optional question. Your agent gets source-grounded context instead of browser UI.
+Check what's configured:
+
+```bash
+webctx status
+```
+
+See [Credentials](/docs/credentials) for Keychain setup and multiple accounts.
+
+## Work with structured data
+
+Use three commands when you need data records rather than pages:
+
+```bash
+webctx research "podcast conversations about AI agents"
+webctx inspect particle/podcasts/episodes/search
+webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}'
+```
+
+`research` and `inspect` discover available operations and their schemas. **`execute` uses paid Firecrawl Alexandria credits.** Read [Research structured data](/docs/data-sources) before running paid queries.
+
+## Where next?
+
+- [Use webctx with agents](/docs/agent-workflows) for real workflows.
+- [Read a URL](/docs/read-link) for GitHub and website examples.
+- [CLI reference](/docs/cli-reference) for every flag.

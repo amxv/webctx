@@ -1,44 +1,44 @@
 ---
 title: Install
-description: Install webctx from npm, a release binary, or source.
+description: Install the CLI using npm, a release binary, or Go.
 order: 2
 category: Start
-summary: The shortest install paths for a terminal, CI job, or agent machine.
+summary: Install webctx on macOS, Linux, or Windows.
 ---
 
-## npm
+## npm (recommended)
 
 ```bash
-npm i -g webctx
+npm install -g webctx
 webctx --version
 ```
 
-This is the easiest option for most users.
+The npm installer downloads a prebuilt binary for your operating system and architecture. If a binary cannot be downloaded, it can fall back to building with Go when available.
 
-## Prebuilt binary
+## Download a binary
 
-GitHub Releases include binaries for:
+Choose your platform from [GitHub Releases](https://github.com/amxv/webctx/releases):
 
-- macOS Intel
-- macOS Apple Silicon
-- Linux Intel
-- Linux ARM
-- Windows Intel
+| Operating system | Architectures |
+| --- | --- |
+| macOS | Intel (x64), Apple Silicon (ARM64) |
+| Linux | x64, ARM64 |
+| Windows | x86 (32-bit), x64, ARM64 |
 
-Download the matching release if you prefer not to use npm.
+Extract the binary, make it executable when needed, and add it to your `PATH`.
 
 ## Build from source
 
-If you already have Go:
+Requires Go (see the version in `go.mod`).
 
 ```bash
 git clone https://github.com/amxv/webctx.git
 cd webctx
 make build
-./dist/webctx --help
+./dist/webctx --version
 ```
 
-For a local install from the checkout:
+To install that build into `~/.local/bin`:
 
 ```bash
 make install-local
@@ -46,6 +46,4 @@ make install-local
 
 ## Next
 
-Go to the [Quickstart](/docs/quickstart) and try `read-link` on a GitHub URL you use every day.
-
-If you are changing webctx itself, development and release notes live in `CONTRIBUTORS.md` in the repository.
+Follow the [Quickstart](/docs/quickstart) and [set up credentials](/docs/credentials) for the commands you plan to use. For development, tests, and releases, see [CONTRIBUTORS.md](https://github.com/amxv/webctx/blob/main/CONTRIBUTORS.md).

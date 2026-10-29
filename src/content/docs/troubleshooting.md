@@ -1,14 +1,14 @@
 ---
 title: Troubleshooting
-description: Quick fixes for missing keys, GitHub permissions, rate limits, Firecrawl failures, and installation problems.
-order: 21
+description: Fix missing credentials, rate limits, GitHub permissions, and installation issues.
+order: 29
 category: Reference
-summary: Start with the error webctx gave you, then check the matching provider or credential.
+summary: Start with the error and follow the shortest useful fix.
 ---
 
-## Search says credentials are missing
+## `search` says a key is missing
 
-Normal search needs at least one key for an enabled provider (not all three):
+Normal search needs a key for **at least one enabled search provider**:
 
 ```text
 BRAVE_API_KEY
@@ -16,114 +16,62 @@ TAVILY_API_KEY
 EXA_API_KEY
 ```
 
-Add them to the environment or `.env.local`, then retry.
+Add one through an environment variable, `.env.local`, or macOS Keychain. Run `webctx status` to check which providers are enabled and whether keys are configured. Disable providers you do not use with `webctx providers disable exa`.
 
-Run `webctx status` to check both key presence and which providers are enabled. You can disable an exhausted provider without deleting its key, e.g. `webctx providers disable exa`.
+If you have multiple keys from separate accounts, configure `*_API_KEYS` or use `webctx keys add`. WebCTX coordinates rate limits between agents using the same key on the same machine. See [Credentials](/docs/credentials) and [Rate limits](/docs/rate-limits).
 
-If you have more than one credential for a search provider, use `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` (comma-separated or JSON array) or add a key on macOS with `pbpaste | webctx keys add exa --stdin`. WebCTX automatically balances searches between configured keys. After quota, authentication, rate-limit, server, or transport failures, it tries another key and temporarily cools down the failing credential for all CLI processes on the same machine. If all keys are cooling down, WebCTX tells you how long until the next retry instead of repeatedly exhausting quota. Invalid search requests do not retry. `webctx keys list` shows key counts without revealing secrets. Respect provider-account quotas and avoid cycling accounts to bypass plan restrictions.
+## Search gets throttled
 
-`--keyword` prefers Exa with the phrase quoted in the query (the deprecated `includeText` parameter is no longer used). If Exa is disabled, unconfigured, or fails, Brave uses the quoted query and Tavily uses the quoted query with `exact_match` enabled. Exa and Brave results are not independently verified against full page text.
+A `429` means the upstream account rejected a request. WebCTX cools down that key and uses another eligible account if configured. If all accounts are busy, a provider can be skipped after a short wait so results from other providers remain available.
 
-## `read-link` works for GitHub but not normal websites
+Monthly credits are different from requests-per-second or requests-per-minute quotas. Check your provider dashboard if credits may be exhausted. `webctx status` does not query balances.
 
-Normal web pages often need:
+## `read-link` handles GitHub but not a normal webpage
 
-```text
-FIRECRAWL_API_KEY
+Normal website extraction may require Firecrawl:
+
+```dotenv
+FIRECRAWL_API_KEY=your-key
 ```
 
-Try:
-
-```bash
-webctx read-link https://example.com
-```
-
-If Firecrawl is configured and the site still fails, the site may be blocking extraction or Firecrawl may be rate-limited.
-
-## A GitHub read asks for authentication
-
-Set one of:
-
-```text
-GH_TOKEN
-GITHUB_TOKEN
-```
-
-`GH_TOKEN` wins when both are set.
-
-Some common authenticated reads are blame, Discussions, certain Actions job logs, richer PR review-thread state, and private resources your token can access.
-
-A browser-visible GitHub page is not always anonymously available through GitHub's structured API. webctx reports the provider's actual auth state rather than pretending the data is available.
-
-## A fine-grained GitHub token gets `403`
-
-Fine-grained tokens only have the permissions you granted them. A token can work for one repository endpoint and still be rejected by Packages, social lists, Projects owned by another organization, or other GitHub surfaces.
-
-For selected public GETs, webctx can retry anonymously when a narrow token is rejected. If GitHub also rejects the anonymous request, webctx keeps the permission error.
-
-## A GitHub Package returns best-effort page content
-
-This is intentional for exact public Package pages.
-
-If GitHub's Package API rejects the read for auth or permission reasons and `FIRECRAWL_API_KEY` is configured, webctx can crawl the public Package page instead. The output starts with a **best-effort** warning because scraped GitHub pages can contain UI noise or incomplete dynamically loaded data.
-
-Rate limits and private/not-found resources do not use this fallback.
-
-## GitHub says you are rate-limited
-
-webctx includes the rate-limit resource and reset/retry information GitHub returned.
-
-Anonymous GitHub capacity is much smaller than authenticated capacity. Add `GH_TOKEN` or `GITHUB_TOKEN` if you want authenticated limits.
-
-webctx does not hide GitHub rate limits by scraping the page instead; a rate-limited structured read should stay visibly rate-limited.
-
-## A GitHub root says more data is available
-
-That is not necessarily an error. Large GitHub roots are deliberately context-bounded.
-
-- **Provider-more / provider ceiling** means GitHub itself has another page or exposes only a bounded provider result.
-- **Local omission** means webctx received rows but kept only a compact index in this overview.
-
-For a normal pageable list, webctx renders every row from its compact provider page; use the printed Next/Previous URL to continue without skipping rows. Local omission is reserved for aggregate/root overviews where enumerating every child is not the page contract. In those views, use the exact child/subresource URLs that are printed. For copied comments, threads, source ranges, diff hunks, focused checks, and Gist selectors, pass that exact URL back to `read-link`. For bulk change text, use the explicit `.diff` or `.patch` URL. There is no separate webctx “fetch everything” flag.
-
-## An unsupported GitHub page is being crawled
-
-webctx only claims GitHub URL shapes for which it has a faithful native contract. A route outside that grammar can continue through the normal direct-markdown/Firecrawl path, just like another website.
-
-Once a URL is recognized as a native GitHub resource, however, auth, not-found/private, permission, and rate-limit failures stay authoritative instead of silently falling back to a generic GitHub page scrape. Exact public Package pages are the single best-effort exception described above.
-
-## An Actions job has no log
-
-The job can still be valid even when its log is no longer downloadable. GitHub controls log availability and retention.
-
-webctx keeps the job/step metadata and tells you the log is unavailable instead of substituting another job. When a retained log is available, large logs are previewed rather than dumped in full; the job output includes GitHub's stable log API endpoint so you can explicitly follow the provider's signed one-minute download when you really need the full log.
+Check the key, account quota, and whether the site blocks extraction. Some documentation pages work through direct Markdown without Firecrawl; not every website does.
 
 ## `map-site` fails
 
-`map-site` always needs:
+Mapping needs a Firecrawl key (`FIRECRAWL_API_KEY` or `FIRECRAWL_API_KEYS`). Check the site URL, Firecrawl account limits, and whether the target can be mapped. Site discovery may be incomplete if the provider reaches its URL ceiling.
 
-```text
-FIRECRAWL_API_KEY
-```
+## A GitHub URL asks for authentication
 
-Check the key, Firecrawl account limits, and whether the target site is crawlable.
+Add `GH_TOKEN` or `GITHUB_TOKEN`. Public GitHub reads often work anonymously, but blame, Discussions, some Actions logs, private resources, and extra review state need authentication or higher permissions.
 
-## npm install fails
+A fine-grained token may lack access to a particular endpoint, even when other GitHub reads work. GitHub's permission error is not something a webpage scrape can reliably bypass.
 
-Try the latest npm path first:
+## GitHub says a page is incomplete
+
+Some GitHub roots intentionally return a compact overview. Distinguish:
+
+- **More data upstream:** GitHub has another page, a provider limit, or a computing/expired artifact.
+- **Locally omitted items:** WebCTX did not expand every child in the overview; use the printed URL to open the exact item.
+
+For pageable lists, follow the Next/Previous URL. For source lines, comments, threads, diff hunks, or job logs, follow the more specific GitHub URL from the output. See [GitHub URL reference](/docs/github-urls).
+
+## An Actions job has no log
+
+GitHub controls log availability and retention. WebCTX still returns job and step metadata when available. A large downloadable log may appear as a focused preview with a provider URL for more detail.
+
+## A public GitHub Package was scraped
+
+A public Package webpage can be visible even when GitHub's Package API rejects the available token. For **exact public Package URLs**, webctx may return a clearly marked best-effort Firecrawl read after an authentication/permission error. It does not use that exception for private/not-found resources or GitHub rate limits.
+
+## npm installation fails
+
+Try the current release first:
 
 ```bash
-npm i -g webctx
+npm install -g webctx
 webctx --version
 ```
 
-If you cannot use the prebuilt package on your platform, build from source:
+If npm cannot retrieve a binary for your platform, [download one](https://github.com/amxv/webctx/releases) or [build from source](/docs/install). Building requires Go.
 
-```bash
-git clone https://github.com/amxv/webctx.git
-cd webctx
-make build
-./dist/webctx --version
-```
-
-For contributor-specific build/release troubleshooting, see `CONTRIBUTORS.md`.
+For further diagnostics, consult [CLI reference](/docs/cli-reference), [Credentials](/docs/credentials), or the contributor instructions in [CONTRIBUTORS.md](https://github.com/amxv/webctx/blob/main/CONTRIBUTORS.md).

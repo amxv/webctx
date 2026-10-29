@@ -6,7 +6,7 @@ import "../styles/global.css";
 
 const docs = (await getCollection("docs"))
   .sort((a, b) => a.data.order - b.data.order)
-  .filter((entry) => ["quickstart", "read-link", "agent-workflows", "search", "map-site", "credentials", "architecture", "ranking"].includes(entry.id));
+  .filter((entry) => ["quickstart", "read-link", "agent-workflows", "search", "map-site", "data-sources", "origo", "credentials", "rate-limits"].includes(entry.id));
 
 const commands = [
   {
@@ -52,7 +52,7 @@ const workflow = [
         <div class="wc-eyebrow">
           <span class="wc-eyebrow__dot" aria-hidden="true"></span>
           <span>Federated web context for agents</span>
-          <span class="wc-eyebrow__version">Go · CLI · v0.2.0</span>
+          <span class="wc-eyebrow__version">Go · CLI · MCP</span>
         </div>
 
         <h1 id="hero-title">
@@ -62,8 +62,8 @@ const workflow = [
         </h1>
 
         <p class="wc-hero__lede">
-          Search across Brave, Tavily, and Exa. Paste a useful URL and get the part an agent
-          actually needs. Map an entire site before deciding where to look. Three verbs, one small binary.
+          Search across Brave, Tavily, and Exa. Read the part of a URL an agent actually needs.
+          Map sites and explore structured data, all from one small binary.
         </p>
 
         <div class="wc-hero__actions">
@@ -236,13 +236,14 @@ const workflow = [
     <section class="wc-commands wc-section" aria-labelledby="commands-title">
       <div class="shell">
         <header class="wc-section-head wc-reveal">
-          <p class="wc-kicker">02 / The whole interface</p>
+          <p class="wc-kicker">02 / Web discovery and reading</p>
           <p class="wc-section-note">Small enough to learn from <code>--help</code>. Broad enough for an entire research loop.</p>
         </header>
         <div class="wc-commands__title-row">
-          <h2 id="commands-title" class="wc-reveal">Three verbs.<br /><em>Nothing ornamental.</em></h2>
+          <h2 id="commands-title" class="wc-reveal">Three web tools.<br /><em>One workflow.</em></h2>
           <p class="wc-reveal" style="--reveal-delay: 80ms">
-            Each command exists because a real agent workflow needed it. The output stays plain so the next tool never has to scrape the first one.
+            Search, read, and map the web with plain-text output. For structured records, use the separate
+            <a href="/docs/data-sources">research, inspect, and execute</a> commands.
           </p>
         </div>
 
@@ -351,8 +352,8 @@ const workflow = [
         <p class="wc-kicker">05 / Documentation</p>
         <h2 id="docs-title">Pick a task.<br /><em>Copy an example.</em></h2>
         <p>
-          Start with task-focused examples. When you want the technical model, the How it works guides explain
-          automatic URL fast paths and federated search ranking without turning into a code walkthrough.
+          Start with short, task-focused guides. The Reference section holds flags, rate limits,
+          GitHub URL formats, ranking rules, and advanced data details.
         </p>
         <a class="wc-button wc-button--secondary" href="/docs">
           <span>Browse every guide</span><span aria-hidden="true">→</span>

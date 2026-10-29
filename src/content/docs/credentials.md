@@ -1,72 +1,80 @@
 ---
 title: Credentials
-description: Add only the provider keys needed for the webctx commands you use.
-order: 3
-category: Start
-summary: Search keys, Firecrawl, and optional GitHub authentication without extra setup ceremony.
+description: Configure provider API keys and optional GitHub authentication.
+order: 21
+category: Reference
+summary: Environment variables, Keychain storage, and multiple independent accounts.
 ---
 
-## Which keys do I need?
+## Which key does each command use?
 
-| Use | Keys |
+| Capability | Keys |
 | --- | --- |
-| `webctx search` | Any one or more of `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` (for enabled providers) |
-| `webctx map-site` | `FIRECRAWL_API_KEY` |
-| Normal web-page fallback in `read-link` | `FIRECRAWL_API_KEY` |
-| `webctx research`, `inspect`, and `execute` | `FIRECRAWL_API_KEY` (discovery and inspection are free; execution uses credits) |
-| More GitHub capacity and auth-only GitHub reads | `GH_TOKEN` or `GITHUB_TOKEN` |
+| `search` | One or more of `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
+| `map-site` and normal webpage extraction | `FIRECRAWL_API_KEY` |
+| Alexandria `research`, `inspect`, `execute` | `FIRECRAWL_API_KEY` |
+| GitHub-native reads | Optional `GH_TOKEN` or `GITHUB_TOKEN` |
 
-A GitHub token is optional. Many public repository, source, Issue, PR, commit, release, Search, profile, Gist, activity, deployment, and Project reads work without one when GitHub exposes them publicly.
+You can use the plural form of each provider variable (`BRAVE_API_KEYS`, `TAVILY_API_KEYS`, `EXA_API_KEYS`, and `FIRECRAWL_API_KEYS`) to configure **multiple keys from independent accounts**. Those keys are rotated based on available capacity.
 
-A token is useful for:
+For Firecrawl Alexandria paid executions, WebCTX deliberately uses the singular `FIRECRAWL_API_KEY` if set, or the first plural key otherwise. Paid operations do not automatically switch accounts on retries, to avoid duplicate charges or invalid idempotency replays.
 
-- higher GitHub API limits
-- blame ranges
-- Discussions
-- some Actions job logs
-- richer PR review-thread state
-- private resources the token can access
+## Environment or `.env.local`
 
-GitHub Packages have their own permission rules. A normal fine-grained repository token is not automatically enough for every Package endpoint.
+For a simple local setup, add only the keys you need:
 
-## `.env.local`
-
-For most local setups, use:
-
-```bash
-BRAVE_API_KEY=...
-TAVILY_API_KEY=...
-EXA_API_KEY=...
-FIRECRAWL_API_KEY=...
-GH_TOKEN=...
+```dotenv
+BRAVE_API_KEY=your-brave-key
+EXA_API_KEY=your-exa-key
+TAVILY_API_KEY=your-tavily-key
+FIRECRAWL_API_KEY=your-firecrawl-key
+GH_TOKEN=your-github-token
 ```
 
-webctx can load credentials from the environment, `.env.local`, or macOS Keychain. Existing environment variables win.
+webctx reads existing environment variables first, then `.env.local` files near the installed binary or current working directory, then macOS Keychain values. Existing variables are not overwritten. Keep `.env.local` out of version control.
 
-Use `webctx status` to check which search providers are enabled and whether their credentials are configured. To stop using Exa without deleting its key, run `webctx providers disable exa`. The setting persists locally until `webctx providers enable exa`; enabled/disabled is distinct from key presence. Status checks never request provider credit balances. The settings file is in the OS user config directory under `webctx/config.json` (override with `WEBCTX_CONFIG_FILE`).
+Plural variables accept comma-separated keys, lines, or JSON arrays:
 
-### Multiple keys and automatic fallback
+```dotenv
+TAVILY_API_KEYS=account-one-key,account-two-key
+FIRECRAWL_API_KEYS=another-team-key,third-team-key
+```
 
-For federated search, `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, and `EXA_API_KEYS` accept a comma/newline-separated list of additional keys (or a JSON array). They are preferred in listed order over the existing `BRAVE_API_KEY`, `TAVILY_API_KEY`, or `EXA_API_KEY`, which remain supported as fallbacks. Key-specific authentication, quota, rate-limit, and server failures automatically try the next key. Do not use this to circumvent provider account restrictions.
-
-On macOS, copy a new API key and use `pbpaste | webctx keys add exa --stdin` to store it directly in the OS Keychain. Use `webctx keys list` to inspect counts and `webctx keys remove exa 1` to remove the newest managed key. Secrets are never printed by these commands. On other platforms, configure the plural environment variables directly. Firecrawl is not part of federated search key rotation.
-
-If both GitHub variables are set, `GH_TOKEN` wins over `GITHUB_TOKEN`.
+The corresponding singular key joins that provider's pool, with exact duplicates removed. Your provider's credit allowance still applies to each account independently.
 
 ## macOS Keychain
 
-You can keep a key out of files entirely:
+You can add or remove supported provider keys without putting them in shell arguments or plaintext files:
 
 ```bash
-security add-generic-password -U -s webctx -a GH_TOKEN -w "your-token"
+webctx keys list
+pbpaste | webctx keys add exa --stdin
+pbpaste | webctx keys add firecrawl --stdin
+webctx keys remove exa 1
 ```
 
-Use the environment-variable name as the Keychain account name. The same pattern works for the search and Firecrawl keys.
+`keys add` reads one key from standard input. The `keys remove` number selects a *managed Keychain key*, newest first; it does not remove a singular environment variable. `keys list` and `webctx status` show counts only, never secrets.
 
-## Fine-grained GitHub tokens
+On Linux and Windows, use environment variables or `.env.local` for additional credentials. A macOS Keychain entry named after an environment variable, under service `webctx`, can also supply a singular key or `GH_TOKEN`.
 
-A fine-grained token can be narrower than GitHub's public read surface. For selected public GitHub GETs, webctx can retry without Authorization if GitHub rejects the token, so adding a narrow token does not unnecessarily break a public read.
+## Search providers
 
-Permission errors still remain permission errors when GitHub does not allow the resource anonymously.
+```bash
+webctx status
+webctx providers disable exa
+webctx providers enable exa
+```
 
-For recognized native GitHub resources, adding `FIRECRAWL_API_KEY` does not turn an auth, private/not-found, or rate-limit response into a scraped substitute. Those provider states remain visible so an agent can react correctly. Exact public Package pages are the documented exception: an auth/permission failure may use a clearly labeled best-effort Firecrawl read when that key is configured.
+Disabled providers are not queried, even when keys are configured. Provider settings are saved to `webctx/config.json` in the OS user config directory, or the path set by `WEBCTX_CONFIG_FILE`. `status` checks local configuration, not actual provider availability or credit balances.
+
+## GitHub authentication
+
+Most public repository, file, issue, PR, release, and Gist reads work without a token. Set `GH_TOKEN` or `GITHUB_TOKEN` for higher GitHub API capacity or for features such as blame, Discussions, some Actions logs, richer PR review state, and private resources your token can access. `GH_TOKEN` takes precedence when both are set.
+
+Fine-grained tokens may lack permissions for some endpoints. For selected public GitHub reads, webctx may retry anonymously when a narrow token is rejected. It does not bypass GitHub's permission model, and native GitHub rate limits/private-resource errors remain visible.
+
+## Related reference
+
+- [Rate limits and concurrency](/docs/rate-limits) explains per-key admission, fallbacks, and quotas.
+- [GitHub URL reference](/docs/github-urls) lists native routes and authentication caveats.
+- [Troubleshooting](/docs/troubleshooting) covers missing keys and provider failures.

@@ -28,6 +28,16 @@ make build
 ./dist/webctx --help
 ```
 
+Public documentation lives in `src/content/docs/`: Start and Guides explain
+common tasks, while Reference contains flags, configuration, quotas, and
+implementation details. To check a documentation change:
+
+```bash
+bun install --frozen-lockfile --ignore-scripts
+bun run docs:check
+bun run docs:build
+```
+
 Example command checks:
 
 ```bash
@@ -64,21 +74,29 @@ The release workflow triggers on `v*` tags and does the following:
 
 ## Release process
 
-1. Ensure `main` is green:
+1. Update `package.json` to the new version and add a corresponding section to
+   `src/content/docs/changelog.md`. For a minor release from `0.2.x`, the next
+   version is `0.3.0`.
+
+2. Ensure the code and documentation checks pass:
 
 ```bash
 make check
+bun run docs:check
+bun run docs:build
 ```
 
-2. Confirm the release workflow is targeting `webctx` and that `package.json` still points to the correct GitHub repository.
+3. Confirm the release workflow targets `webctx`, and verify the package name,
+   license, repository URL, and GitHub Actions secrets. Commit and push the
+   reviewed source, tests, and docs to `main` before creating the tag.
 
-3. Prepare release tag:
+4. Create the tag on that commit and push it:
 
 ```bash
 make release-tag VERSION=x.y.z
 ```
 
-4. GitHub Actions `release` workflow runs automatically:
+5. GitHub Actions `release` workflow runs automatically:
 - quality checks
 - cross-platform binary build
 - GitHub release publish
@@ -93,7 +111,7 @@ If a token expires, rotate it in npm and update `NPM_TOKEN` using `gh secret set
 If a release's GitHub binaries were successfully published while npm authentication failed, dispatch `npm-publish-retry.yml` with the existing version. Do not create or move the release tag just to retry npm publishing:
 
 ```bash
-gh workflow run npm-publish-retry.yml --repo amxv/webctx --ref main -f version=0.2.2
+gh workflow run npm-publish-retry.yml --repo amxv/webctx --ref main -f version=<existing-version>
 ```
 
 ## Project layout
