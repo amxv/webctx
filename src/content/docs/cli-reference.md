@@ -37,13 +37,13 @@ webctx search "react hooks" --exclude youtube.com,medium.com
 
 ### `--keyword`
 
-Use Exa include-text search for a short phrase:
+Prefer a short quoted phrase in Exa; if Exa is unavailable, Brave uses the quoted query and Tavily enables `exact_match`:
 
 ```bash
 webctx search "drizzle orm" --keyword "migration guide"
 ```
 
-If Exa is disabled, missing a key, or unavailable, Brave/Tavily search with the quoted phrase instead (not a strict page-text filter).
+Exa's old `includeText` filter is deprecated and was only approximate. Quoted searches do not independently verify that the literal phrase exists in the full text of every Exa/Brave result. Tavily's fallback `exact_match` restricts results to pages matching the quoted phrase.
 
 ## Provider settings
 
@@ -57,7 +57,7 @@ These are persistent, per-user search-provider settings, independent of credenti
 
 ## Multiple credentials per provider
 
-For additional API keys, use `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` (CSV, newlines, or JSON arrays). Plural keys are tried in order before the legacy singular key. A rejected key triggers failover for auth, quota/credits, rate limits, server, or transport failures; malformed successful responses and invalid API requests do not.
+For additional API keys, use `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` (CSV, newlines, or JSON arrays). The legacy singular key joins the round-robin pool; each search begins with a different healthy key, coordinated across independent CLI processes on the same machine. A rejected key triggers failover for auth, quota/credits, rate limits, server, or transport failures; shared cooldowns prevent repeated attempts until recovery. Malformed successful responses and invalid API requests do not trigger a retry. Only key hashes and cooldown timestamps are stored in the per-user cache; override its location with `WEBCTX_SEARCH_KEY_BALANCER_DIR` if needed.
 
 On macOS, `pbpaste | webctx keys add exa --stdin` stores a newly copied key in Keychain, not on disk. `webctx keys list` reports configured counts and Keychain-managed slots without printing secrets; `webctx keys remove exa 1` deletes the newest managed Exa key, without touching the singular legacy key. These commands support Brave, Tavily, and Exa only; Firecrawl/Alexandria has separate request and billing semantics.
 

@@ -15,8 +15,8 @@ import (
 	"strings"
 )
 
-// A provider's legacy singular key remains supported. Additional keys are
-// checked first so newly provisioned keys take precedence over exhausted ones.
+// A provider's legacy singular key remains supported. New and old keys join
+// one round-robin pool rather than a priority-first fallback chain.
 // Plural values can be comma/newline-separated or a JSON string array (the
 // latter is how the macOS Keychain stores them).
 func searchKeysForProvider(name string) []string {
@@ -99,24 +99,55 @@ func useSearchKeys(ctx context.Context, name string, attempt func(string) ([]byt
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("missing %s_API_KEY", strings.ToUpper(name))
 	}
+	// Single-key installations keep their existing behavior and don't touch
+	// the filesystem. Multiple keys use a durable round-robin cursor shared by
+	// independent agent processes running under the same OS user.
+	if len(keys) == 1 {
+		body, err := attempt(keys[0])
+		return body, redactSearchError(err, keys)
+	}
+	balancer := currentSearchKeyBalancer()
+	order, err := balancer.reserve(ctx, name, keys)
+	if err != nil {
+		return nil, err
+	}
 	var lastErr error
-	for index, key := range keys {
+	attempted := 0
+	for index, keyIndex := range order {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		key := keys[keyIndex]
+		if index != 0 {
+			// A concurrently running agent may have cooled this key down while
+			// the current request was waiting on a failed provider response.
+			available, err := balancer.available(ctx, name, key)
+			if err != nil {
+				return nil, err
+			}
+			if !available {
+				continue
+			}
+		}
+		attempted++
 		body, err := attempt(key)
 		if err == nil {
 			return body, nil
 		}
 		lastErr = redactSearchError(err, keys)
-		if index+1 == len(keys) || !retryWithNextSearchKey(err) {
+		if !retryWithNextSearchKey(err) {
 			break
 		}
+		// Cool down the bad key across processes so later searches do not
+		// repeatedly spend time and provider quota on its known failure.
+		if saveErr := balancer.coolDown(ctx, name, key, searchKeyFailureCooldown(err)); saveErr != nil {
+			return nil, fmt.Errorf("%s: save search key failure state: %w", name, saveErr)
+		}
 	}
-	if len(keys) == 1 {
-		return nil, lastErr
+	if lastErr == nil {
+		return nil, fmt.Errorf("%s: no search API key is currently available", name)
 	}
-	return nil, fmt.Errorf("%s: search failed after trying available API keys (up to %d): %w", name, len(keys), lastErr)
+	return nil, fmt.Errorf("%s: search failed after trying available API keys (%d attempt(s), %d configured): %w", name, attempted, len(keys), lastErr)
 }
 
 var keychainStore = storeKeychainSecret
@@ -195,8 +226,8 @@ func addManagedSearchKey(name string, from io.Reader) (int, error) {
 	if slices.Contains(keys, key) {
 		return len(keys), nil
 	}
-	// Newest keys take priority, so an old exhausted legacy key is never
-	// attempted before a recently added working key.
+	// Newest-managed-first ordering is retained for numbered key management;
+	// request selection rotates across all keys and is not priority based.
 	keys = append([]string{key}, keys...)
 	if err := writeManagedKeys(name, keys); err != nil {
 		return 0, err

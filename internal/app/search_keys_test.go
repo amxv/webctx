@@ -131,6 +131,7 @@ func TestManagedSearchKeyCommandNeverPrintsSecrets(t *testing.T) {
 // Exercise the real HTTP request construction and key-selection order for all
 // three providers, without making network requests or disclosing API keys.
 func TestSearchProviderFallbackAcrossKeys(t *testing.T) {
+	t.Setenv("WEBCTX_SEARCH_KEY_BALANCER_DIR", t.TempDir())
 	t.Setenv("BRAVE_API_KEY", "legacy-brave")
 	t.Setenv("TAVILY_API_KEY", "legacy-tavily")
 	t.Setenv("EXA_API_KEY", "legacy-exa")
@@ -184,7 +185,7 @@ func TestSearchProviderFallbackAcrossKeys(t *testing.T) {
 		call     func() (SearchResult, error)
 	}{
 		{"brave", func() (SearchResult, error) { return searchWithBrave(context.Background(), "test query") }},
-		{"tavily", func() (SearchResult, error) { return searchWithTavily(context.Background(), "test query", nil) }},
+		{"tavily", func() (SearchResult, error) { return searchWithTavily(context.Background(), "test query", nil, false) }},
 		{"exa", func() (SearchResult, error) {
 			return searchWithExa(context.Background(), "test query", nil, "exact phrase")
 		}},
@@ -201,6 +202,7 @@ func TestSearchProviderFallbackAcrossKeys(t *testing.T) {
 }
 
 func TestSearchKeyRetryDoesNotMaskBadInputOrLeakKeys(t *testing.T) {
+	t.Setenv("WEBCTX_SEARCH_KEY_BALANCER_DIR", t.TempDir())
 	t.Setenv("EXA_API_KEYS", "first-secret,second-secret")
 	t.Setenv("EXA_API_KEY", "")
 	previous := http.DefaultClient.Transport
@@ -221,7 +223,7 @@ func TestSearchKeyRetryDoesNotMaskBadInputOrLeakKeys(t *testing.T) {
 	}
 	count, code = 0, http.StatusTooManyRequests
 	_, err = searchWithExa(context.Background(), "test", nil, "")
-	if err == nil || count != 2 || strings.Contains(err.Error(), "first-secret") || strings.Contains(err.Error(), "second-secret") || !strings.Contains(err.Error(), "up to 2") {
+	if err == nil || count != 2 || strings.Contains(err.Error(), "first-secret") || strings.Contains(err.Error(), "second-secret") || !strings.Contains(err.Error(), "2 configured") {
 		t.Fatalf("exhausted-key error is unsafe or not actionable: count=%d error=%v", count, err)
 	}
 }

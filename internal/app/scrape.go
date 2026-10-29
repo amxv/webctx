@@ -1,14 +1,11 @@
 package app
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
-	"time"
 )
 
 type MarkdownResult struct {
@@ -38,86 +35,6 @@ func firstHeadingOrFallback(markdown, fallback string) string {
 		return "Document"
 	}
 	return fallback
-}
-
-type tokenBucketRateLimiter struct {
-	mu             sync.Mutex
-	tokens         int
-	maxTokens      int
-	refillRate     int
-	refillInterval time.Duration
-	lastRefill     time.Time
-}
-
-func newFirecrawlRateLimiter() *tokenBucketRateLimiter {
-	return &tokenBucketRateLimiter{tokens: 10, maxTokens: 10, refillRate: 1, refillInterval: 6 * time.Second, lastRefill: time.Now()}
-}
-
-func (r *tokenBucketRateLimiter) refill() {
-	now := time.Now()
-	elapsed := now.Sub(r.lastRefill)
-	if elapsed < r.refillInterval {
-		return
-	}
-	intervals := int(elapsed / r.refillInterval)
-	if intervals <= 0 {
-		return
-	}
-	r.tokens += intervals * r.refillRate
-	if r.tokens > r.maxTokens {
-		r.tokens = r.maxTokens
-	}
-	r.lastRefill = r.lastRefill.Add(time.Duration(intervals) * r.refillInterval)
-}
-
-func (r *tokenBucketRateLimiter) acquire(ctx context.Context) error {
-	for {
-		r.mu.Lock()
-		r.refill()
-		if r.tokens > 0 {
-			r.tokens--
-			r.mu.Unlock()
-			return nil
-		}
-		wait := r.refillInterval - time.Since(r.lastRefill) + 100*time.Millisecond
-		r.mu.Unlock()
-		if wait < 100*time.Millisecond {
-			wait = 100 * time.Millisecond
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(wait):
-		}
-	}
-}
-
-type firecrawlQueue struct {
-	rateLimiter *tokenBucketRateLimiter
-	mu          sync.Mutex
-}
-
-var (
-	queueOnce sync.Once
-	queueInst *firecrawlQueue
-)
-
-func getFirecrawlQueue() *firecrawlQueue {
-	queueOnce.Do(func() {
-		queueInst = &firecrawlQueue{rateLimiter: newFirecrawlRateLimiter()}
-	})
-	return queueInst
-}
-
-func (q *firecrawlQueue) enqueue(_ string, requestFn func() (map[string]any, error)) (map[string]any, error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	if err := q.rateLimiter.acquire(ctx); err != nil {
-		return nil, err
-	}
-	return requestFn()
 }
 
 func loadEnvLocal() {

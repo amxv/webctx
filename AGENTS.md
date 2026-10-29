@@ -13,7 +13,7 @@ It is no longer a generic starter template. Treat the current CLI behavior as th
 - `cmd/webctx/main.go`: process entrypoint, exit-code based dispatch.
 - `internal/app/app.go`: CLI parsing and top-level command routing.
 - `internal/app/tools.go`: search provider clients, ranking, formatting, and HTTP helpers.
-- `internal/app/scrape.go`: GitHub raw-content optimization, `.md` fetch path, Firecrawl queue, and env loading.
+- `internal/app/scrape.go`: GitHub raw-content optimization, `.md` fetch path, and env loading. Shared Firecrawl admission control lives in `internal/app/firecrawl_queue.go` and OS-specific file locking helpers.
 - `pkg/retrieval/`: public adapter to `internal/app` for Vercel's Go packaging restrictions.
 - `pkg/origo/`: authenticated Streamable HTTP MCP with exactly `read_link` and `map_site`.
 - `api/mcp.go`: Go Function entrypoint for independent Origo deployment.
@@ -55,8 +55,10 @@ Preserve these commands unless the user explicitly asks to change them:
 
 Behavioral expectations:
 
-- `search` combines enabled Brave, Tavily, and Exa results, then re-ranks them with duplicate-aware scoring; an unavailable Exa can fall back to quoted-phrase Brave/Tavily queries for `--keyword` (not a strict text filter).
-- Search key rotation tries plural credentials first, legacy singular credentials afterward; failover applies only to credential/quota/rate/server/transport failures, never bad requests. Keep Firecrawl paid operations outside this rotation.
+- `search` combines enabled Brave, Tavily (`advanced` depth), and Exa results, then re-ranks them with duplicate-aware scoring and bounded technical-source quality bonuses. It does not auto-read pages, follow links, or consume Firecrawl credits. Exa uses `auto` and content highlights without deprecated `livecrawl` or forced `maxAgeHours`; Firecrawl's read-link freshness behavior is unchanged. `--keyword` uses quoted phrases instead of deprecated Exa `includeText`; fallback Tavily searches enable `exact_match`. Do not label Exa/Brave results as full-text-verified.
+- Regular `search` does not run Alexandria discovery. Structured-data discovery belongs to `research`, which already queries Alexandria; explicit `read-link` preserves Firecrawl domain metadata behavior.
+- Firecrawl Scrape/Map/Search admission and browser-session limits use the shared file-backed queue across independently spawned WebCTX processes. A strict sliding-minute token window prevents per-process 10-RPM bursts. At most two in-flight browser slots are held, and OS locks release automatically after process death. Do not hold a rate-token lock during network I/O. `WEBCTX_FIRECRAWL_QUEUE_DIR` can override the default shared per-user cache location. Independent machines/serverless workers are not centrally coordinated.
+- Search key balancing uses a shared file-locked round-robin cursor across all available `*_API_KEYS` plus the legacy singular `*_API_KEY`, across independent CLI processes on one machine. See `internal/app/search_key_balance.go`; state contains only key hashes and temporary failure cooldowns. When one key fails with auth/quota/rate/server/transport errors, try the next healthy key and cool down the failed one for subsequent requests. Use provider `Retry-After` when present; never retry invalid requests. The directory defaults to the OS user cache (`webctx/search-keys`) and can be overridden with `WEBCTX_SEARCH_KEY_BALANCER_DIR`. Single-key provider calls avoid the state directory. Firecrawl paid operations remain separate.
 - `read-link` keeps the current GitHub raw-content and `.md` fast paths. Firecrawl uses its built-in 30-minute cache, automatic and enhanced proxies, then browser extraction as a final fallback.
 - `map-site` keeps the current Firecrawl map request settings.
 - The CLI should remain agent-friendly and emit plain markdown/text output.

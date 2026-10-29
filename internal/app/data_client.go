@@ -187,6 +187,14 @@ func doDataAPI(ctx context.Context, endpoint string, payload any, requestID stri
 			return nil, err
 		}
 	}
+	// Alexandria requests bypass doRawRequest, but must use the same local
+	// cross-process Firecrawl admission queue as scrape/map/browser operations.
+	group, limit, browserSlot := firecrawlRequestLimits(req.Method, req.URL.Path)
+	permit, err := getFirecrawlQueue().acquire(ctx, group, limit, browserSlot)
+	if err != nil {
+		return nil, dataError("shared_queue_unavailable", "Could not enter shared Firecrawl request queue: "+err.Error())
+	}
+	defer permit.release()
 	select {
 	case upstreamDataGate <- struct{}{}:
 	case <-ctx.Done():
@@ -352,7 +360,10 @@ func uncachedFreeDataBrowse(ctx context.Context, options map[string]any) (map[st
 }
 
 func defaultDataContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 45*time.Second)
+	// A shared Free-plan /search or /scrape quota may require up to a minute of
+	// waiting before network work begins. Leave enough budget for the queued
+	// request to execute rather than failing before Firecrawl sees it.
+	return context.WithTimeout(context.Background(), 150*time.Second)
 }
 
 func dataRawOrError(err error) map[string]any {

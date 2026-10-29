@@ -21,11 +21,11 @@ func usableScrapedMarkdown(markdown string) bool {
 	return usableSourceContent(markdown)
 }
 
-func firecrawlScrape(rawURL, apiKey, proxy string) (scrapedPage, error) {
+func firecrawlScrape(rawURL, apiKey, proxy string, domainTools bool) (scrapedPage, error) {
 	requestBody := map[string]any{
 		"url":                rawURL,
 		"formats":            []string{"markdown"},
-		"domainTools":        true, // Alexandria discovery, not paid execution.
+		"domainTools":        domainTools, // Only explicit read-link should discover Alexandria capabilities.
 		"onlyMainContent":    true,
 		"blockAds":           true,
 		"removeBase64Images": true,
@@ -40,39 +40,37 @@ func firecrawlScrape(rawURL, apiKey, proxy string) (scrapedPage, error) {
 	if strings.HasSuffix(strings.ToLower(rawURL), ".pdf") {
 		requestBody["parsers"] = []string{"pdf"}
 	}
-	data, err := getFirecrawlQueue().enqueue(rawURL, func() (map[string]any, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 32*time.Second)
-		defer cancel()
-		body, err := doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/scrape", map[string]string{
+	// Waiting for a shared 10-RPM permit can legitimately take a full minute.
+	// HTTP transport still has a separate 32s timeout after admission.
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	body, err := doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/scrape", map[string]string{
+		"Authorization": "Bearer " + apiKey,
+		"Content-Type":  "application/json",
+	}, requestBody)
+	// Alexandria is a separately enabled Firecrawl capability. A 403 from
+	// domain matching must never break ordinary page extraction for users that
+	// haven't enabled Alexandria or have zero-data-retention configured.
+	if err != nil && strings.Contains(err.Error(), "403") {
+		requestBody["domainTools"] = false
+		body, err = doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/scrape", map[string]string{
 			"Authorization": "Bearer " + apiKey,
 			"Content-Type":  "application/json",
 		}, requestBody)
-		// Alexandria is a separately enabled Firecrawl capability. A 403 from
-		// domain matching must never break ordinary page extraction for users that
-		// haven't enabled Alexandria or have zero-data-retention configured.
-		if err != nil && strings.Contains(err.Error(), "403") {
-			requestBody["domainTools"] = false
-			body, err = doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/scrape", map[string]string{
-				"Authorization": "Bearer " + apiKey,
-				"Content-Type":  "application/json",
-			}, requestBody)
-		}
-		if err != nil {
-			return nil, err
-		}
-		var parsed map[string]any
-		if err := json.Unmarshal(body, &parsed); err != nil {
-			return nil, fmt.Errorf("decode Firecrawl scrape: %w", err)
-		}
-		if success, _ := parsed["success"].(bool); !success {
-			return nil, fmt.Errorf("Firecrawl scrape failed: %v", parsed["error"])
-		}
-		return parsed, nil
-	})
+	}
 	if err != nil {
 		return scrapedPage{}, err
 	}
-	pageData, _ := data["data"].(map[string]any)
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return scrapedPage{}, fmt.Errorf("decode Firecrawl scrape: %w", err)
+	}
+	if success, _ := parsed["success"].(bool); !success {
+		return scrapedPage{}, fmt.Errorf("Firecrawl scrape failed: %v", parsed["error"])
+	}
+	// The shared Firecrawl admission layer is applied in doRawRequest, so
+	// retries and other Firecrawl endpoints are accounted for independently.
+	pageData, _ := parsed["data"].(map[string]any)
 	metadata, _ := pageData["metadata"].(map[string]any)
 	page := scrapedPage{
 		Title:       stringValue(metadata["title"]),
@@ -110,8 +108,15 @@ func quoteShellURL(rawURL string) string {
 }
 
 func firecrawlBrowserFallback(rawURL, apiKey string) (string, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 28*time.Second)
+	// Give the team-wide browser-session quota time to refill when other CLI
+	// processes are already using both free sessions.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
+	sessionPermit, err := getFirecrawlQueue().browserSession(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	defer sessionPermit.release()
 	// Failed scrape responses do not reliably include a scrape-bound browser ID.
 	// Open a disposable session with the standalone browser API instead.
 	session, err := firecrawlJSON(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/interact", apiKey, map[string]any{

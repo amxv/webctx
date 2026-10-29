@@ -177,7 +177,9 @@ func MapSitePage(input MapSiteInput) (map[string]any, error) {
 	if err := validateSourceURL(input.URL); err != nil {
 		return nil, &DataError{Code: "invalid_url", Message: err.Error()}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Include a queue-wait budget; /map's network timeout starts after a shared
+	// admission token has been reserved.
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
 	links, err := rawMappedLinks(ctx, input.URL)
 	if err != nil {

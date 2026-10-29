@@ -22,13 +22,13 @@ Then webctx turns those result sets into one list.
 
 ```text
 Brave ───┐
-Tavily ──┼─→ remove noisy domains → normalize URLs → score positions → reward agreement → rank
+Tavily ──┼─→ exclude noise → normalize URLs → rank positions and agreement → technical relevance → 35 links
 Exa ─────┘
 ```
 
 The final output is capped at 35 results so a research query does not flood an agent's context.
 
-After ranking, Webctx selects up to three promising source pages for automatic retrieval and can follow two relevant same-host documentation references. These excerpts are supplied with explicit source URLs before the original ranked list; they do not alter the underlying search scores or imply automatic semantic verification.
+No search-result pages are opened automatically. The final descriptions come directly from Brave and Tavily's search API snippets, or from Exa's query-focused content highlights. To fetch full source text, run `webctx read-link` on a selected URL.
 
 ## 1. Normalize URLs
 
@@ -86,7 +86,11 @@ That is intentional: two independent providers surfacing the same page is useful
 
 Agreement near the top of the result sets receives a slightly stronger bonus than agreement on low-ranked results.
 
-## 4. Keep output stable
+## 4. Favor useful technical sources
+
+For coding and implementation searches, webctx adds bounded relevance bonuses for title-term matches, documentation paths and domains, API/SDK references, and verified first-party GitHub organizations associated with the searched ecosystem. A random GitHub repository is **not** automatically considered official. These local bonuses do not involve extra network calls and preserve the strong role of provider position and agreement.
+
+## 5. Keep output stable
 
 If final scores tie, webctx keeps the original insertion order. This makes the output deterministic and easier to diff or reuse in agent workflows.
 
@@ -108,7 +112,7 @@ That means excluded pages cannot consume rank or earn agreement bonuses.
 webctx search "drizzle orm" --keyword "migration guide"
 ```
 
-It prefers Exa include-text search when you care about a short phrase appearing on the page. If Exa is disabled, unconfigured, or fails, it falls back to a quoted-phrase query on the enabled Brave/Tavily providers, clearly labeled as an approximation rather than a strict page-text filter. Use normal search when you want cross-provider discovery and agreement; use keyword mode when you already know the textual clue you are looking for.
+It prefers Exa `auto` search with the requested phrase quoted in the query. This replaces Exa's deprecated approximate `includeText` parameter, which was not a strict phrase filter. If Exa is disabled, unconfigured, or fails, Brave searches the quoted phrase and Tavily enables `exact_match`. WebCTX discloses the distinction instead of claiming that all matching pages have had their full text verified. Use normal search when you want cross-provider discovery and agreement; use keyword mode when you know the textual clue you are looking for.
 
 ## A practical research loop
 

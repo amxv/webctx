@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type SearchParams struct {
@@ -50,9 +52,11 @@ type scoredURL struct {
 	DuplicateCount int
 	BestPosition   int
 	FinalScore     float64
+	ExaExcerpt     string
 }
 
 func Search(params SearchParams) (string, error) {
+	searchStarted := time.Now()
 	config, err := currentProviderConfig()
 	if err != nil {
 		return "", err
@@ -64,11 +68,6 @@ func Search(params SearchParams) (string, error) {
 	allExcludedDomains := append(append([]string{}, defaultExcludedDomains...), params.ExcludeDomains...)
 	truncatedKeyword := truncateWords(params.IncludeKeyword, 5)
 
-	// Free Alexandria tool discovery proceeds alongside normal web search.
-	// It never executes a paid tool or replaces source-grounded web results.
-	alexandriaDone := make(chan string, 1)
-	go func() { alexandriaDone <- discoverAlexandria(params.Query) }()
-
 	searches := []namedSearch{}
 	keywordFallback := false
 	if strings.TrimSpace(truncatedKeyword) != "" {
@@ -78,7 +77,7 @@ func Search(params SearchParams) (string, error) {
 			}})
 		}
 	} else {
-		searches = append(searches, alternativeSearches(config, params.Query)...)
+		searches = append(searches, alternativeSearches(config, params.Query, false)...)
 		if config.enabled("exa") {
 			searches = append(searches, namedSearch{name: "Exa", fn: func(ctx context.Context) (SearchResult, error) {
 				return searchWithExa(ctx, params.Query, nil, "")
@@ -88,11 +87,11 @@ func Search(params SearchParams) (string, error) {
 
 	results := runSearches(searches)
 	if truncatedKeyword != "" && (len(searches) == 0 || (len(results) == 1 && results[0].Err != nil)) {
-		// Exa's includeText filter has no equivalent in Brave or Tavily. When Exa
-		// is disabled, unconfigured, or fails, search for the quoted phrase instead
-		// of making keyword searches unusable. Disclose the weaker semantics.
+		// Exa's old includeText restriction is deprecated and did not guarantee an
+		// exact phrase match. Keep quoted-phrase discovery available when Exa fails;
+		// Tavily can enforce exact_match on these fallback searches.
 		fallbackQuery := params.Query + " " + strconv.Quote(truncatedKeyword)
-		fallbackSearches := alternativeSearches(config, fallbackQuery)
+		fallbackSearches := alternativeSearches(config, fallbackQuery, true)
 		if len(fallbackSearches) > 0 {
 			results = append(results, runSearches(fallbackSearches)...)
 			keywordFallback = true
@@ -128,43 +127,46 @@ func Search(params SearchParams) (string, error) {
 	}
 
 	filtered := filterExcludedDomains(results, allExcludedDomains)
-	ranked, _ := scoreAndRankResults(filtered)
+	rankingStarted := time.Now()
+	ranked, _ := scoreAndRankResults(filtered, params.Query)
+	if os.Getenv("WEBCTX_DEBUG") == "1" {
+		log.Printf("webctx search stage=rank count=%d duration_ms=%d", len(ranked), time.Since(rankingStarted).Milliseconds())
+	}
 	if len(ranked) > 35 {
 		ranked = ranked[:35]
 	}
 
 	parts := []string{fmt.Sprintf("Total Results: %d\n", len(ranked))}
 	if keywordFallback {
-		parts = append(parts, "> **Keyword fallback:** Exa was disabled or unavailable. Brave/Tavily searched for the quoted phrase; this is not a strict page-text inclusion filter.", "")
+		parts = append(parts, "> **Keyword fallback:** Exa was disabled or unavailable. Brave searched for the quoted phrase; Tavily also enforced exact-match when available. This does not verify phrase inclusion in the complete page text.", "")
+	} else if truncatedKeyword != "" {
+		parts = append(parts, "> **Keyword search:** Exa searched for the quoted phrase. Its former includeText parameter is deprecated, so these results are not a verified page-text inclusion filter.", "")
 	}
-	// The ranked index remains available, but agents also get useful source
-	// context without having to issue several follow-up read-link calls.
-	if context := enrichSearch(params.Query, ranked); context != "" {
-		parts = append(parts, context, "")
-	}
-	if tools := <-alexandriaDone; tools != "" {
-		parts = append(parts, "", "## Related data providers", tools, "")
-	}
+	// Return provider snippets and ranked URLs without opening any result pages.
+	// An agent can explicitly read-link the sources it actually needs.
 	parts = append(parts, "## Search results", "")
 	for _, doc := range ranked {
 		title := decodeHTML(doc.Title)
-		overview := decodeHTML(doc.Overview)
+		overview := boundedSearchSnippet(decodeHTML(doc.Overview))
 		parts = append(parts, fmt.Sprintf("- [%s](%s)", title, doc.URL))
 		if overview != "" {
 			parts = append(parts, fmt.Sprintf("    - %s", overview))
 		}
 		parts = append(parts, "")
 	}
+	if os.Getenv("WEBCTX_DEBUG") == "1" {
+		log.Printf("webctx search stage=complete results=%d duration_ms=%d", len(ranked), time.Since(searchStarted).Milliseconds())
+	}
 	return strings.Join(parts, "\n"), nil
 }
 
-func alternativeSearches(config providerConfig, query string) []namedSearch {
+func alternativeSearches(config providerConfig, query string, exactMatch bool) []namedSearch {
 	searches := []namedSearch{}
 	if config.enabled("brave") {
 		searches = append(searches, namedSearch{name: "Brave", fn: func(ctx context.Context) (SearchResult, error) { return searchWithBrave(ctx, query) }})
 	}
 	if config.enabled("tavily") {
-		searches = append(searches, namedSearch{name: "Tavily", fn: func(ctx context.Context) (SearchResult, error) { return searchWithTavily(ctx, query, nil) }})
+		searches = append(searches, namedSearch{name: "Tavily", fn: func(ctx context.Context) (SearchResult, error) { return searchWithTavily(ctx, query, nil, exactMatch) }})
 	}
 	return searches
 }
@@ -186,7 +188,15 @@ func runSearches(searches []namedSearch) []providerDocs {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 			defer cancel()
+			started := time.Now()
 			res, err := s.fn(ctx)
+			if os.Getenv("WEBCTX_DEBUG") == "1" {
+				status := "ok"
+				if err != nil {
+					status = "error"
+				}
+				log.Printf("webctx search provider=%q status=%s results=%d duration_ms=%d", s.name, status, len(res.Docs), time.Since(started).Milliseconds())
+			}
 			if err != nil {
 				results[i] = providerDocs{Provider: s.name, Docs: []SearchDoc{}, Err: err}
 				return
@@ -199,6 +209,12 @@ func runSearches(searches []namedSearch) []providerDocs {
 }
 
 func ReadLink(rawURL string) (string, error) {
+	return readLinkWithDomainTools(rawURL, true)
+}
+
+// Search enrichment only needs page evidence. Keep Alexandria domain matching
+// on dedicated read-link calls, but avoid it on automatic search-page reads.
+func readLinkWithDomainTools(rawURL string, domainTools bool) (string, error) {
 	if err := validateSourceURL(rawURL); err != nil {
 		return "", err
 	}
@@ -208,7 +224,7 @@ func ReadLink(rawURL string) (string, error) {
 		return native.Markdown, nil
 	case GitHubNativeFailure:
 		if shouldBestEffortCrawlGitHubPackage(rawURL, native.Err) {
-			title, markdown, crawlErr := scrapeLinkWithFirecrawl(rawURL)
+			title, markdown, crawlErr := scrapeLinkWithFirecrawlOptions(rawURL, domainTools)
 			if crawlErr == nil && usefulGitHubPackageCrawl(title, markdown) {
 				notice := "> **Best-effort GitHub Package page crawl:** GitHub's structured Package API was unavailable for the current credential, so webctx crawled the public GitHub page with Firecrawl instead. This output may be incomplete or contain GitHub UI noise."
 				return formatReadLink(title, rawURL, notice+"\n\n"+markdown), nil
@@ -232,7 +248,7 @@ func ReadLink(rawURL string) (string, error) {
 	}
 	traceRetrieval(rawURL, "native-markdown", "miss", nativeStarted, nil)
 
-	title, markdown, err := scrapeLinkWithFirecrawl(rawURL)
+	title, markdown, err := scrapeLinkWithFirecrawlOptions(rawURL, domainTools)
 	if err != nil {
 		return "", err
 	}
@@ -264,6 +280,10 @@ func usefulGitHubPackageCrawl(title, markdown string) bool {
 }
 
 func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
+	return scrapeLinkWithFirecrawlOptions(rawURL, true)
+}
+
+func scrapeLinkWithFirecrawlOptions(rawURL string, domainTools bool) (string, string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
 	if apiKey == "" {
 		return "", "", missingCredentialsError("Error reading web page", []string{"FIRECRAWL_API_KEY"}, "for non-.md URLs")
@@ -272,7 +292,7 @@ func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 	// transport fails. A second explicit enhanced attempt is only useful when a
 	// scrape responds successfully but returns a challenge/empty document.
 	started := time.Now()
-	first, err := firecrawlScrape(rawURL, apiKey, "")
+	first, err := firecrawlScrape(rawURL, apiKey, "", domainTools)
 	if err == nil && usableScrapedMarkdown(first.Markdown) {
 		traceRetrieval(rawURL, "firecrawl-auto", "success", started, nil)
 		return first.Title, withSourceTools(first.Markdown, first.ToolSummary), nil
@@ -282,7 +302,7 @@ func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 	if err == nil {
 		lastError = fmt.Errorf("Firecrawl returned empty or blocked page content: %s", challengeReason(first.Markdown))
 		started = time.Now()
-		second, enhancedErr := firecrawlScrape(rawURL, apiKey, "enhanced")
+		second, enhancedErr := firecrawlScrape(rawURL, apiKey, "enhanced", domainTools)
 		if enhancedErr == nil && usableScrapedMarkdown(second.Markdown) {
 			traceRetrieval(rawURL, "firecrawl-enhanced", "success", started, nil)
 			return second.Title, withSourceTools(second.Markdown, second.ToolSummary), nil
@@ -417,13 +437,17 @@ func searchWithBrave(ctx context.Context, query string) (SearchResult, error) {
 	return SearchResult{Docs: docs}, nil
 }
 
-func searchWithTavily(ctx context.Context, query string, excludeDomains []string) (SearchResult, error) {
+func searchWithTavily(ctx context.Context, query string, excludeDomains []string, exactMatch bool) (SearchResult, error) {
 	requestBody := map[string]any{
-		"query":       query,
-		"max_results": 20,
+		"query":        query,
+		"max_results":  20,
+		"search_depth": "advanced",
 	}
 	if len(excludeDomains) > 0 {
 		requestBody["exclude_domains"] = excludeDomains
+	}
+	if exactMatch {
+		requestBody["exact_match"] = true
 	}
 	body, err := useSearchKeys(ctx, "tavily", func(apiKey string) ([]byte, error) {
 		requestBody["api_key"] = apiKey
@@ -456,19 +480,24 @@ func searchWithTavily(ctx context.Context, query string, excludeDomains []string
 }
 
 func searchWithExa(ctx context.Context, query string, excludeDomains []string, includeKeyword string) (SearchResult, error) {
+	if strings.TrimSpace(includeKeyword) != "" {
+		// Exa deprecated includeText without a strict replacement. Ask the search
+		// engine for the quoted phrase instead, and disclose the weaker semantics.
+		query = strings.TrimSpace(query) + " " + strconv.Quote(strings.TrimSpace(includeKeyword))
+	}
 	requestBody := map[string]any{
 		"query":      query,
 		"type":       "auto",
 		"numResults": 25,
 		"contents": map[string]any{
-			"livecrawl": "preferred",
+			"highlights": true,
+			// Exa recommends omitting maxAgeHours for ordinary searches: it can return
+			// indexed content immediately and fetch content only when needed. Forcing a
+			// one-hour livecrawl window cost >12s in a live test with 25 results.
 		},
 	}
 	if len(excludeDomains) > 0 {
 		requestBody["excludeDomains"] = excludeDomains
-	}
-	if strings.TrimSpace(includeKeyword) != "" {
-		requestBody["includeText"] = []string{includeKeyword}
 	}
 	body, err := useSearchKeys(ctx, "exa", func(apiKey string) ([]byte, error) {
 		return doJSONRequest(ctx, http.MethodPost, "https://api.exa.ai/search", map[string]string{
@@ -482,10 +511,11 @@ func searchWithExa(ctx context.Context, query string, excludeDomains []string, i
 	}
 	var parsed struct {
 		Results []struct {
-			URL     string `json:"url"`
-			Title   string `json:"title"`
-			Text    string `json:"text"`
-			Summary string `json:"summary"`
+			URL        string   `json:"url"`
+			Title      string   `json:"title"`
+			Text       string   `json:"text"`
+			Summary    string   `json:"summary"`
+			Highlights []string `json:"highlights"`
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
@@ -497,6 +527,9 @@ func searchWithExa(ctx context.Context, query string, excludeDomains []string, i
 			break
 		}
 		overview := r.Text
+		if len(r.Highlights) > 0 {
+			overview = strings.Join(r.Highlights, "\n\n")
+		}
 		if overview == "" {
 			overview = r.Summary
 		}
@@ -505,7 +538,11 @@ func searchWithExa(ctx context.Context, query string, excludeDomains []string, i
 	return SearchResult{Docs: docs}, nil
 }
 
-func scoreAndRankResults(providerResults []providerDocs) ([]SearchDoc, int) {
+func scoreAndRankResults(providerResults []providerDocs, searchQuery ...string) ([]SearchDoc, int) {
+	query := ""
+	if len(searchQuery) > 0 {
+		query = searchQuery[0]
+	}
 	urlScores := map[string]*scoredURL{}
 	totalResultsBeforeDedup := 0
 
@@ -522,20 +559,32 @@ func scoreAndRankResults(providerResults []providerDocs) ([]SearchDoc, int) {
 					existing.BestPosition = position
 					existing.Result = doc
 				}
+				if providerResult.Provider == "Exa" && strings.TrimSpace(doc.Overview) != "" {
+					// Preserve Exa's query-focused highlights even when a different provider
+					// supplied the highest-positioned URL/title for a duplicate result.
+					existing.ExaExcerpt = doc.Overview
+				}
 				continue
 			}
-			urlScores[normalized] = &scoredURL{
+			item := &scoredURL{
 				Result:         doc,
 				InsertionOrder: len(urlScores),
 				TotalScore:     weightedScore,
 				DuplicateCount: 1,
 				BestPosition:   position,
 			}
+			if providerResult.Provider == "Exa" {
+				item.ExaExcerpt = doc.Overview
+			}
+			urlScores[normalized] = item
 		}
 	}
 
 	scored := make([]*scoredURL, 0, len(urlScores))
 	for _, item := range urlScores {
+		if item.ExaExcerpt != "" {
+			item.Result.Overview = item.ExaExcerpt
+		}
 		duplicateBonus := 3.0
 		if item.BestPosition <= 5 {
 			duplicateBonus = 5.0
@@ -544,7 +593,7 @@ func scoreAndRankResults(providerResults []providerDocs) ([]SearchDoc, int) {
 		if item.DuplicateCount > 3 {
 			duplicatePenalty = -2.0
 		}
-		item.FinalScore = item.TotalScore + float64(item.DuplicateCount-1)*duplicateBonus + duplicatePenalty
+		item.FinalScore = item.TotalScore + float64(item.DuplicateCount-1)*duplicateBonus + duplicatePenalty + searchQualityBonus(query, item.Result)
 		scored = append(scored, item)
 	}
 
@@ -639,6 +688,22 @@ func decodeHTML(text string) string {
 	return replacer.Replace(text)
 }
 
+// Search is a discovery tool, not a full-page reader. Keep even rich Exa
+// highlights concise so 35 merged results don't flood an agent's context.
+func boundedSearchSnippet(raw string) string {
+	const maxRunes = 1100
+	text := strings.TrimSpace(raw)
+	if utf8.RuneCountInString(text) <= maxRunes {
+		return text
+	}
+	runes := []rune(text)
+	snippet := string(runes[:maxRunes])
+	if lastWord := strings.LastIndexAny(snippet, " \n"); lastWord > maxRunes-150 {
+		snippet = snippet[:lastWord]
+	}
+	return strings.TrimSpace(snippet) + "…"
+}
+
 func truncateWords(s string, maxWords int) string {
 	fields := strings.Fields(strings.TrimSpace(s))
 	if len(fields) <= maxWords {
@@ -667,6 +732,24 @@ func doRawRequest(ctx context.Context, method, rawURL string, headers map[string
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	if req.URL.Hostname() == "api.firecrawl.dev" {
+		group, limit, slot := firecrawlRequestLimits(req.Method, req.URL.Path)
+		permit, err := getFirecrawlQueue().acquire(ctx, group, limit, slot)
+		if err != nil {
+			return nil, fmt.Errorf("Firecrawl shared queue: %w", err)
+		}
+		defer permit.release()
+		// Preserve bounded network time independently of time waiting for the
+		// local Free-plan queue. Otherwise a 60s quota delay consumes all of a
+		// scrape's former 32s timeout before the request even reaches Firecrawl.
+		networkTimeout := 32 * time.Second
+		if group == "map" {
+			networkTimeout = 60 * time.Second
+		}
+		networkCtx, cancel := context.WithTimeout(ctx, networkTimeout)
+		defer cancel()
+		req = req.WithContext(networkCtx)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -677,20 +760,48 @@ func doRawRequest(ctx context.Context, method, rawURL string, headers map[string
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		retryAfter := searchRetryAfter(resp.Header.Get("Retry-After"))
 		if len(respBody) > 0 {
-			return nil, &httpStatusError{Code: resp.StatusCode, Message: fmt.Sprintf("API request failed: %s - %s", resp.Status, strings.TrimSpace(string(respBody)))}
+			return nil, &httpStatusError{Code: resp.StatusCode, RetryAfter: retryAfter, Message: fmt.Sprintf("API request failed: %s - %s", resp.Status, strings.TrimSpace(string(respBody)))}
 		}
-		return nil, &httpStatusError{Code: resp.StatusCode, Message: "API request failed: " + resp.Status}
+		return nil, &httpStatusError{Code: resp.StatusCode, RetryAfter: retryAfter, Message: "API request failed: " + resp.Status}
 	}
 	return respBody, nil
 }
 
 type httpStatusError struct {
-	Code    int
-	Message string
+	Code       int
+	Message    string
+	RetryAfter time.Duration
 }
 
 func (e *httpStatusError) Error() string { return e.Message }
+
+func searchRetryAfter(header string) time.Duration {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return 0
+	}
+	if seconds, err := strconv.ParseInt(header, 10, 64); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		if seconds > 86400 {
+			seconds = 86400
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if until, err := http.ParseTime(header); err == nil {
+		delay := time.Until(until)
+		if delay > 24*time.Hour {
+			return 24 * time.Hour
+		}
+		if delay > 0 {
+			return delay
+		}
+	}
+	return 0
+}
 
 func stringValue(v any) string {
 	if s, ok := v.(string); ok {

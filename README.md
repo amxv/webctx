@@ -97,7 +97,7 @@ Recognized native GitHub auth, private/not-found, and rate-limit failures stay a
 
 ## Search
 
-Normal search asks the enabled Brave, Tavily, and Exa providers, removes duplicate URLs, automatically reads promising sources, follows relevant links, and returns excerpts plus the ranked list. One working search provider is enough; Alexandria discovery is included when available. Use `execute` when you need provider-native data.
+Normal search asks the enabled Brave, Tavily, and Exa providers, removes duplicate URLs, reranks technical docs/first-party sources, and returns up to 35 links with provider-native snippets or Exa highlights. It **does not automatically read or scrape result pages**. Tavily defaults to quality-oriented `advanced` search depth. Agents can selectively call `webctx read-link` on useful results. One working search provider is enough. Alexandria discovery is separate: use `webctx research` to find structured-data sources and `execute` when you need provider-native data.
 
 ```bash
 webctx search "next.js server components"
@@ -126,9 +126,9 @@ webctx keys remove exa 1                # remove the newest Keychain-managed Exa
 webctx providers enable exa
 ```
 
-Or supply `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` as comma-separated keys (or JSON arrays) in the environment or `.env.local`, alongside the corresponding singular `*_API_KEY`. Keys in the plural list are attempted first, then the legacy single key. On a key-specific authentication, quota/credit, rate-limit, or server error, the next key is tried automatically; invalid requests are not retried. Manage only keys/accounts you are authorized to use and honor each provider's usage restrictions. The Firecrawl/Alexandria integration is separate and **is not included in automatic key rotation**, especially for paid operations.
+Or supply `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` as comma-separated keys (or JSON arrays) in the environment or `.env.local`, alongside the corresponding singular `*_API_KEY`. When more than one key is configured, **requests round-robin across every key, including the legacy singular key**, rather than always preferring the newest one. A small, file-locked cursor shared across CLI processes keeps parallel agents balanced. On authentication, quota, rate-limit, server, or transport failures, WebCTX immediately tries another healthy key; failed keys temporarily cool down across processes, respecting `Retry-After` where available. Invalid requests are not retried. The persistent cursor/cooldown state contains only key hashes, never the credentials. Set `WEBCTX_SEARCH_KEY_BALANCER_DIR` to override the default per-user cache directory. This coordinates the same machine/user, not separate machines or provider-account-wide quotas. Manage only keys/accounts you are authorized to use and honor each provider's usage restrictions. Firecrawl/Alexandria remains separate and is **not** included in search-key rotation, especially for paid operations.
 
-`--keyword` prefers Exa's strict include-text filter when available. If Exa is disabled, unconfigured, or fails, Brave/Tavily search for the quoted phrase instead; the output explicitly notes that this fallback cannot guarantee the phrase appears in the page text. Firecrawl is a separate reading/site-map/Alexandria integration, not one of these three search providers.
+`--keyword` prefers Exa's quality-oriented `auto` search with a quoted phrase when available. Exa's former `includeText` filter was deprecated and was never guaranteed to match an exact phrase. If Exa is disabled, unconfigured, or fails, Brave searches for the quoted phrase and Tavily also applies its `exact_match` filter. The output discloses that Exa and Brave results are not guaranteed to contain the literal phrase in the complete page text. Exa uses relevance-focused highlights and its recommended default content freshness (cached content when available, fetch when needed); `maxAgeHours` is intentionally omitted to avoid forcing slow recrawls for every result. Firecrawl's separate page-reading cache and proxy escalation are unchanged.
 
 ## Map a site
 

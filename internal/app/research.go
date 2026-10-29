@@ -220,7 +220,9 @@ func readLinkFocused(rawURL, question string, reader func(string) (string, error
 // enrichSearch gives agents real documentation content in their first search
 // response, with the original ranked source list retained for navigation.
 func enrichSearch(query string, ranked []SearchDoc) string {
-	return enrichSearchWithReader(query, ranked, ReadLink)
+return enrichSearchWithReader(query, ranked, func(rawURL string) (string, error) {
+return readLinkWithDomainTools(rawURL, false)
+})
 }
 
 func enrichSearchWithReader(query string, ranked []SearchDoc, reader func(string) (string, error)) string {

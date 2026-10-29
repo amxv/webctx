@@ -1,13 +1,8 @@
 package app
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"os"
 	"strings"
-	"time"
 )
 
 // formatAlexandriaTools describes discovered capabilities, not their data.
@@ -68,35 +63,4 @@ func withSourceTools(markdown, toolSummary string) string {
 		return markdown
 	}
 	return markdown + "\n\n---\n\n" + toolSummary + "\n\n*Matched through Firecrawl Alexandria. Discovery does not verify, license, or execute these providers.*"
-}
-
-func discoverAlexandria(query string) string {
-	apiKey := strings.TrimSpace(os.Getenv("FIRECRAWL_API_KEY"))
-	if apiKey == "" {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	response, err := doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/search", map[string]string{
-		"Authorization": "Bearer " + apiKey,
-		"Content-Type":  "application/json",
-	}, map[string]any{
-		"query":      query,
-		"sources":    []string{"alexandria"},
-		"limit":      3,
-		"toolDetail": "compact",
-	})
-	if err != nil {
-		return "" // unavailable Alexandria is never a search failure
-	}
-	var result struct {
-		Success bool `json:"success"`
-		Data    struct {
-			Tools []any `json:"tools"`
-		} `json:"data"`
-	}
-	if json.Unmarshal(response, &result) != nil || !result.Success {
-		return ""
-	}
-	return formatAlexandriaTools(result.Data.Tools)
 }

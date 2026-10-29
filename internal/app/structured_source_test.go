@@ -54,7 +54,7 @@ func TestAlexandriaDiscoveryFallsBackWhenNotEnabled(t *testing.T) {
 		}
 		return testHTTPResponse(req, http.StatusOK, `{"success":true,"data":{"markdown":"# Good source\n\nAuthoritative page content."}}`, nil), nil
 	})}
-	result, err := firecrawlScrape("https://docs.example.com/reference", "fake-test-key", "")
+result, err := firecrawlScrape("https://docs.example.com/reference", "fake-test-key", "", true)
 	if err != nil || calls != 2 || !strings.Contains(result.Markdown, "Good source") {
 		t.Fatalf("fallback broke regular scraping: %#v, %v, calls=%d", result, err, calls)
 	}

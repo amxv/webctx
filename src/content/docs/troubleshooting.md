@@ -20,9 +20,9 @@ Add them to the environment or `.env.local`, then retry.
 
 Run `webctx status` to check both key presence and which providers are enabled. You can disable an exhausted provider without deleting its key, e.g. `webctx providers disable exa`.
 
-If you have more than one credential for a search provider, use `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` (comma-separated or JSON array) or add a key on macOS with `pbpaste | webctx keys add exa --stdin`. WebCTX automatically tries the next key after a quota, authentication, rate-limit, or server failure, but it will not retry malformed requests with a different key. `webctx keys list` shows key counts without revealing secrets. Respect provider quotas and avoid cycling accounts to bypass plan restrictions.
+If you have more than one credential for a search provider, use `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` (comma-separated or JSON array) or add a key on macOS with `pbpaste | webctx keys add exa --stdin`. WebCTX automatically balances searches between configured keys. After quota, authentication, rate-limit, server, or transport failures, it tries another key and temporarily cools down the failing credential for all CLI processes on the same machine. If all keys are cooling down, WebCTX tells you how long until the next retry instead of repeatedly exhausting quota. Invalid search requests do not retry. `webctx keys list` shows key counts without revealing secrets. Respect provider-account quotas and avoid cycling accounts to bypass plan restrictions.
 
-`--keyword` prefers Exa if it is enabled and has a key; if Exa is disabled, unconfigured, or fails, Brave/Tavily use a quoted-phrase approximation instead. This does not guarantee the phrase is present on the page.
+`--keyword` prefers Exa with the phrase quoted in the query (the deprecated `includeText` parameter is no longer used). If Exa is disabled, unconfigured, or fails, Brave uses the quoted query and Tavily uses the quoted query with `exact_match` enabled. Exa and Brave results are not independently verified against full page text.
 
 ## `read-link` works for GitHub but not normal websites
 
