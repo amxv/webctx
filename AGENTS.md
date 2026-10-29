@@ -47,13 +47,14 @@ Direct commands:
 Preserve these commands unless the user explicitly asks to change them:
 
 - `webctx search <query> [--exclude domain1,domain2] [--keyword phrase]`
+- `webctx status` and `webctx providers enable|disable <brave|tavily|exa>`
 - `webctx read-link <url>`
 - `webctx map-site <url>`
 - `webctx --version`
 
 Behavioral expectations:
 
-- `search` combines Brave, Tavily, and Exa results, then re-ranks them with duplicate-aware scoring.
+- `search` combines enabled Brave, Tavily, and Exa results, then re-ranks them with duplicate-aware scoring; an unavailable Exa can fall back to quoted-phrase Brave/Tavily queries for `--keyword` (not a strict text filter).
 - `read-link` keeps the current GitHub raw-content and `.md` fast paths. Firecrawl uses its built-in 30-minute cache, automatic and enhanced proxies, then browser extraction as a final fallback.
 - `map-site` keeps the current Firecrawl map request settings.
 - The CLI should remain agent-friendly and emit plain markdown/text output.

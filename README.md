@@ -95,13 +95,27 @@ Recognized native GitHub auth, private/not-found, and rate-limit failures stay a
 
 ## Search
 
-Normal search asks Brave, Tavily, and Exa, removes duplicate URLs, automatically reads promising sources, follows relevant links, and returns excerpts plus the ranked list. Alexandria discovery is included when available; use `execute` when you need provider-native data.
+Normal search asks the enabled Brave, Tavily, and Exa providers, removes duplicate URLs, automatically reads promising sources, follows relevant links, and returns excerpts plus the ranked list. One working search provider is enough; Alexandria discovery is included when available. Use `execute` when you need provider-native data.
 
 ```bash
 webctx search "next.js server components"
 webctx search "react hooks" --exclude youtube.com,medium.com
 webctx search "drizzle orm" --keyword "migration guide"
 ```
+
+### Enable or disable search providers
+
+```bash
+webctx status                 # enabled/disabled providers and locally configured keys
+webctx providers disable exa  # stop all Exa search requests, even with a key present
+webctx providers enable exa   # turn Exa back on later
+webctx providers disable brave
+webctx providers enable brave
+```
+
+Provider settings persist across runs, independently of environment variables and Keychain credentials. The settings file lives in the OS user config directory (`webctx/config.json`); set `WEBCTX_CONFIG_FILE` to override its location. Disabled providers are never queried. `status` only reports key presence, **not** live credit balances or API health.
+
+`--keyword` prefers Exa's strict include-text filter when available. If Exa is disabled, unconfigured, or fails, Brave/Tavily search for the quoted phrase instead; the output explicitly notes that this fallback cannot guarantee the phrase appears in the page text. Firecrawl is a separate reading/site-map/Alexandria integration, not one of these three search providers.
 
 ## Map a site
 
@@ -131,7 +145,7 @@ FIRECRAWL_API_KEY=...
 GH_TOKEN=...
 ```
 
-- `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY` power normal `search`.
+- `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY` power normal `search`. Configure any one or more, and optionally disable providers you no longer want to query.
 - `FIRECRAWL_API_KEY` powers `map-site`, page-crawl fallbacks, and Alexandria discovery/inspection/paid execution.
 - `GH_TOKEN` or `GITHUB_TOKEN` is optional. It increases GitHub capacity and unlocks reads such as blame, Discussions, some Actions job logs, private resources the token can access, and richer PR review state.
 

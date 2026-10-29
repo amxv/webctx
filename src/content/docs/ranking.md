@@ -10,7 +10,7 @@ summary: Provider position and independent agreement turn three search result se
 
 Different search providers are good at different things. A page that appears near the top of several independent result sets is often a stronger candidate than a page surfaced by only one provider.
 
-A normal search therefore runs Brave, Tavily, and Exa together:
+A normal search therefore runs the enabled Brave, Tavily, and Exa providers together (you can change this with `webctx providers disable exa` or another provider):
 
 ```bash
 webctx search "durable agent runtimes"
@@ -108,7 +108,7 @@ That means excluded pages cannot consume rank or earn agreement bonuses.
 webctx search "drizzle orm" --keyword "migration guide"
 ```
 
-It uses Exa include-text search when you care about a short phrase appearing on the page. Use normal search when you want cross-provider discovery and agreement; use keyword mode when you already know the textual clue you are looking for.
+It prefers Exa include-text search when you care about a short phrase appearing on the page. If Exa is disabled, unconfigured, or fails, it falls back to a quoted-phrase query on the enabled Brave/Tavily providers, clearly labeled as an approximation rather than a strict page-text filter. Use normal search when you want cross-provider discovery and agreement; use keyword mode when you already know the textual clue you are looking for.
 
 ## A practical research loop
 

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,11 @@ type providerDocs struct {
 	Err      error
 }
 
+type namedSearch struct {
+	name string
+	fn   func(context.Context) (SearchResult, error)
+}
+
 type scoredURL struct {
 	Result         SearchDoc
 	InsertionOrder int
@@ -47,6 +53,13 @@ type scoredURL struct {
 }
 
 func Search(params SearchParams) (string, error) {
+	config, err := currentProviderConfig()
+	if err != nil {
+		return "", err
+	}
+	if !config.enabled("brave") && !config.enabled("tavily") && !config.enabled("exa") {
+		return "", errors.New("Error searching the web: all search providers are disabled; run 'webctx providers enable brave', 'webctx providers enable tavily', or 'webctx providers enable exa'")
+	}
 	defaultExcludedDomains := []string{"youtube.com", "vimeo.com", "dailymotion.com", "twitch.tv", "tiktok.com", "instagram.com", "facebook.com"}
 	allExcludedDomains := append(append([]string{}, defaultExcludedDomains...), params.ExcludeDomains...)
 	truncatedKeyword := truncateWords(params.IncludeKeyword, 5)
@@ -56,46 +69,44 @@ func Search(params SearchParams) (string, error) {
 	alexandriaDone := make(chan string, 1)
 	go func() { alexandriaDone <- discoverAlexandria(params.Query) }()
 
-	type namedSearch struct {
-		name string
-		fn   func(context.Context) (SearchResult, error)
-	}
-
 	searches := []namedSearch{}
+	keywordFallback := false
 	if strings.TrimSpace(truncatedKeyword) != "" {
-		searches = append(searches, namedSearch{name: "Exa", fn: func(ctx context.Context) (SearchResult, error) {
-			return searchWithExa(ctx, params.Query, nil, truncatedKeyword)
-		}})
+		if config.enabled("exa") && strings.TrimSpace(os.Getenv("EXA_API_KEY")) != "" {
+			searches = append(searches, namedSearch{name: "Exa", fn: func(ctx context.Context) (SearchResult, error) {
+				return searchWithExa(ctx, params.Query, nil, truncatedKeyword)
+			}})
+		}
 	} else {
-		searches = append(searches,
-			namedSearch{name: "Brave", fn: func(ctx context.Context) (SearchResult, error) { return searchWithBrave(ctx, params.Query) }},
-			namedSearch{name: "Tavily", fn: func(ctx context.Context) (SearchResult, error) { return searchWithTavily(ctx, params.Query, nil) }},
-			namedSearch{name: "Exa", fn: func(ctx context.Context) (SearchResult, error) { return searchWithExa(ctx, params.Query, nil, "") }},
-		)
+		searches = append(searches, alternativeSearches(config, params.Query)...)
+		if config.enabled("exa") {
+			searches = append(searches, namedSearch{name: "Exa", fn: func(ctx context.Context) (SearchResult, error) {
+				return searchWithExa(ctx, params.Query, nil, "")
+			}})
+		}
 	}
 
-	results := make([]providerDocs, len(searches))
-	var wg sync.WaitGroup
-	for i, s := range searches {
-		wg.Add(1)
-		go func(i int, s namedSearch) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-			defer cancel()
-			res, err := s.fn(ctx)
-			if err != nil {
-				results[i] = providerDocs{Provider: s.name, Docs: []SearchDoc{}, Err: err}
-				return
-			}
-			results[i] = providerDocs{Provider: s.name, Docs: res.Docs}
-		}(i, s)
+	results := runSearches(searches)
+	if truncatedKeyword != "" && (len(searches) == 0 || (len(results) == 1 && results[0].Err != nil)) {
+		// Exa's includeText filter has no equivalent in Brave or Tavily. When Exa
+		// is disabled, unconfigured, or fails, search for the quoted phrase instead
+		// of making keyword searches unusable. Disclose the weaker semantics.
+		fallbackQuery := params.Query + " " + strconv.Quote(truncatedKeyword)
+		fallbackSearches := alternativeSearches(config, fallbackQuery)
+		if len(fallbackSearches) > 0 {
+			results = append(results, runSearches(fallbackSearches)...)
+			keywordFallback = true
+		} else if len(searches) == 0 && config.enabled("exa") {
+			// Preserve the helpful missing-key error if Exa is the only enabled
+			// provider and it has no key.
+			results = append(results, providerDocs{Provider: "Exa", Err: errors.New("missing EXA_API_KEY")})
+		}
 	}
-	wg.Wait()
+	if len(results) == 0 {
+		return "", errors.New("Error searching the web: no enabled search providers are available for this query; use 'webctx status' to inspect settings")
+	}
 
-	total := 0
-	for _, r := range results {
-		total += len(r.Docs)
-	}
+	total := countSearchDocs(results)
 	if total == 0 {
 		missingKeys := uniqueMissingCredentialKeys(results)
 		if len(missingKeys) > 0 {
@@ -123,6 +134,9 @@ func Search(params SearchParams) (string, error) {
 	}
 
 	parts := []string{fmt.Sprintf("Total Results: %d\n", len(ranked))}
+	if keywordFallback {
+		parts = append(parts, "> **Keyword fallback:** Exa was disabled or unavailable. Brave/Tavily searched for the quoted phrase; this is not a strict page-text inclusion filter.", "")
+	}
 	// The ranked index remains available, but agents also get useful source
 	// context without having to issue several follow-up read-link calls.
 	if context := enrichSearch(params.Query, ranked); context != "" {
@@ -142,6 +156,46 @@ func Search(params SearchParams) (string, error) {
 		parts = append(parts, "")
 	}
 	return strings.Join(parts, "\n"), nil
+}
+
+func alternativeSearches(config providerConfig, query string) []namedSearch {
+	searches := []namedSearch{}
+	if config.enabled("brave") {
+		searches = append(searches, namedSearch{name: "Brave", fn: func(ctx context.Context) (SearchResult, error) { return searchWithBrave(ctx, query) }})
+	}
+	if config.enabled("tavily") {
+		searches = append(searches, namedSearch{name: "Tavily", fn: func(ctx context.Context) (SearchResult, error) { return searchWithTavily(ctx, query, nil) }})
+	}
+	return searches
+}
+
+func countSearchDocs(results []providerDocs) int {
+	count := 0
+	for _, r := range results {
+		count += len(r.Docs)
+	}
+	return count
+}
+
+func runSearches(searches []namedSearch) []providerDocs {
+	results := make([]providerDocs, len(searches))
+	var wg sync.WaitGroup
+	for i, s := range searches {
+		wg.Add(1)
+		go func(i int, s namedSearch) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+			defer cancel()
+			res, err := s.fn(ctx)
+			if err != nil {
+				results[i] = providerDocs{Provider: s.name, Docs: []SearchDoc{}, Err: err}
+				return
+			}
+			results[i] = providerDocs{Provider: s.name, Docs: res.Docs}
+		}(i, s)
+	}
+	wg.Wait()
+	return results
 }
 
 func ReadLink(rawURL string) (string, error) {
@@ -338,7 +392,6 @@ func searchWithBrave(ctx context.Context, query string) (SearchResult, error) {
 	params.Set("limit", "20")
 	body, err := doRawRequest(ctx, http.MethodGet, "https://api.search.brave.com/res/v1/web/search?"+params.Encode(), map[string]string{
 		"Accept":               "application/json",
-		"Accept-Encoding":      "gzip",
 		"x-subscription-token": apiKey,
 	}, nil)
 	if err != nil {

@@ -79,7 +79,7 @@ You do not need every key for every command:
 
 | What you want to do | Key |
 | --- | --- |
-| Normal `search` | `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
+| Normal `search` | Any one or more of `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
 | Map sites or crawl normal pages | `FIRECRAWL_API_KEY` |
 | More GitHub capacity / auth-only GitHub views | `GH_TOKEN` or `GITHUB_TOKEN` |
 

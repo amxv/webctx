@@ -8,7 +8,7 @@ summary: Start with the error webctx gave you, then check the matching provider 
 
 ## Search says credentials are missing
 
-Normal search needs:
+Normal search needs at least one key for an enabled provider (not all three):
 
 ```text
 BRAVE_API_KEY
@@ -18,7 +18,9 @@ EXA_API_KEY
 
 Add them to the environment or `.env.local`, then retry.
 
-`--keyword` only needs `EXA_API_KEY`.
+Run `webctx status` to check both key presence and which providers are enabled. You can disable an exhausted provider without deleting its key, e.g. `webctx providers disable exa`.
+
+`--keyword` prefers Exa if it is enabled and has a key; if Exa is disabled, unconfigured, or fails, Brave/Tavily use a quoted-phrase approximation instead. This does not guarantee the phrase is present on the page.
 
 ## `read-link` works for GitHub but not normal websites
 

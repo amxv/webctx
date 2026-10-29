@@ -10,7 +10,7 @@ summary: Search keys, Firecrawl, and optional GitHub authentication without extr
 
 | Use | Keys |
 | --- | --- |
-| `webctx search` | `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
+| `webctx search` | Any one or more of `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` (for enabled providers) |
 | `webctx map-site` | `FIRECRAWL_API_KEY` |
 | Normal web-page fallback in `read-link` | `FIRECRAWL_API_KEY` |
 | `webctx research`, `inspect`, and `execute` | `FIRECRAWL_API_KEY` (discovery and inspection are free; execution uses credits) |
@@ -42,6 +42,8 @@ GH_TOKEN=...
 ```
 
 webctx can load credentials from the environment, `.env.local`, or macOS Keychain. Existing environment variables win.
+
+Use `webctx status` to check which search providers are enabled and whether their credentials are configured. To stop using Exa without deleting its key, run `webctx providers disable exa`. The setting persists locally until `webctx providers enable exa`; enabled/disabled is distinct from key presence. Status checks never request provider credit balances. The settings file is in the OS user config directory under `webctx/config.json` (override with `WEBCTX_CONFIG_FILE`).
 
 If both GitHub variables are set, `GH_TOKEN` wins over `GITHUB_TOKEN`.
 

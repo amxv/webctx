@@ -16,8 +16,6 @@ const commandName = "webctx"
 var version = buildinfo.CurrentVersion()
 
 func Run(args []string, stdout, stderr io.Writer) int {
-	loadEnvLocal()
-
 	if len(args) == 0 || isHelpArg(args[0]) {
 		_, _ = fmt.Fprintln(stdout, usageText())
 		return 0
@@ -29,6 +27,37 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	tool := args[0]
+	isProviderTool := tool == "status" || tool == "providers" || tool == "provider"
+	isProviderStatus := (tool == "status" && len(args) == 1) ||
+		((tool == "providers" || tool == "provider") && (len(args) == 1 || (len(args) == 2 && args[1] == "status")))
+	if !isProviderTool || isProviderStatus {
+		loadEnvLocal()
+	}
+	if isProviderTool {
+		if isProviderStatus {
+			if err := printProviderStatus(stdout); err != nil {
+				_, _ = fmt.Fprintln(stderr, err)
+				return 1
+			}
+			return 0
+		}
+		if tool == "status" || len(args) != 3 || (args[1] != "enable" && args[1] != "disable") {
+			_, _ = fmt.Fprintln(stderr, "Usage: webctx providers [status|enable <brave|tavily|exa>|disable <brave|tavily|exa>]")
+			return 1
+		}
+		enabled := args[1] == "enable"
+		if _, err := setSearchProviderEnabled(args[2], enabled); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		state := "disabled"
+		if enabled {
+			state = "enabled"
+		}
+		_, _ = fmt.Fprintf(stdout, "%s %s. Run 'webctx status' to inspect all providers.\n", strings.ToLower(strings.TrimSpace(args[2])), state)
+		return 0
+	}
+
 	flags, positional := parseArgs(args[1:])
 	input := ""
 	if len(positional) > 0 {
@@ -197,6 +226,8 @@ func usageText() string {
 
 Usage:
   webctx search <query> [--exclude domain1,domain2] [--keyword phrase]
+  webctx status
+  webctx providers [status|enable <brave|tavily|exa>|disable <brave|tavily|exa>]
   webctx read-link <url> [--question 'what to find']
   webctx map-site <url> [--query topic] [--limit 30] [--offset 0] [--path-prefix /api] [--language en|all]
   webctx research [question] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
@@ -208,6 +239,8 @@ Examples:
   webctx search "next.js server components"
   webctx search "react hooks" --exclude youtube.com,vimeo.com
   webctx search "drizzle orm" --keyword "migration guide"
+  webctx providers disable exa
+  webctx providers enable exa
   webctx research "podcast conversations about AI agents"
   webctx research --view sources --limit 5
   webctx inspect particle/podcasts/episodes/search

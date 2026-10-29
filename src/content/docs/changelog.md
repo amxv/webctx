@@ -8,6 +8,13 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.9 - 2026-10-29
+
+- Added persistent `webctx providers enable|disable <brave|tavily|exa>` controls and a `webctx status` overview of enabled search providers and locally configured credentials, without exposing API keys or making live quota checks. Disabled providers are never queried even if their keys remain installed.
+- Kept normal search working with any enabled provider. Keyword searches prefer Exa's include-text search, but now fall back to a clearly labeled Brave/Tavily quoted-phrase query when Exa is disabled, unconfigured, or fails (not equivalent to a strict page-text filter).
+- Fixed Brave Search JSON decoding by leaving gzip negotiation to Go's HTTP transport; a manually set gzip header previously caused compressed responses to be parsed as raw JSON.
+- Added regression tests for persistence, safe error handling, disabled-provider request suppression, single-provider search, and Exa credit-exhaustion fallback.
+
 ## 0.2.8 - 2026-10-12
 
 - Serialized identical paid requests within each warm Origo worker, preventing concurrent same-ID executions from racing before a replay receipt is stored. Partial batches are cached as well: replaying the same request no longer resubmits its successful charged operations. Cached replays report zero new provider executions; cross-worker billing remains explicitly unverified.

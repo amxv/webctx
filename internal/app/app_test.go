@@ -84,6 +84,7 @@ func TestScoreAndRankResultsPreservesInsertionOrderForTies(t *testing.T) {
 }
 
 func TestSearchMissingCredentialsErrorIsHelpful(t *testing.T) {
+	t.Setenv("WEBCTX_CONFIG_FILE", filepath.Join(t.TempDir(), "config.json"))
 	t.Setenv("BRAVE_API_KEY", "")
 	t.Setenv("TAVILY_API_KEY", "")
 	t.Setenv("EXA_API_KEY", "")

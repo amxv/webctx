@@ -12,6 +12,8 @@ summary: Commands, flags, keys, and output in one page.
 webctx --help
 webctx --version
 webctx search <query> [--exclude domains] [--keyword phrase]
+webctx status
+webctx providers [status|enable <brave|tavily|exa>|disable <brave|tavily|exa>]
 webctx read-link <url> [--question "what to find"]
 webctx map-site <url> [--query topic] [--limit 30] [--offset 0] [--path-prefix /api] [--language en|all]
 webctx research [question] [--mode ranked|catalogue] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
@@ -37,6 +39,18 @@ Use Exa include-text search for a short phrase:
 ```bash
 webctx search "drizzle orm" --keyword "migration guide"
 ```
+
+If Exa is disabled, missing a key, or unavailable, Brave/Tavily search with the quoted phrase instead (not a strict page-text filter).
+
+## Provider settings
+
+```bash
+webctx status                # see enabled state and credential presence
+webctx providers disable exa # never send Exa search requests
+webctx providers enable exa  # re-enable later
+```
+
+These are persistent, per-user search-provider settings, independent of credentials. The config file is `webctx/config.json` inside the OS user config directory, or the path given by `WEBCTX_CONFIG_FILE`. `status` does not check provider quotas or API health. Firecrawl is separate from federated search.
 
 ## Question-focused reading
 
