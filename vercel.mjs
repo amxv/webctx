@@ -8,6 +8,9 @@ const origo =
 export const config = origo
   ? {
       framework: null,
+      // The Origo project previously inherited a root Bun install command.
+      // It is Go-only and the monorepo intentionally has no root package.json.
+      installCommand: '',
       functions: { 'api/*.go': { maxDuration: 300 } },
       rewrites: [{ source: '/mcp', destination: '/api/mcp' }],
       git: { deploymentEnabled: false }

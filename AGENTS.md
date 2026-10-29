@@ -25,7 +25,6 @@ It is no longer a generic starter template. Treat the current CLI behavior as th
 - `npm/scripts/postinstall.js`: downloads a release binary on install, falls back to `go build`.
 - `npm/scripts/prepare-package.mjs`: stages the Go sources and npm shim under ignored `npm/.publish/` for publication.
 - `docs/`: independent Astro app (`package.json`, `bun.lock`, `src/`, `public/`).
-- `notes/porting-status.md`: historical porting reference.
 - `tests/`: repository-level deployment contract tests.
 - `.github/workflows/release.yml`: tag-driven release pipeline.
 
@@ -78,7 +77,7 @@ Behavioral expectations:
 - release assets: `<cli>_<goos>_<goarch>[.exe]`
 - npm-installed binary path: `bin/<cli>-bin` (or `.exe` on Windows)
 
-2. If changing search behavior, compare against the TypeScript porting notes in `notes/porting-status.md` first.
+2. If changing search behavior, preserve the documented CLI behavior and extend its regression tests.
 
 3. If adding dependencies, commit `go.sum` and make sure the workflow still passes on a clean checkout.
 
@@ -121,4 +120,4 @@ The Docs GitHub Actions workflow runs from `docs/` and deploys production only f
 
 ### Origo deployment
 
-The separate `Origo API` GitHub Actions workflow deploys the Go function only for changes to its import graph and Vercel configuration. Use `VERCEL_ORIGO_TOKEN` and `VERCEL_ORIGO_PROJECT_ID` exclusively for Origo; never substitute the WebCTX Docs token or a static `--prebuilt` site bundle. Keep the `/mcp` rewrite and Origo production environment variables intact.
+The separate `Origo API` GitHub Actions workflow deploys the Go function only for changes to its import graph and Vercel configuration. Use `VERCEL_ORIGO_TOKEN` and `VERCEL_ORIGO_PROJECT_ID` exclusively for Origo; never substitute the WebCTX Docs token or a static `--prebuilt` site bundle. Its `installCommand` must remain empty to avoid running Bun in the Go-only project root. Keep the `/mcp` rewrite and Origo production environment variables intact.

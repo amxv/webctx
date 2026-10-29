@@ -52,6 +52,8 @@ test('both Vercel project configurations disable Git auto-deploy and ignored bui
     const origo = await import('../vercel.mjs?test=origo');
     assert.equal(origo.config.git.deploymentEnabled, false);
     assert.equal(Object.hasOwn(origo.config, 'ignoreCommand'), false);
+    assert.equal(origo.config.installCommand, '', 'Go-only Origo must skip the old Bun install override');
+    assert.equal(origo.config.framework, null);
     assert.deepEqual(origo.config.rewrites, [{ source: '/mcp', destination: '/api/mcp' }]);
     assert.equal(origo.config.functions['api/*.go'].maxDuration, 300);
   } finally {

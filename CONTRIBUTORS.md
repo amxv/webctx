@@ -124,7 +124,6 @@ webctx/
 ├── api/mcp.go        Vercel Go Function entrypoint
 ├── npm/              npm CLI package, shim, and packaging scripts
 ├── docs/             Standalone Astro docs site, its dependencies and lockfile
-├── notes/            Historical porting notes
 ├── tests/            Root deployment boundary checks
 ├── go.mod            One shared Go module for CLI and MCP
 └── Makefile          Go commands and docs convenience targets
@@ -152,7 +151,3 @@ The independent `Docs` and `Origo API` GitHub Actions workflows filter their own
 - `npm/scripts/prepare-package.mjs`
 - `.github/workflows/release.yml`
 - `Makefile`
-
-## Porting reference
-
-The repo includes `notes/porting-status.md` as the running reference for what was ported from `webctx-ts`, what was intentionally excluded, and what future agents should verify before making behavior changes.
