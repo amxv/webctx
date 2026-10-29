@@ -152,6 +152,9 @@ func searchTestEnv(t *testing.T) {
 	t.Setenv("BRAVE_API_KEY", "test-brave")
 	t.Setenv("TAVILY_API_KEY", "test-tavily")
 	t.Setenv("EXA_API_KEY", "test-exa")
+	t.Setenv("BRAVE_API_KEYS", "")
+	t.Setenv("TAVILY_API_KEYS", "")
+	t.Setenv("EXA_API_KEYS", "")
 	t.Setenv("FIRECRAWL_API_KEY", "")
 }
 

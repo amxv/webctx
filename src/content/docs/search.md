@@ -43,6 +43,23 @@ webctx providers disable tavily
 
 Settings persist across CLI invocations and override key presence: a disabled provider is never contacted even if its API key is configured. `status` shows enabled/disabled state and whether keys are present, without exposing secrets or querying API credit balances. The three toggles govern **search** only; Firecrawl remains a separate page-reading and structured-data integration. Provider settings are stored in `webctx/config.json` under the OS user config directory; optionally set `WEBCTX_CONFIG_FILE` for a custom location.
 
+## Add fallback API keys
+
+Each search provider supports multiple keys, using its plural environment variable (`BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS`) as a comma/newline-separated list or JSON array. The plural keys are tried in order, followed by the existing singular `*_API_KEY` as a last fallback. Identical keys are deduplicated.
+
+On macOS, WebCTX can securely manage the plural key list in your Keychain:
+
+```bash
+webctx keys list
+pbpaste | webctx keys add exa --stdin
+webctx keys remove exa 1
+webctx providers enable exa
+```
+
+The `keys add` command reads the secret from standard input; it never requires it in shell arguments. Newly added Keychain keys take priority. `keys list` reveals only counts, including the number of Keychain-managed keys, and `keys remove` indexes only those managed keys (1 = newest).
+
+When the first key fails with an authentication, exhausted-credit/quota, rate-limit, or server error, WebCTX tries the next configured key automatically. Transport failures can also advance to the next key. Invalid request arguments and malformed successful JSON are **not** retried with other credentials. This applies to Brave, Tavily, and Exa searches, not the separately billed Firecrawl/Alexandria API; respect each provider's plan and account limits.
+
 ## Dig deeper with `read-link`
 
 A good research loop is:

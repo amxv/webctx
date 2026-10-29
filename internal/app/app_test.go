@@ -88,6 +88,9 @@ func TestSearchMissingCredentialsErrorIsHelpful(t *testing.T) {
 	t.Setenv("BRAVE_API_KEY", "")
 	t.Setenv("TAVILY_API_KEY", "")
 	t.Setenv("EXA_API_KEY", "")
+	t.Setenv("BRAVE_API_KEYS", "")
+	t.Setenv("TAVILY_API_KEYS", "")
+	t.Setenv("EXA_API_KEYS", "")
 
 	text, err := Search(SearchParams{Query: "openai api"})
 	if err == nil {
@@ -180,6 +183,9 @@ func TestLoadKeychainEnvLoadsMissingOnly(t *testing.T) {
 	t.Setenv("BRAVE_API_KEY", "already-set")
 	t.Setenv("TAVILY_API_KEY", "")
 	t.Setenv("EXA_API_KEY", "")
+	t.Setenv("BRAVE_API_KEYS", "")
+	t.Setenv("TAVILY_API_KEYS", "")
+	t.Setenv("EXA_API_KEYS", "")
 	t.Setenv("FIRECRAWL_API_KEY", "")
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")

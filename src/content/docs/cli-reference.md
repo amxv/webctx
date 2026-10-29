@@ -14,6 +14,9 @@ webctx --version
 webctx search <query> [--exclude domains] [--keyword phrase]
 webctx status
 webctx providers [status|enable <brave|tavily|exa>|disable <brave|tavily|exa>]
+webctx keys list
+webctx keys add <brave|tavily|exa> --stdin
+webctx keys remove <brave|tavily|exa> <managed-key-index>
 webctx read-link <url> [--question "what to find"]
 webctx map-site <url> [--query topic] [--limit 30] [--offset 0] [--path-prefix /api] [--language en|all]
 webctx research [question] [--mode ranked|catalogue] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
@@ -51,6 +54,12 @@ webctx providers enable exa  # re-enable later
 ```
 
 These are persistent, per-user search-provider settings, independent of credentials. The config file is `webctx/config.json` inside the OS user config directory, or the path given by `WEBCTX_CONFIG_FILE`. `status` does not check provider quotas or API health. Firecrawl is separate from federated search.
+
+## Multiple credentials per provider
+
+For additional API keys, use `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` (CSV, newlines, or JSON arrays). Plural keys are tried in order before the legacy singular key. A rejected key triggers failover for auth, quota/credits, rate limits, server, or transport failures; malformed successful responses and invalid API requests do not.
+
+On macOS, `pbpaste | webctx keys add exa --stdin` stores a newly copied key in Keychain, not on disk. `webctx keys list` reports configured counts and Keychain-managed slots without printing secrets; `webctx keys remove exa 1` deletes the newest managed Exa key, without touching the singular legacy key. These commands support Brave, Tavily, and Exa only; Firecrawl/Alexandria has separate request and billing semantics.
 
 ## Question-focused reading
 

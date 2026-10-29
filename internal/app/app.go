@@ -27,6 +27,40 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	tool := args[0]
+	if tool == "keys" {
+		if len(args) == 2 && args[1] == "list" {
+			loadEnvLocal()
+			if err := printProviderStatus(stdout); err != nil {
+				_, _ = fmt.Fprintln(stderr, err)
+				return 1
+			}
+			if err := printManagedSearchKeySlots(stdout); err != nil {
+				_, _ = fmt.Fprintln(stderr, err)
+				return 1
+			}
+			return 0
+		}
+		if len(args) == 4 && args[1] == "add" && args[3] == "--stdin" {
+			count, err := addManagedSearchKey(args[2], os.Stdin)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, err)
+				return 1
+			}
+			_, _ = fmt.Fprintf(stdout, "Saved an additional %s API key in macOS Keychain (%d managed key(s)).\n", strings.ToLower(args[2]), count)
+			return 0
+		}
+		if len(args) == 4 && args[1] == "remove" {
+			count, err := removeManagedSearchKey(args[2], args[3])
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, err)
+				return 1
+			}
+			_, _ = fmt.Fprintf(stdout, "Removed managed %s API key (%d managed key(s) remain).\n", strings.ToLower(args[2]), count)
+			return 0
+		}
+		_, _ = fmt.Fprintln(stderr, "Usage: webctx keys list | keys add <brave|tavily|exa> --stdin | keys remove <provider> <managed-key-index>")
+		return 1
+	}
 	isProviderTool := tool == "status" || tool == "providers" || tool == "provider"
 	isProviderStatus := (tool == "status" && len(args) == 1) ||
 		((tool == "providers" || tool == "provider") && (len(args) == 1 || (len(args) == 2 && args[1] == "status")))
@@ -228,6 +262,9 @@ Usage:
   webctx search <query> [--exclude domain1,domain2] [--keyword phrase]
   webctx status
   webctx providers [status|enable <brave|tavily|exa>|disable <brave|tavily|exa>]
+  webctx keys list
+  webctx keys add <brave|tavily|exa> --stdin
+  webctx keys remove <brave|tavily|exa> <managed-key-index>
   webctx read-link <url> [--question 'what to find']
   webctx map-site <url> [--query topic] [--limit 30] [--offset 0] [--path-prefix /api] [--language en|all]
   webctx research [question] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
@@ -241,6 +278,7 @@ Examples:
   webctx search "drizzle orm" --keyword "migration guide"
   webctx providers disable exa
   webctx providers enable exa
+  webctx keys add exa --stdin < /path/to/private/key.txt
   webctx research "podcast conversations about AI agents"
   webctx research --view sources --limit 5
   webctx inspect particle/podcasts/episodes/search

@@ -115,6 +115,17 @@ webctx providers enable brave
 
 Provider settings persist across runs, independently of environment variables and Keychain credentials. The settings file lives in the OS user config directory (`webctx/config.json`); set `WEBCTX_CONFIG_FILE` to override its location. Disabled providers are never queried. `status` only reports key presence, **not** live credit balances or API health.
 
+Multiple keys per provider are supported. Add extra keys on macOS without placing secrets in command arguments or plaintext config files:
+
+```bash
+webctx keys list                         # count configured and managed keys (never prints them)
+pbpaste | webctx keys add exa --stdin    # securely store a copied new key in macOS Keychain
+webctx keys remove exa 1                # remove the newest Keychain-managed Exa key
+webctx providers enable exa
+```
+
+Or supply `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, or `EXA_API_KEYS` as comma-separated keys (or JSON arrays) in the environment or `.env.local`, alongside the corresponding singular `*_API_KEY`. Keys in the plural list are attempted first, then the legacy single key. On a key-specific authentication, quota/credit, rate-limit, or server error, the next key is tried automatically; invalid requests are not retried. Manage only keys/accounts you are authorized to use and honor each provider's usage restrictions. The Firecrawl/Alexandria integration is separate and **is not included in automatic key rotation**, especially for paid operations.
+
 `--keyword` prefers Exa's strict include-text filter when available. If Exa is disabled, unconfigured, or fails, Brave/Tavily search for the quoted phrase instead; the output explicitly notes that this fallback cannot guarantee the phrase appears in the page text. Firecrawl is a separate reading/site-map/Alexandria integration, not one of these three search providers.
 
 ## Map a site
@@ -145,7 +156,7 @@ FIRECRAWL_API_KEY=...
 GH_TOKEN=...
 ```
 
-- `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY` power normal `search`. Configure any one or more, and optionally disable providers you no longer want to query.
+- `BRAVE_API_KEY`, `TAVILY_API_KEY`, and `EXA_API_KEY` power normal `search`. The plural `*_API_KEYS` names supply additional fallback credentials. Configure any one or more, and optionally disable providers you no longer want to query.
 - `FIRECRAWL_API_KEY` powers `map-site`, page-crawl fallbacks, and Alexandria discovery/inspection/paid execution.
 - `GH_TOKEN` or `GITHUB_TOKEN` is optional. It increases GitHub capacity and unlocks reads such as blame, Discussions, some Actions job logs, private resources the token can access, and richer PR review state.
 

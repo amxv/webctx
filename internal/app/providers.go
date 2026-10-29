@@ -145,8 +145,12 @@ func printProviderStatus(out io.Writer) error {
 		if !config.enabled(p.name) {
 			state = "disabled"
 		}
-		if strings.TrimSpace(os.Getenv(p.key)) != "" {
+		count := len(searchKeysForProvider(p.name))
+		if count > 0 {
 			key = "key configured"
+			if count > 1 {
+				key = fmt.Sprintf("key configured (%d keys)", count)
+			}
 		}
 		_, _ = fmt.Fprintf(out, "  %-7s %-9s %s\n", p.name, state, key)
 	}

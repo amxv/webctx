@@ -48,6 +48,7 @@ Preserve these commands unless the user explicitly asks to change them:
 
 - `webctx search <query> [--exclude domain1,domain2] [--keyword phrase]`
 - `webctx status` and `webctx providers enable|disable <brave|tavily|exa>`
+- `webctx keys list|add|remove` for macOS Keychain-managed additional search keys; `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, and `EXA_API_KEYS` also work via environment variables
 - `webctx read-link <url>`
 - `webctx map-site <url>`
 - `webctx --version`
@@ -55,6 +56,7 @@ Preserve these commands unless the user explicitly asks to change them:
 Behavioral expectations:
 
 - `search` combines enabled Brave, Tavily, and Exa results, then re-ranks them with duplicate-aware scoring; an unavailable Exa can fall back to quoted-phrase Brave/Tavily queries for `--keyword` (not a strict text filter).
+- Search key rotation tries plural credentials first, legacy singular credentials afterward; failover applies only to credential/quota/rate/server/transport failures, never bad requests. Keep Firecrawl paid operations outside this rotation.
 - `read-link` keeps the current GitHub raw-content and `.md` fast paths. Firecrawl uses its built-in 30-minute cache, automatic and enhanced proxies, then browser extraction as a final fallback.
 - `map-site` keeps the current Firecrawl map request settings.
 - The CLI should remain agent-friendly and emit plain markdown/text output.

@@ -72,7 +72,7 @@ func Search(params SearchParams) (string, error) {
 	searches := []namedSearch{}
 	keywordFallback := false
 	if strings.TrimSpace(truncatedKeyword) != "" {
-		if config.enabled("exa") && strings.TrimSpace(os.Getenv("EXA_API_KEY")) != "" {
+		if config.enabled("exa") && len(searchKeysForProvider("exa")) > 0 {
 			searches = append(searches, namedSearch{name: "Exa", fn: func(ctx context.Context) (SearchResult, error) {
 				return searchWithExa(ctx, params.Query, nil, truncatedKeyword)
 			}})
@@ -381,19 +381,17 @@ func missingCredentialsError(prefix string, keys []string, detail string) error 
 }
 
 func searchWithBrave(ctx context.Context, query string) (SearchResult, error) {
-	apiKey := strings.TrimSpace(os.Getenv("BRAVE_API_KEY"))
-	if apiKey == "" {
-		return SearchResult{}, errors.New("missing BRAVE_API_KEY")
-	}
 	params := url.Values{}
 	params.Set("q", query)
 	params.Set("text_decorations", "false")
 	params.Set("result_filter", "web")
 	params.Set("limit", "20")
-	body, err := doRawRequest(ctx, http.MethodGet, "https://api.search.brave.com/res/v1/web/search?"+params.Encode(), map[string]string{
-		"Accept":               "application/json",
-		"x-subscription-token": apiKey,
-	}, nil)
+	body, err := useSearchKeys(ctx, "brave", func(apiKey string) ([]byte, error) {
+		return doRawRequest(ctx, http.MethodGet, "https://api.search.brave.com/res/v1/web/search?"+params.Encode(), map[string]string{
+			"Accept":               "application/json",
+			"x-subscription-token": apiKey,
+		}, nil)
+	})
 	if err != nil {
 		return SearchResult{}, err
 	}
@@ -420,22 +418,20 @@ func searchWithBrave(ctx context.Context, query string) (SearchResult, error) {
 }
 
 func searchWithTavily(ctx context.Context, query string, excludeDomains []string) (SearchResult, error) {
-	apiKey := strings.TrimSpace(os.Getenv("TAVILY_API_KEY"))
-	if apiKey == "" {
-		return SearchResult{}, errors.New("missing TAVILY_API_KEY")
-	}
 	requestBody := map[string]any{
-		"api_key":     apiKey,
 		"query":       query,
 		"max_results": 20,
 	}
 	if len(excludeDomains) > 0 {
 		requestBody["exclude_domains"] = excludeDomains
 	}
-	body, err := doJSONRequest(ctx, http.MethodPost, "https://api.tavily.com/search", map[string]string{
-		"Content-Type": "application/json",
-		"Accept":       "application/json",
-	}, requestBody)
+	body, err := useSearchKeys(ctx, "tavily", func(apiKey string) ([]byte, error) {
+		requestBody["api_key"] = apiKey
+		return doJSONRequest(ctx, http.MethodPost, "https://api.tavily.com/search", map[string]string{
+			"Content-Type": "application/json",
+			"Accept":       "application/json",
+		}, requestBody)
+	})
 	if err != nil {
 		return SearchResult{}, err
 	}
@@ -460,10 +456,6 @@ func searchWithTavily(ctx context.Context, query string, excludeDomains []string
 }
 
 func searchWithExa(ctx context.Context, query string, excludeDomains []string, includeKeyword string) (SearchResult, error) {
-	apiKey := strings.TrimSpace(os.Getenv("EXA_API_KEY"))
-	if apiKey == "" {
-		return SearchResult{}, errors.New("missing EXA_API_KEY")
-	}
 	requestBody := map[string]any{
 		"query":      query,
 		"type":       "auto",
@@ -478,11 +470,13 @@ func searchWithExa(ctx context.Context, query string, excludeDomains []string, i
 	if strings.TrimSpace(includeKeyword) != "" {
 		requestBody["includeText"] = []string{includeKeyword}
 	}
-	body, err := doJSONRequest(ctx, http.MethodPost, "https://api.exa.ai/search", map[string]string{
-		"Accept":       "application/json",
-		"Content-Type": "application/json",
-		"x-api-key":    apiKey,
-	}, requestBody)
+	body, err := useSearchKeys(ctx, "exa", func(apiKey string) ([]byte, error) {
+		return doJSONRequest(ctx, http.MethodPost, "https://api.exa.ai/search", map[string]string{
+			"Accept":       "application/json",
+			"Content-Type": "application/json",
+			"x-api-key":    apiKey,
+		}, requestBody)
+	})
 	if err != nil {
 		return SearchResult{}, err
 	}
@@ -684,12 +678,19 @@ func doRawRequest(ctx context.Context, method, rawURL string, headers map[string
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if len(respBody) > 0 {
-			return nil, fmt.Errorf("API request failed: %s - %s", resp.Status, strings.TrimSpace(string(respBody)))
+			return nil, &httpStatusError{Code: resp.StatusCode, Message: fmt.Sprintf("API request failed: %s - %s", resp.Status, strings.TrimSpace(string(respBody)))}
 		}
-		return nil, fmt.Errorf("API request failed: %s", resp.Status)
+		return nil, &httpStatusError{Code: resp.StatusCode, Message: "API request failed: " + resp.Status}
 	}
 	return respBody, nil
 }
+
+type httpStatusError struct {
+	Code    int
+	Message string
+}
+
+func (e *httpStatusError) Error() string { return e.Message }
 
 func stringValue(v any) string {
 	if s, ok := v.(string); ok {

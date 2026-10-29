@@ -45,6 +45,12 @@ webctx can load credentials from the environment, `.env.local`, or macOS Keychai
 
 Use `webctx status` to check which search providers are enabled and whether their credentials are configured. To stop using Exa without deleting its key, run `webctx providers disable exa`. The setting persists locally until `webctx providers enable exa`; enabled/disabled is distinct from key presence. Status checks never request provider credit balances. The settings file is in the OS user config directory under `webctx/config.json` (override with `WEBCTX_CONFIG_FILE`).
 
+### Multiple keys and automatic fallback
+
+For federated search, `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, and `EXA_API_KEYS` accept a comma/newline-separated list of additional keys (or a JSON array). They are preferred in listed order over the existing `BRAVE_API_KEY`, `TAVILY_API_KEY`, or `EXA_API_KEY`, which remain supported as fallbacks. Key-specific authentication, quota, rate-limit, and server failures automatically try the next key. Do not use this to circumvent provider account restrictions.
+
+On macOS, copy a new API key and use `pbpaste | webctx keys add exa --stdin` to store it directly in the OS Keychain. Use `webctx keys list` to inspect counts and `webctx keys remove exa 1` to remove the newest managed key. Secrets are never printed by these commands. On other platforms, configure the plural environment variables directly. Firecrawl is not part of federated search key rotation.
+
 If both GitHub variables are set, `GH_TOKEN` wins over `GITHUB_TOKEN`.
 
 ## macOS Keychain

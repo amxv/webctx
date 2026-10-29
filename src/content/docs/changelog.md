@@ -8,6 +8,14 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.2.10 - 2026-10-29
+
+- Added multiple API keys per federated search provider: `BRAVE_API_KEYS`, `TAVILY_API_KEYS`, and `EXA_API_KEYS` accept comma/newline-separated credentials or JSON arrays, alongside the backward-compatible singular key. Duplicates are removed; plural keys are preferred over legacy singular credentials.
+- Automatically tries the next configured key for Brave, Tavily, or Exa when the provider rejects a key with an authentication, credit/quota, rate-limit, or server error (or a transport error). Bad requests and malformed successful responses are not retried. Provider failures cannot leak key values in CLI error text.
+- Recognizes Brave's unusual HTTP 422 `SUBSCRIPTION_TOKEN_INVALID` response as a key error, without retrying unrelated 422 request-validation failures.
+- Added `webctx keys add <provider> --stdin`, `keys remove <provider> <index>`, and `keys list` for Keychain-backed managed credentials on macOS. Newest managed keys are preferred, and status reports key counts without exposing secrets. Non-macOS users can configure plural environment variables directly.
+- Kept the separately configured Firecrawl/Alexandria integration and paid execution semantics unchanged; these new key-rotation rules apply to Brave, Tavily, and Exa search only.
+
 ## 0.2.9 - 2026-10-29
 
 - Added persistent `webctx providers enable|disable <brave|tavily|exa>` controls and a `webctx status` overview of enabled search providers and locally configured credentials, without exposing API keys or making live quota checks. Disabled providers are never queried even if their keys remain installed.
