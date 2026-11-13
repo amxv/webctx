@@ -1,6 +1,6 @@
 {
   "name": "webctx",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Go CLI for agent-friendly web research, structured-data discovery, and source-native querying",
   "license": "Apache-2.0",
   "author": "amxv",

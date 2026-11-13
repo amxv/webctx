@@ -8,6 +8,12 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.3.1 - 2026-11-13
+
+- Added `WEBCTX_FIRECRAWL_PLAN` for Free, Hobby, Standard, Growth, and Scale subscriptions. Both the CLI and Origo MCP now use the selected plan's published limits for Firecrawl scrape, map, search, crawl, agent/extract, batch scrape, status, and browser-session operations.
+- Scaled local browser concurrency with plan capacity and replaced one-token-per-request Firecrawl rate files with compact, cross-process rolling-window counters that keep working at high paid-tier request rates.
+- Preserved conservative Free limits when the setting is absent or unrecognized, plus the existing per-account scheduling, explicit upstream 429 cooldowns, and paid-operation idempotency.
+
 ## 0.3.0 - 2026-10-30
 
 - Added **capacity-aware search scheduling** across Tavily, Exa, and Brave. Each configured key uses its own request budget and cooldown, coordinated across concurrent WebCTX processes on the same machine. A throttled account can fail over to another healthy account.

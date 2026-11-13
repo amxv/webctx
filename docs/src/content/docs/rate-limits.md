@@ -10,7 +10,7 @@ WebCTX is designed for multiple agents launching separate CLI processes on one c
 
 ## Default limits
 
-The scheduler uses these published free-tier request limits as defaults (October 2026). Provider plans and API policies can change; the upstream service remains authoritative.
+The scheduler uses these published free-tier request limits as defaults (November 2026). Provider plans and API policies can change; the upstream service remains authoritative.
 
 | Provider / operation | Default rate | Local quota scope |
 | --- | ---: | --- |
@@ -28,6 +28,23 @@ The scheduler uses these published free-tier request limits as defaults (October
 
 These are **request-rate controls**, not monthly credit allocations. Individual plans may also limit credits, jobs, or account usage. There are no extra locally imposed hourly or daily search request caps; do not infer that a provider has none.
 
+### Firecrawl subscription tiers
+
+Set `WEBCTX_FIRECRAWL_PLAN` on both CLI and Origo MCP hosts. The default is `free`. The following **requests per minute** and browser concurrency are the [published Firecrawl Cloud limits](https://docs.firecrawl.dev/rate-limits):
+
+| Operation | Free | Hobby | Standard | Growth | Scale |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Scrape, map, search (each) | 10 | 100 | 500 | 5,000 | 10,000 |
+| Crawl, batch scrape (shared) | 2 | 20 | 100 | 1,000 | 2,000 |
+| Agent, extract (shared) | 2 | 20 | 100 | 1,000 | 2,000 |
+| Crawl and batch scrape status | 500 | 5,000 | 25,000 | 250,000 | 500,000 |
+| Agent and extract status | 500 | 5,000 | 25,000 | 250,000 | 500,000 |
+| Browser session creation | 2 | 20 | 100 | 1,000 | 1,500 |
+| Browser execute | 10 | 100 | 500 | 5,000 | 7,500 |
+| Concurrent browsers | 2 | 5 | 25 | 50 | 100 |
+
+The configured plan applies to all Firecrawl credentials in the same process, so separate accounts on different plans need separate configurations. Unknown plans fall back to Free, including custom/Enterprise plans, which are not supported. Quotas are **per Firecrawl team**, not per key within one team; only add `FIRECRAWL_API_KEYS` for independent teams. Promotional credits do not increase allowed RPM.
+
 ## Search key scheduling
 
 Each incoming `search` requests capacity from every enabled provider in parallel. For a given provider:
@@ -42,11 +59,11 @@ Brave's `X-RateLimit-Policy` response header can lower or raise the learned one-
 
 ## Firecrawl scheduling
 
-Scrape, map, search, and crawl creation use separate rolling-minute budgets for each Firecrawl account. Where an operation uses the Browser Sandbox, it also needs an available browser slot on that account.
+Scrape, map, search, crawl, agent, and browser operations use per-plan rolling-minute budgets for each Firecrawl account. Crawl shares its budget with batch scraping; agent shares with extract. Status endpoints use their own larger budgets. Where an operation needs browser capacity, it also reserves a slot for that account.
 
 Stateless operations can choose another account with available capacity. A `429` pauses the affected **account and endpoint**, without blocking that account's other endpoints or another account. Browser sessions and crawl-job-specific operations stay on their originating account. Charged Alexandria execution stays on the selected primary account rather than moving between keys.
 
-The Firecrawl queue holds file locks only during admission. It does not hold them while waiting for the network. Browser slot locks stay held while their operations or sessions are active.
+The Firecrawl queue uses a small, fixed-size file of rolling time buckets per endpoint, rather than creating one lock file for every allowed request. This keeps file count and per-request admission work bounded even at Scale rates, while retaining recent counts if the configured plan changes. Time buckets conservatively over-throttle by at most one second. It holds file locks only during admission, not while waiting for the network. Browser slot locks stay held while operations or sessions are active.
 
 ## Cross-process scope
 
@@ -63,6 +80,7 @@ This is **not** a distributed rate limiter. Another machine, another OS user wit
 | `WEBCTX_BRAVE_QPS` | `50` | Initial Brave requests per second; an observed per-key policy can override it. |
 | `WEBCTX_SEARCH_QUEUE_WAIT_MS` | `1500` | Maximum local admission wait for a search provider; valid 0–30000. |
 | `WEBCTX_SEARCH_KEY_BALANCER_DIR` | OS user cache | Shared search key and rate-state directory. |
+| `WEBCTX_FIRECRAWL_PLAN` | `free` | Select Free, Hobby, Standard, Growth, or Scale Firecrawl limits for CLI and Origo MCP. |
 | `WEBCTX_FIRECRAWL_QUEUE_DIR` | OS user cache | Shared Firecrawl queues and browser locks. |
 
 Set custom rates only to match your actual account plan. Each key's backend quotas still apply independently. These overrides do not increase credits or provider limits.

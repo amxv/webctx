@@ -28,10 +28,13 @@ BRAVE_API_KEY=your-brave-key
 EXA_API_KEY=your-exa-key
 TAVILY_API_KEY=your-tavily-key
 FIRECRAWL_API_KEY=your-firecrawl-key
+WEBCTX_FIRECRAWL_PLAN=free
 GH_TOKEN=your-github-token
 ```
 
 webctx reads existing environment variables first, then `.env.local` files near the installed binary or current working directory, then macOS Keychain values. Existing variables are not overwritten. Keep `.env.local` out of version control.
+
+`WEBCTX_FIRECRAWL_PLAN` selects the rate-limit schedule for **all** Firecrawl accounts configured in that WebCTX process. Accepted values (case-insensitive): `free`, `hobby`, `standard`, `growth`, `scale`. Free is the default; an unrecognized name also conservatively uses Free. Use the same setting for your CLI processes and for your Origo MCP hosting environment. If your API keys belong to teams on different plans, run those accounts in separate processes with matching configurations. Promotional and student credits do not change the team plan's rate limits.
 
 Plural variables accept comma-separated keys, lines, or JSON arrays:
 

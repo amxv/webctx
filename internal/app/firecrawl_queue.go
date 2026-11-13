@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,18 +16,18 @@ import (
 // no global mutex is held while the network call runs. OS locks are released
 // automatically when a process exits, including on crashes.
 //
-// Firecrawl Free (2026): /scrape, /map and /search each allow 10 requests per
-// minute per key, /interact allows 2, and there are 2 browsers per account.
-// Distinct endpoint groups have separate sliding windows. Scrapes and maps
-// within one account share its two in-flight browser slots. Browser sessions hold
+// Request limits and browser capacity follow WEBCTX_FIRECRAWL_PLAN.
+// Distinct endpoint groups have separate bounded sliding windows. Scrapes and maps
+// within one account share its configured in-flight browser slots. Browser sessions hold
 // a slot for the lifetime of their browser session.
 type firecrawlQueue struct {
 	dir    string
 	window time.Duration
+	slots  int
 }
 
-// Tests replace this package variable inside TestMain. Production always uses
-// the Firecrawl Free plan's one-minute rolling window.
+// Tests replace this package variable inside TestMain. Production uses
+// the provider's one-minute rolling window, regardless of plan.
 var firecrawlQueueWindow = time.Minute
 
 type firecrawlPermit struct {
@@ -57,7 +57,8 @@ func getFirecrawlQueue() *firecrawlQueue {
 		}
 		dir = filepath.Join(base, "webctx", "firecrawl-queue")
 	}
-	return &firecrawlQueue{dir: dir, window: firecrawlQueueWindow}
+	_, plan := activeFirecrawlPlan()
+	return &firecrawlQueue{dir: dir, window: firecrawlQueueWindow, slots: plan.browserSlots}
 }
 
 // The user configures credentials belonging to separate Firecrawl teams.
@@ -68,6 +69,7 @@ func (q *firecrawlQueue) forKey(key string) *firecrawlQueue {
 	return &firecrawlQueue{
 		dir:    filepath.Join(q.dir, "accounts", searchKeyID(key)),
 		window: q.window,
+		slots:  q.slots,
 	}
 }
 
@@ -82,28 +84,34 @@ func (q *firecrawlQueue) setup() error {
 }
 
 func firecrawlRequestLimits(method, path string) (group string, requestsPerMinute int, browserSlot bool) {
+	_, plan := activeFirecrawlPlan()
 	switch {
 	case method == "DELETE" && strings.HasPrefix(path, "/v2/interact/"):
 		// Never throttle browser teardown: it releases scarce remote slots.
 		return "", 0, false
 	case method == "POST" && path == "/v2/scrape":
-		return "scrape", 10, true
+		return "scrape", plan.scrape, true
 	case method == "POST" && path == "/v2/map":
-		return "map", 10, true
-	case method == "POST" && path == "/v2/crawl":
-		return "crawl", 2, false
-	case method == "GET" && strings.HasPrefix(path, "/v2/crawl/"):
-		return "crawl-status", 500, false
-	case method == "DELETE" && strings.HasPrefix(path, "/v2/crawl/"):
+		return "map", plan.mapSite, true
+	case method == "POST" && (path == "/v2/crawl" || path == "/v2/batch/scrape"):
+		return "crawl", plan.crawl, false
+	case method == "GET" && (strings.HasPrefix(path, "/v2/crawl/") || strings.HasPrefix(path, "/v2/batch/scrape/")):
+		return "crawl-status", plan.crawlStatus, false
+	case method == "DELETE" && (strings.HasPrefix(path, "/v2/crawl/") || strings.HasPrefix(path, "/v2/batch/scrape/")):
 		return "", 0, false
 	case method == "POST" && path == "/v2/search":
-		return "search", 10, false
+		return "search", plan.search, false
+	case method == "POST" && (path == "/v2/agent" || path == "/v2/extract"):
+		return "agent", plan.agent, false
+	case method == "GET" && (strings.HasPrefix(path, "/v2/agent/") || strings.HasPrefix(path, "/v2/extract/")):
+		return "agent-status", plan.agentStatus, false
 	case method == "POST" && path == "/v2/interact":
-		return "interact", 2, false
+		return "interact", plan.interact, false
 	case method == "POST" && strings.HasPrefix(path, "/v2/interact/"):
-		return "interact-execute", 10, false
+		return "interact-execute", plan.interactExec, false
 	default:
-		// Unknown Firecrawl endpoints conservatively share a low allowance.
+		// Undocumented endpoints have no published per-plan limit; keep
+		// their conservative shared allowance rather than inventing one.
 		return "other", 2, false
 	}
 }
@@ -183,7 +191,11 @@ func (q *firecrawlQueue) browserSession(ctx context.Context) (*firecrawlPermit, 
 }
 
 func (q *firecrawlQueue) tryBrowserSlot() (*os.File, error) {
-	for index := 0; index < 2; index++ {
+	count := q.slots
+	if count <= 0 {
+		count = 2
+	}
+	for index := 0; index < count; index++ {
 		file, locked, err := tryOpenQueueLock(filepath.Join(q.dir, fmt.Sprintf("browser-%d.lock", index)))
 		if err != nil {
 			return nil, err
@@ -195,79 +207,111 @@ func (q *firecrawlQueue) tryBrowserSlot() (*os.File, error) {
 	return nil, nil
 }
 
-// Ten token files, one per minute allowance, enforce a strict rolling 60s
-// window across every process on the machine. A token's last-use time is
-// persistent; crashes cannot reset a burst of requests. The per-token lock is
-// held only for the few milliseconds needed to claim an available token.
+// Keep just 64 time buckets in one lock-protected state file per endpoint,
+// regardless of whether the tier permits 10 or 500,000 RPM. This is a
+// conservative rolling-window limiter (at most one bucket of over-throttling)
+// and avoids scanning/opening thousands of files for high-volume paid plans.
+// The on-disk counts survive process exit and plan changes.
+const firecrawlRateBuckets = 64
+const firecrawlRateMagic = "WFCQ0001"
+const firecrawlRateStateSize = 16 + firecrawlRateBuckets*16
+
 func (q *firecrawlQueue) reserveRateToken(group string, maxRequests int) (time.Duration, error) {
 	if groupPause, err := q.rateCooldown(group, 0); err != nil || groupPause > 0 {
 		return groupPause, err
 	}
-	now := time.Now()
+	if maxRequests <= 0 {
+		return 0, nil
+	}
+	if err := q.setup(); err != nil {
+		return 0, err
+	}
 	window := q.window
 	if window <= 0 {
 		window = time.Minute
 	}
-	var earliest time.Time
-	locked := false
-	for index := 0; index < maxRequests; index++ {
-		name := filepath.Join(q.dir, fmt.Sprintf("rate-%s-%02d.lock", group, index))
-		file, acquired, err := tryOpenQueueLock(name)
+	width := window.Nanoseconds() / 60
+	if width < 1 {
+		width = 1
+	}
+	name := filepath.Join(q.dir, "rate-"+group+".state")
+	var file *os.File
+	// A momentarily held state-file lock is not an exhausted quota. Retry
+	// briefly before returning a wait hint to callers selecting other keys.
+	for attempt := 0; attempt < 100; attempt++ {
+		var acquired bool
+		var err error
+		file, acquired, err = tryOpenQueueLock(name)
 		if err != nil {
 			return 0, err
 		}
-		if !acquired {
-			locked = true
-			continue
+		if acquired {
+			break
 		}
-		stamp, err := io.ReadAll(io.LimitReader(file, 48))
-		if err != nil {
-			unlockQueueFile(file)
-			_ = file.Close()
-			return 0, err
+		if attempt == 99 {
+			return 20 * time.Millisecond, nil
 		}
-		last := time.Time{}
-		if len(stamp) > 0 {
-			ms, err := strconv.ParseInt(strings.TrimSpace(string(stamp)), 10, 64)
-			if err != nil {
-				unlockQueueFile(file)
-				_ = file.Close()
-				return 0, fmt.Errorf("corrupt Firecrawl queue token %s: %w", name, err)
-			}
-			last = time.UnixMilli(ms)
-		}
-		next := last.Add(window)
-		if now.Before(next) {
-			if earliest.IsZero() || next.Before(earliest) {
-				earliest = next
-			}
-			unlockQueueFile(file)
-			_ = file.Close()
-			continue
-		}
-		if err := file.Truncate(0); err == nil {
-			_, err = file.WriteAt([]byte(strconv.FormatInt(now.UnixMilli(), 10)), 0)
-		}
-		if err == nil {
-			err = file.Sync()
-		}
-		unlockQueueFile(file)
-		_ = file.Close()
+		time.Sleep(time.Millisecond)
+	}
+	defer func() { unlockQueueFile(file); _ = file.Close() }()
+	var data [firecrawlRateStateSize]byte
+	stat, err := file.Stat()
+	if err != nil {
 		return 0, err
 	}
-	if locked {
-		// A locked token might become available as soon as another caller
-		// finishes claiming it. Check again instead of sleeping a full minute.
-		return 30 * time.Millisecond, nil
+	if stat.Size() != 0 {
+		if stat.Size() != int64(len(data)) {
+			return 0, fmt.Errorf("invalid Firecrawl rate state size for %s", group)
+		}
+		if _, err := file.ReadAt(data[:], 0); err != nil {
+			return 0, err
+		}
+		if string(data[:8]) != firecrawlRateMagic || int64(binary.LittleEndian.Uint64(data[8:16])) != width {
+			return 0, fmt.Errorf("incompatible Firecrawl rate state for %s", group)
+		}
+	} else {
+		copy(data[:8], firecrawlRateMagic)
+		binary.LittleEndian.PutUint64(data[8:16], uint64(width))
 	}
-	if earliest.IsZero() {
-		return 100 * time.Millisecond, nil
+	now := time.Now()
+	tick := now.UnixNano() / width
+	oldest := now.Add(-window).UnixNano() / width
+	var total uint64
+	var earliest int64
+	for i := 0; i < firecrawlRateBuckets; i++ {
+		offset := 16 + i*16
+		epoch := int64(binary.LittleEndian.Uint64(data[offset : offset+8]))
+		if epoch < oldest || epoch > tick {
+			continue
+		}
+		count := binary.LittleEndian.Uint64(data[offset+8 : offset+16])
+		total += count
+		if count > 0 && (earliest == 0 || epoch < earliest) {
+			earliest = epoch
+		}
 	}
-	delay := time.Until(earliest) + 10*time.Millisecond
-	if delay < 10*time.Millisecond {
-		return 10 * time.Millisecond, nil
+	if total >= uint64(maxRequests) {
+		// A bucket may contain requests just before the window boundary.
+		// Only release the bucket after its entire interval expires.
+		next := time.Unix(0, (earliest+1)*width+window.Nanoseconds())
+		wait := time.Until(next) + time.Millisecond
+		if wait < time.Millisecond {
+			wait = time.Millisecond
+		}
+		return wait, nil
 	}
-	return delay, nil
+	offset := 16 + int(tick%firecrawlRateBuckets)*16
+	previous := int64(binary.LittleEndian.Uint64(data[offset : offset+8]))
+	count := uint64(0)
+	if previous == tick {
+		count = binary.LittleEndian.Uint64(data[offset+8 : offset+16])
+	}
+	binary.LittleEndian.PutUint64(data[offset:offset+8], uint64(tick))
+	binary.LittleEndian.PutUint64(data[offset+8:offset+16], count+1)
+	if _, err := file.WriteAt(data[:], 0); err != nil {
+		return 0, err
+	}
+	return 0, file.Sync()
 }
 
 func tryOpenQueueLock(path string) (*os.File, bool, error) {

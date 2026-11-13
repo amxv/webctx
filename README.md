@@ -57,6 +57,8 @@ GitHub URLs are especially useful: `read-link` understands repository trees, fil
 
 Set keys as environment variables, in `.env.local`, or in macOS Keychain. **All four providers support multiple API keys from separate accounts**, including `FIRECRAWL_API_KEYS`. WebCTX's **capacity-aware round-robin load balancer** automatically routes requests to keys with available quota, maximizing throughput even when many agents share the same machine and free-tier rate limits.
 
+Set `WEBCTX_FIRECRAWL_PLAN` to `free` (default), `hobby`, `standard`, `growth`, or `scale` to match your actual Firecrawl subscription. This changes the shared per-minute and browser-concurrency limiter used by both the CLI and Origo MCP; it does **not** upgrade your Firecrawl account or credits.
+
 See [Credentials](https://webctx.ashray.xyz/docs/credentials) for setup and [Rate limits and concurrency](https://webctx.ashray.xyz/docs/rate-limits) for the technical details.
 
 ## Use it through MCP

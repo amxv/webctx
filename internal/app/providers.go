@@ -155,6 +155,9 @@ func printProviderStatus(out io.Writer) error {
 		_, _ = fmt.Fprintf(out, "  %-7s %-9s %s\n", p.name, state, key)
 	}
 	_, _ = fmt.Fprintln(out, "\nFirecrawl (page reading, site maps, and Alexandria; separate from search):")
+	planName, plan := activeFirecrawlPlan()
+	_, _ = fmt.Fprintf(out, "  plan: %s (scrape/map/search %d RPM; %d concurrent browsers)\n",
+		planName, plan.scrape, plan.browserSlots)
 	if count := len(firecrawlKeys()); count > 0 {
 		if count == 1 {
 			_, _ = fmt.Fprintln(out, "  key configured")
