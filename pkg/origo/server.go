@@ -27,7 +27,14 @@ type readLinkInput struct {
 }
 
 func makeServer() *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "origo", Version: "0.1.0"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "origo", Version: "0.1.0"}, &mcp.ServerOptions{
+		Capabilities: &mcp.ServerCapabilities{
+			// The tool list is fixed. Advertising list changes opens long-lived
+			// subscription requests on the serverless function.
+			Tools:   &mcp.ToolCapabilities{},
+			Logging: &mcp.LoggingCapabilities{},
+		},
+	})
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read_link",
 		Title:       "Read link",

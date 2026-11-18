@@ -1,11 +1,13 @@
 package origo
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func request(t *testing.T, key, body string) *httptest.ResponseRecorder {
@@ -131,5 +133,54 @@ func TestQuestionIsOptionalOnReadLinkOnly(t *testing.T) {
 	text := response.Body.String()
 	if !strings.Contains(text, `"question"`) || !strings.Contains(text, `"required":["url"]`) {
 		t.Fatalf("question should be optional; URL remains required: %s", text)
+	}
+}
+
+func TestStaticToolsDoNotKeepSubscriptionsOpen(t *testing.T) {
+	t.Setenv("ORIGO_API_KEY", "secret")
+	const meta = `"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}`
+	post := func(method, params string) *httptest.ResponseRecorder {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/mcp?key=secret",
+			strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"`+method+`","params":`+params+`}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Mcp-Protocol-Version", "2026-07-28")
+		req.Header.Set("Mcp-Method", method)
+		response := httptest.NewRecorder()
+		Handler().ServeHTTP(response, req)
+		if ctx.Err() != nil {
+			t.Fatalf("%s did not finish before cancellation: %s", method, response.Body.String())
+		}
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s failed: %d %s", method, response.Code, response.Body.String())
+		}
+		return response
+	}
+	discover := post("server/discover", `{"_meta":{`+meta+`}}`)
+	var info struct {
+		Result struct {
+			Capabilities struct {
+				Tools   *struct{ ListChanged bool }
+				Logging *struct{}
+			}
+		}
+	}
+	if err := json.Unmarshal(discover.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	caps := info.Result.Capabilities
+	if caps.Tools == nil || caps.Tools.ListChanged || caps.Logging == nil {
+		t.Fatalf("expected static tools and preserved logging: %s", discover.Body.String())
+	}
+	listen := post("subscriptions/listen", `{"_meta":{`+meta+`},"notifications":{"toolsListChanged":true}}`)
+	body := listen.Body.String()
+	if listen.Header().Get("Content-Type") != "text/event-stream" ||
+		!strings.Contains(body, `"method":"notifications/subscriptions/acknowledged"`) ||
+		!strings.Contains(body, `"notifications":{}`) ||
+		!strings.Contains(body, `"resultType":"complete"`) {
+		t.Fatalf("expected empty acknowledgement and completed SSE response, got %s", body)
 	}
 }
