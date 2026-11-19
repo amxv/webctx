@@ -16,6 +16,18 @@ webctx tries a direct source or clean Markdown version first. When it needs to e
 
 For sites that require extraction, configure a [Firecrawl key](/docs/credentials).
 
+## Slow pages
+
+`read-link` returns within about 30 seconds, so agents can run it in an ordinary blocking shell tool. Most pages finish in a few seconds. If Firecrawl cannot finish in time, webctx stops the scrape through Firecrawl's own timeout (Firecrawl does not bill those attempts), prints a notice on stderr, and exits with code `75`. Nothing keeps running in the background, so there is nothing to cancel.
+
+To retry with a longer budget of up to 4 minutes, run the same command with `--wait`. Run it as a long-running or background command:
+
+```bash
+webctx read-link https://docs.example.com/slow-page --wait
+```
+
+`--wait` also runs the slower fallbacks (enhanced proxy and browser extraction) that do not fit in the quick budget. Or skip the page and use other sources.
+
 ## Ask a question about a page
 
 ```bash

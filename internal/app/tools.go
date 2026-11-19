@@ -215,6 +215,12 @@ func ReadLink(rawURL string) (string, error) {
 // Search enrichment only needs page evidence. Keep Alexandria domain matching
 // on dedicated read-link calls, but avoid it on automatic search-page reads.
 func readLinkWithDomainTools(rawURL string, domainTools bool) (string, error) {
+	return readLinkWithin(rawURL, domainTools, nil)
+}
+
+// readLinkWithin bounds Firecrawl work by budget. A nil budget keeps the legacy
+// timing used by Origo and other library callers.
+func readLinkWithin(rawURL string, domainTools bool, budget *readBudget) (string, error) {
 	if err := validateSourceURL(rawURL); err != nil {
 		return "", err
 	}
@@ -224,7 +230,7 @@ func readLinkWithDomainTools(rawURL string, domainTools bool) (string, error) {
 		return native.Markdown, nil
 	case GitHubNativeFailure:
 		if shouldBestEffortCrawlGitHubPackage(rawURL, native.Err) {
-			title, markdown, crawlErr := scrapeLinkWithFirecrawlOptions(rawURL, domainTools)
+			title, markdown, crawlErr := scrapeLinkWithFirecrawlWithin(rawURL, domainTools, budget)
 			if crawlErr == nil && usefulGitHubPackageCrawl(title, markdown) {
 				notice := "> **Best-effort GitHub Package page crawl:** GitHub's structured Package API was unavailable for the current credential, so webctx crawled the public GitHub page with Firecrawl instead. This output may be incomplete or contain GitHub UI noise."
 				return formatReadLink(title, rawURL, notice+"\n\n"+markdown), nil
@@ -248,7 +254,7 @@ func readLinkWithDomainTools(rawURL string, domainTools bool) (string, error) {
 	}
 	traceRetrieval(rawURL, "native-markdown", "miss", nativeStarted, nil)
 
-	title, markdown, err := scrapeLinkWithFirecrawlOptions(rawURL, domainTools)
+	title, markdown, err := scrapeLinkWithFirecrawlWithin(rawURL, domainTools, budget)
 	if err != nil {
 		return "", err
 	}
@@ -284,6 +290,13 @@ func scrapeLinkWithFirecrawl(rawURL string) (string, string, error) {
 }
 
 func scrapeLinkWithFirecrawlOptions(rawURL string, domainTools bool) (string, string, error) {
+	return scrapeLinkWithFirecrawlWithin(rawURL, domainTools, nil)
+}
+
+// scrapeLinkWithFirecrawlWithin runs the auto, enhanced, and browser ladder. In
+// quick CLI mode, a timed-out attempt or a fallback that cannot fit the budget
+// returns *readLinkPendingError so the agent can retry with --wait.
+func scrapeLinkWithFirecrawlWithin(rawURL string, domainTools bool, budget *readBudget) (string, string, error) {
 	apiKey := firecrawlDefaultKey()
 	if apiKey == "" {
 		return "", "", missingCredentialsError("Error reading web page", []string{"FIRECRAWL_API_KEY"}, "for non-.md URLs")
@@ -292,28 +305,38 @@ func scrapeLinkWithFirecrawlOptions(rawURL string, domainTools bool) (string, st
 	// transport fails. A second explicit enhanced attempt is only useful when a
 	// scrape responds successfully but returns a challenge/empty document.
 	started := time.Now()
-	first, err := firecrawlScrape(rawURL, apiKey, "", domainTools)
+	first, err := budget.firecrawlScrape(rawURL, apiKey, "", domainTools)
 	if err == nil && usableScrapedMarkdown(first.Markdown) {
 		traceRetrieval(rawURL, "firecrawl-auto", "success", started, nil)
 		return first.Title, withSourceTools(first.Markdown, first.ToolSummary), nil
 	}
 	lastError := err
 	traceRetrieval(rawURL, "firecrawl-auto", "escalate", started, err)
+	if pending := budget.pending(err); pending != nil {
+		return "", "", pending
+	}
 	if err == nil {
 		lastError = fmt.Errorf("Firecrawl returned empty or blocked page content: %s", challengeReason(first.Markdown))
 		started = time.Now()
-		second, enhancedErr := firecrawlScrape(rawURL, apiKey, "enhanced", domainTools)
+		second, enhancedErr := budget.firecrawlScrape(rawURL, apiKey, "enhanced", domainTools)
 		if enhancedErr == nil && usableScrapedMarkdown(second.Markdown) {
 			traceRetrieval(rawURL, "firecrawl-enhanced", "success", started, nil)
 			return second.Title, withSourceTools(second.Markdown, second.ToolSummary), nil
 		}
 		traceRetrieval(rawURL, "firecrawl-enhanced", "escalate", started, enhancedErr)
+		if pending := budget.pending(enhancedErr); pending != nil {
+			return "", "", pending
+		}
 		if enhancedErr != nil {
 			lastError = enhancedErr
 		}
 	}
 	started = time.Now()
-	title, markdown, browserErr := firecrawlBrowserFallback(rawURL, apiKey)
+	title, markdown, browserErr := budget.browserFallback(rawURL, apiKey, lastError)
+	var pending *readLinkPendingError
+	if errors.As(browserErr, &pending) {
+		return "", "", pending
+	}
 	if browserErr == nil && usableScrapedMarkdown(markdown) {
 		traceRetrieval(rawURL, "browser", "success", started, nil)
 		return title, markdown, nil
@@ -758,6 +781,9 @@ func executeRawRequest(req *http.Request, preselected *firecrawlPermit) ([]byte,
 		if group == "map" {
 			networkTimeout = 60 * time.Second
 		}
+		if override, ok := req.Context().Value(firecrawlNetworkTimeoutKey{}).(time.Duration); ok && override > 0 {
+			networkTimeout = override
+		}
 		networkCtx, cancel := context.WithTimeout(req.Context(), networkTimeout)
 		defer cancel()
 		req = req.WithContext(networkCtx)
@@ -792,6 +818,14 @@ func executeRawRequest(req *http.Request, preselected *firecrawlPermit) ([]byte,
 		return nil, &httpStatusError{Code: resp.StatusCode, RetryAfter: retryAfter, Message: "API request failed: " + resp.Status}
 	}
 	return respBody, nil
+}
+
+type firecrawlNetworkTimeoutKey struct{}
+
+// withFirecrawlNetworkTimeout replaces the default post-admission network
+// timeout for requests that pass Firecrawl an explicit, longer timeout.
+func withFirecrawlNetworkTimeout(ctx context.Context, timeout time.Duration) context.Context {
+	return context.WithValue(ctx, firecrawlNetworkTimeoutKey{}, timeout)
 }
 
 type httpStatusError struct {

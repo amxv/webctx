@@ -22,6 +22,17 @@ func usableScrapedMarkdown(markdown string) bool {
 }
 
 func firecrawlScrape(rawURL, apiKey, proxy string, domainTools bool) (scrapedPage, error) {
+	// Waiting for a shared 10-RPM permit can legitimately take a full minute.
+	// HTTP transport still has a separate 32s timeout after admission.
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	return firecrawlScrapeContext(ctx, rawURL, apiKey, proxy, domainTools, 0)
+}
+
+// firecrawlScrapeContext sends one scrape. A positive serverTimeout is passed to
+// Firecrawl as its own timeout, and the client then waits until ctx's deadline
+// instead of the default 32s network timeout.
+func firecrawlScrapeContext(ctx context.Context, rawURL, apiKey, proxy string, domainTools bool, serverTimeout time.Duration) (scrapedPage, error) {
 	requestBody := map[string]any{
 		"url":                rawURL,
 		"formats":            []string{"markdown"},
@@ -40,10 +51,12 @@ func firecrawlScrape(rawURL, apiKey, proxy string, domainTools bool) (scrapedPag
 	if strings.HasSuffix(strings.ToLower(rawURL), ".pdf") {
 		requestBody["parsers"] = []string{"pdf"}
 	}
-	// Waiting for a shared 10-RPM permit can legitimately take a full minute.
-	// HTTP transport still has a separate 32s timeout after admission.
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
-	defer cancel()
+	if serverTimeout > 0 {
+		requestBody["timeout"] = serverTimeout.Milliseconds()
+		if deadline, ok := ctx.Deadline(); ok {
+			ctx = withFirecrawlNetworkTimeout(ctx, time.Until(deadline))
+		}
+	}
 	body, err := doJSONRequest(ctx, http.MethodPost, "https://api.firecrawl.dev/v2/scrape", map[string]string{
 		"Authorization": "Bearer " + apiKey,
 		"Content-Type":  "application/json",
@@ -134,10 +147,14 @@ func quoteShellURL(rawURL string) string {
 }
 
 func firecrawlBrowserFallback(rawURL, apiKey string) (string, string, error) {
-	// Prefer an account with an available browser session; all independent CLI
-	// processes share the same two-slot pool for each configured account.
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
+	return firecrawlBrowserFallbackContext(ctx, rawURL, apiKey)
+}
+
+func firecrawlBrowserFallbackContext(ctx context.Context, rawURL, apiKey string) (string, string, error) {
+	// Prefer an account with an available browser session; all independent CLI
+	// processes share the same two-slot pool for each configured account.
 	selectedKey, session, sessionPermit, err := startFirecrawlBrowser(ctx)
 	if err != nil {
 		return "", "", err

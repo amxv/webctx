@@ -36,6 +36,10 @@ FIRECRAWL_API_KEY=your-key
 
 Check the key, account quota, and whether the site blocks extraction. Some documentation pages work through direct Markdown without Firecrawl; not every website does.
 
+## `read-link` says the page was not ready
+
+`read-link` returns within about 30 seconds. When Firecrawl needs longer, webctx exits with code `75` and prints the exact retry command. Run that `--wait` command as a long-running or background command; it allows up to 4 minutes and the slower enhanced-proxy and browser fallbacks. Nothing is left running after the quick attempt, so there is nothing to cancel.
+
 ## `map-site` fails
 
 Mapping needs a Firecrawl key (`FIRECRAWL_API_KEY` or `FIRECRAWL_API_KEYS`). Check the site URL, Firecrawl account limits, and whether the target can be mapped. Site discovery may be incomplete if the provider reaches its URL ceiling.

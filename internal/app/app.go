@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -117,10 +118,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "read-link":
 		if strings.TrimSpace(input) == "" {
 			_, _ = fmt.Fprintln(stderr, "Error: read-link requires a URL")
-			_, _ = fmt.Fprintln(stdout, "Usage: webctx read-link <url> [--question 'what to find']")
+			_, _ = fmt.Fprintln(stdout, "Usage: webctx read-link <url> [--question 'what to find'] [--wait]")
 			return 1
 		}
-		text, err := ReadLinkFocused(input, flags["question"])
+		wait := flags["wait"] == "true" || flags["wait"] == "1"
+		text, err := runReadLinkCLI(input, flags["question"], wait)
+		var pending *readLinkPendingError
+		if errors.As(err, &pending) {
+			_, _ = fmt.Fprintln(stderr, formatReadLinkPending(input, flags["question"], pending))
+			return readLinkPendingExitCode
+		}
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, err.Error())
 			return 1
@@ -265,7 +272,7 @@ Usage:
   webctx keys list
   webctx keys add <brave|tavily|exa> --stdin
   webctx keys remove <brave|tavily|exa> <managed-key-index>
-  webctx read-link <url> [--question 'what to find']
+  webctx read-link <url> [--question 'what to find'] [--wait]
   webctx map-site <url> [--query topic] [--limit 30] [--offset 0] [--path-prefix /api] [--language en|all]
   webctx research [question] [--view sources|groups|operations] [--sources IDs] [--include inputs,output,examples] [--limit N] [--offset N]
   webctx inspect <operation-or-source-id> [--raw]
@@ -285,6 +292,7 @@ Examples:
   webctx execute particle/podcasts/episodes/search --inputs '{"semantic_search":"AI agents","limit":2}'
   webctx read-link https://docs.example.com/guide
   webctx read-link https://docs.example.com/api --question "How do auth and pagination work?"
+  webctx read-link https://slow.example.com/page --wait   # long-running retry, up to 4 minutes
   webctx map-site https://example.com`, version)
 }
 
@@ -292,8 +300,8 @@ func parseArgs(args []string) (map[string]string, []string) {
 	flags := map[string]string{}
 	positional := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--raw" {
-			flags["raw"] = "true"
+		if args[i] == "--raw" || args[i] == "--wait" {
+			flags[strings.TrimPrefix(args[i], "--")] = "true"
 			continue
 		}
 		if strings.HasPrefix(args[i], "--") {
