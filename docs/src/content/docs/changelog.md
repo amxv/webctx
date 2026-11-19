@@ -8,6 +8,13 @@ summary: Version-by-version changes for the webctx CLI.
 
 This changelog tracks code and product changes in webctx. It intentionally skips docs-site-only updates.
 
+## 0.3.2 - 2026-11-19
+
+- `read-link` now returns within about 30 seconds instead of blocking agents for minutes on slow Firecrawl scrapes. The quick attempt passes Firecrawl an explicit timeout, so a timed-out scrape stops on Firecrawl's side and is not billed.
+- Added `read-link --wait` for slow pages. It allows up to 4 minutes, including the enhanced-proxy and browser-extraction fallbacks, and is meant to run as a long-running or background command.
+- When a page is not ready in time, `read-link` exits with code `75` and prints the exact `--wait` command to retry, with the option to skip the page instead.
+- Fixed `read-link` abandoning slow scrapes after 32 seconds even though Firecrawl was still working, which also caused the browser fallback to time out. Origo MCP timing is unchanged.
+
 ## 0.3.1 - 2026-11-13
 
 - Added `WEBCTX_FIRECRAWL_PLAN` for Free, Hobby, Standard, Growth, and Scale subscriptions. Both the CLI and Origo MCP now use the selected plan's published limits for Firecrawl scrape, map, search, crawl, agent/extract, batch scrape, status, and browser-session operations.
